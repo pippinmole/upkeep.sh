@@ -32,6 +32,10 @@ type InventoryResult struct {
 	// NewSoftwareIDs are software_versions rows first interned by this
 	// push: the P1b matcher's "evaluate this version" trigger (§2.6).
 	NewSoftwareIDs []int64
+	// ResetSoftwareIDs are existing rows whose inferred source was replaced
+	// by a real one on this push (matcher bookkeeping reset): also to be
+	// (re-)evaluated.
+	ResetSoftwareIDs []int64
 }
 
 // applyInventory reconciles host_software with one authoritative set.
@@ -81,11 +85,11 @@ func applyInventory(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, a
 	}
 
 	res.Outcome = InventoryDiffed
-	reported, newIDs, err := internVersions(ctx, tx, set)
+	reported, newIDs, resetIDs, err := internVersions(ctx, tx, set)
 	if err != nil {
 		return res, err
 	}
-	res.NewSoftwareIDs = newIDs
+	res.NewSoftwareIDs, res.ResetSoftwareIDs = newIDs, resetIDs
 
 	rows, err := tx.Query(ctx, `
 		SELECT hs.software_id
@@ -136,19 +140,19 @@ func applyInventory(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, a
 }
 
 // internVersions upserts every item of set into software_versions in one
-// statement and returns the ids of all of them (in no particular order)
-// plus the ids that were newly inserted. Two round trips regardless of set
-// size.
+// statement and returns the ids of all of them (in no particular order),
+// the ids that were newly inserted, and the ids whose inferred source was
+// replaced. Two round trips regardless of set size.
 //
 // Source is an attribute, not part of the key: a binary (name, version,
 // arch) in one distro release has one source in the archive. The only
 // update ever made to an existing row is replacing an inferred source
 // (from an older agent or the backfill) with a real one; that resets the
 // matcher bookkeeping so the version is re-evaluated under its real source.
-func internVersions(ctx context.Context, tx pgx.Tx, set inventory.Set) (all, inserted []int64, err error) {
+func internVersions(ctx context.Context, tx pgx.Tx, set inventory.Set) (all, inserted, reset []int64, err error) {
 	n := len(set.Items)
 	if n == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	names := make([]string, n)
 	versions := make([]string, n)
@@ -181,21 +185,23 @@ func internVersions(ctx context.Context, tx pgx.Tx, set inventory.Set) (all, ins
 		RETURNING id, (xmax = 0) AS inserted
 	`, set.Ecosystem, set.Distro, set.Release, names, versions, arches, sources, sourceVersions, inferred)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for rows.Next() {
 		var id int64
 		var isNew bool
 		if err := rows.Scan(&id, &isNew); err != nil {
 			rows.Close()
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if isNew {
 			inserted = append(inserted, id)
+		} else {
+			reset = append(reset, id) // only rows the DO UPDATE's WHERE let through are returned
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	rows, err = tx.Query(ctx, `
@@ -206,14 +212,14 @@ func internVersions(ctx context.Context, tx pgx.Tx, set inventory.Set) (all, ins
 		 AND sv.name = t.name AND sv.version = t.version AND sv.arch = t.arch
 	`, set.Ecosystem, set.Distro, set.Release, names, versions, arches)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	all, err = pgx.CollectRows(rows, pgx.RowTo[int64])
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(all) != n {
-		return nil, nil, errors.New("intern: resolved id count does not match set size")
+		return nil, nil, nil, errors.New("intern: resolved id count does not match set size")
 	}
-	return all, inserted, nil
+	return all, inserted, reset, nil
 }

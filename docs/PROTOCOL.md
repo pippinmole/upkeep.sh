@@ -49,9 +49,11 @@ Content-Type: application/json
     "hostname": "web-1",
     "identity": { "machine_id": "0123456789abcdef0123456789abcdef" }
   },
-  "os": { "id": "ubuntu", "version_id": "22.04", "codename": "jammy" },
+  "os": { "id": "ubuntu", "version_id": "22.04", "codename": "jammy",
+          "kernel": "6.8.0-45-generic" },
   "collectors": {
     "os":              { "status": "ok" },
+    "kernel":          { "status": "ok" },
     "host_identity":   { "status": "ok" },
     "deb_packages":    { "status": "ok" },
     "tcp_listeners":   { "status": "ok" },
@@ -112,7 +114,8 @@ Collector names and the sections they own:
 
 | Collector | Owns | Applies to |
 |---|---|---|
-| `os` | `os`, `host.os_family` | always |
+| `os` | `os` (except `os.kernel`), `host.os_family` | always |
+| `kernel` | `os.kernel` | Linux with live procfs (local target) |
 | `host_identity` | `host.hostname`, `host.identity` | Linux |
 | `deb_packages` | `packages` entries with `ecosystem: "deb"` | Debian-like Linux (`ID` or `ID_LIKE` contains `debian`/`ubuntu`) |
 | `tcp_listeners` | `listening_sockets` | Linux with live procfs (local target) |
@@ -151,6 +154,25 @@ How the server applies this (`planInventory` in
 
 A collector failure no longer aborts the push. Before the collectors
 block existed, a dpkg error meant no snapshot at all.
+
+### `os.kernel`
+
+The running kernel release, exactly what `uname -r` prints
+(`"6.8.0-45-generic"`, `"6.1.0-18-amd64"`), read from
+`/proc/sys/kernel/osrelease` of the target's live procfs (a file read;
+the agent never executes `uname`). The kernel release is global to the
+kernel, not namespaced, so the agent container's own `/proc` gives the
+host's value; `/host/proc` is not used. Omitted when the `kernel`
+collector is not `ok`; added within `schema_version` 1, so older agents
+omit it too.
+
+The server stores it as `snapshots.kernel_release` and uses the newest
+snapshot's value as the host's running kernel: kernel CVE findings are
+raised only for installed kernel packages belonging to that release
+(DOMAIN_MODEL.md Q7). It is trusted only when `collectors.kernel` is `ok`
+(or, for payloads without `collectors`, when present at all). When it is
+unknown, every installed kernel raises findings, flagged
+`running_kernel_unknown`.
 
 ### `packages`
 
@@ -196,7 +218,11 @@ The server keeps **every** historical snapshot (not an upsert) so drift
 and findings history stay auditable — see `store.InsertSnapshot`. Package
 inventory is additionally folded into validity ranges (`host_software`)
 in the same transaction; `snapshots.schema_version` stores the payload's
-value.
+value. Vulnerability matching never runs in the request: when the push
+interned new package versions, changed the inventory, or changed the
+running kernel, ingest enqueues `match_versions` / `reconcile_host` jobs
+in the same transaction (River `InsertTx`), and the worker process runs
+them (ARCHITECTURE.md "Vulnerability pipeline").
 
 `clientIP()` in `server/internal/ingest/handler.go` prefers
 `X-Forwarded-For` because production sits behind Dokploy/Coolify's

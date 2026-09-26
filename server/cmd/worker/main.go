@@ -1,10 +1,18 @@
 // Command worker runs upkeep.sh background jobs on River: the OSV
 // Debian/Ubuntu advisory sync (hourly incremental, weekly full), the CISA
-// KEV and FIRST EPSS syncs (daily), and the matcher trigger.
+// KEV and FIRST EPSS syncs (daily), the vulnerability matcher and findings
+// reconciliation (see internal/jobs/matching.go).
 //
 //	worker                         run the River client until SIGINT/SIGTERM
 //	worker sync osv Debian [-full] run one sync in the foreground and exit
 //	worker sync kev | epss
+//	worker match                   sweep stale versions + drain advisory_changes, then exit
+//	worker reconcile [host-id...]  reconcile findings (all hosts by default), then exit
+//	worker rerank                  recompute severity of every open finding, then exit
+//
+// The one-shot commands run the same code as the jobs, in the foreground;
+// they are for operators and debugging (the scheduled jobs do all of this
+// on their own).
 //
 // It is a separate process from cmd/api (same image, different
 // entrypoint) so multi-minute, memory- and CPU-heavy feed imports never
@@ -106,14 +114,24 @@ func main() {
 		Cfg:   fcfg,
 	}
 
-	if len(os.Args) > 1 && os.Args[1] == "sync" {
-		if err := runOnce(ctx, syncer, os.Args[2:]); err != nil {
+	if len(os.Args) > 1 {
+		var err error
+		switch os.Args[1] {
+		case "sync":
+			err = runOnce(ctx, syncer, os.Args[2:])
+		case "match":
+			err = runMatch(ctx, db)
+		case "reconcile":
+			err = runReconcile(ctx, db, os.Args[2:])
+		case "rerank":
+			err = runRerank(ctx, db)
+		default:
+			log.Fatalf("unknown command %q (want no arguments, `sync`, `match`, `reconcile` or `rerank`)", os.Args[1])
+		}
+		if err != nil {
 			log.Fatal(err)
 		}
 		return
-	}
-	if len(os.Args) > 1 {
-		log.Fatalf("unknown command %q (want no arguments, or `sync`)", os.Args[1])
 	}
 
 	jcfg := jobs.Config{
@@ -122,6 +140,8 @@ func main() {
 		OSVInterval:      envDuration("SW_OSV_SYNC_INTERVAL", time.Hour),
 		CVEFeedsInterval: envDuration("SW_CVE_FEEDS_SYNC_INTERVAL", 24*time.Hour),
 		FeedWorkers:      envInt("SW_FEED_JOB_WORKERS", 1),
+		FindingsWorkers:  envInt("SW_FINDINGS_JOB_WORKERS", 4),
+		MatcherInterval:  envDuration("SW_MATCHER_INTERVAL", 5*time.Minute),
 	}
 	client, err := jobs.NewClient(db.Pool, db, syncer, jcfg)
 	if err != nil {
@@ -172,4 +192,64 @@ func runOnce(ctx context.Context, s *feeds.Syncer, args []string) error {
 	b, _ := json.MarshalIndent(stats, "", "  ")
 	fmt.Println(string(b))
 	return err
+}
+
+// runMatch runs matcher_sweep then advisory_rematch synchronously and
+// reconciles the hosts whose matches changed.
+func runMatch(ctx context.Context, db *store.Store) error {
+	sw, err := db.SweepStaleVersions(ctx)
+	if err != nil {
+		return err
+	}
+	log.Printf("sweep: %d versions evaluated in %.2fs, %d changed, %d matches", sw.Evaluated, sw.Seconds, len(sw.Changed), sw.Matches)
+	dr, err := db.DrainAdvisoryChanges(ctx, store.DrainOptions{})
+	if err != nil {
+		return err
+	}
+	log.Printf("drain: %d keys in %.2fs (%d with versions, %d kept), %d versions evaluated, %d changed",
+		dr.Keys, dr.Seconds, dr.KeysWithSW, dr.Kept, dr.Evaluated, len(dr.Changed))
+	hosts, err := db.HostsWithSoftware(ctx, append(sw.Changed, dr.Changed...))
+	if err != nil {
+		return err
+	}
+	return runReconcile(ctx, db, hosts)
+}
+
+// runReconcile reconciles the given hosts, or every host when none given.
+func runReconcile(ctx context.Context, db *store.Store, hosts []string) error {
+	if len(hosts) == 0 && len(os.Args) > 1 && os.Args[1] == "reconcile" {
+		rows, err := db.Pool.Query(ctx, `SELECT id::text FROM hosts ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			hosts = append(hosts, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	for _, h := range hosts {
+		start := time.Now()
+		r, err := db.ReconcileHostFindings(ctx, h)
+		if err != nil {
+			return fmt.Errorf("host %s: %w", h, err)
+		}
+		log.Printf("reconcile %s in %.2fs: %d opened, %d reopened, %d resolved, %d unchanged (kernel %q)",
+			h, time.Since(start).Seconds(), r.Opened, r.Reopened, r.Resolved, r.Kept, r.RunningKernel)
+	}
+	return nil
+}
+
+func runRerank(ctx context.Context, db *store.Store) error {
+	r, err := db.RerankFindings(ctx, time.Time{})
+	if err != nil {
+		return err
+	}
+	log.Printf("rerank: %d open findings checked, %d updated", r.Checked, r.Updated)
+	return nil
 }

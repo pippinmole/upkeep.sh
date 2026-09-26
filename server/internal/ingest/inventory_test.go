@@ -176,3 +176,32 @@ func TestBuildSnapshotInput(t *testing.T) {
 		t.Fatalf("absent collectors must be stored as NULL, got %s", in.CollectorStatus)
 	}
 }
+
+func TestKernelRelease(t *testing.T) {
+	ok := map[string]CollectorStatus{CollectorKernel: {Status: CollectorStatusOK}}
+	failed := map[string]CollectorStatus{CollectorKernel: {Status: "error", Error: "boom"}}
+	tests := []struct {
+		name string
+		p    SnapshotPayload
+		want string
+	}{
+		{"collector ok", SnapshotPayload{OS: OSRelease{Kernel: "6.8.0-45-generic"}, Collectors: ok}, "6.8.0-45-generic"},
+		{"trimmed", SnapshotPayload{OS: OSRelease{Kernel: " 6.8.0-45-generic\n"}, Collectors: ok}, "6.8.0-45-generic"},
+		{"collector failed", SnapshotPayload{OS: OSRelease{Kernel: "6.8.0-45-generic"}, Collectors: failed}, ""},
+		{"collector missing from map (older agent with collectors)", SnapshotPayload{OS: OSRelease{Kernel: "6.8.0-45-generic"},
+			Collectors: map[string]CollectorStatus{}}, ""},
+		{"legacy payload without collectors", SnapshotPayload{OS: OSRelease{Kernel: "5.15.0-91-generic"}}, "5.15.0-91-generic"},
+		{"absent", SnapshotPayload{Collectors: ok}, ""},
+		{"garbage", SnapshotPayload{OS: OSRelease{Kernel: "a b"}, Collectors: ok}, ""},
+	}
+	for _, tt := range tests {
+		if got := kernelRelease(tt.p); got != tt.want {
+			t.Errorf("%s: kernelRelease = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+	in := buildSnapshotInput(SnapshotPayload{SchemaVersion: 1, OS: OSRelease{ID: "ubuntu", Kernel: "6.8.0-45-generic"},
+		Collectors: ok}, "h", time.Now(), time.Now(), "")
+	if in.KernelRelease != "6.8.0-45-generic" {
+		t.Errorf("SnapshotInput.KernelRelease = %q", in.KernelRelease)
+	}
+}

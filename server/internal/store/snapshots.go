@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,12 +13,15 @@ import (
 )
 
 type SnapshotInput struct {
-	HostID           string
-	SchemaVersion    int
-	CollectedAt      time.Time
-	OSID             string
-	OSVersionID      string
-	OSCodename       string
+	HostID        string
+	SchemaVersion int
+	CollectedAt   time.Time
+	OSID          string
+	OSVersionID   string
+	OSCodename    string
+	// KernelRelease is the running kernel (payload os.kernel), "" when
+	// unknown (older agent, or the kernel collector did not succeed).
+	KernelRelease    string
 	RebootRequired   bool
 	RebootPackages   []string
 	SourceIP         string
@@ -36,12 +40,46 @@ type SnapshotInput struct {
 	// InventoryAt is the range boundary for this push: collected_at,
 	// clamped by the caller to no later than the server's clock.
 	InventoryAt time.Time
+
+	// AfterWrite, if set, runs inside the snapshot transaction after
+	// everything is written and before commit. Ingest uses it to enqueue
+	// matcher/findings jobs with River's InsertTx, so the jobs exist if
+	// and only if the snapshot does. An error rolls the push back.
+	AfterWrite func(ctx context.Context, tx pgx.Tx, res SnapshotResult) error
 }
 
 // SnapshotResult reports what InsertSnapshot did, for logging and tests.
 type SnapshotResult struct {
 	SnapshotID string
 	Inventory  []InventoryResult
+	// KernelChanged: this snapshot is the host's newest (by collected_at)
+	// and its kernel_release differs from the previous newest one's
+	// (including unknown <-> known), i.e. the host rebooted into another
+	// kernel or its agent started reporting it. Findings for kernel
+	// packages depend on it (running-kernel policy).
+	KernelChanged bool
+}
+
+// InventoryChanged reports whether any ecosystem's ranges opened or closed.
+func (r SnapshotResult) InventoryChanged() bool {
+	for _, inv := range r.Inventory {
+		if inv.Added+inv.Removed > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// RematchSoftwareIDs are the versions this push needs evaluated: newly
+// interned ones, plus existing ones whose inferred source was replaced by
+// a real one (which reset their matcher bookkeeping).
+func (r SnapshotResult) RematchSoftwareIDs() []int64 {
+	var ids []int64
+	for _, inv := range r.Inventory {
+		ids = append(ids, inv.NewSoftwareIDs...)
+		ids = append(ids, inv.ResetSoftwareIDs...)
+	}
+	return ids
 }
 
 type SocketInput struct {
@@ -96,18 +134,40 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 		rebootPackages = []string{}
 	}
 
+	// The previous newest snapshot's kernel, to detect a reboot into another
+	// kernel (read before inserting this one).
+	var (
+		prevKernel    *string
+		prevCollected time.Time
+		havePrev      = true
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT kernel_release, collected_at FROM snapshots WHERE host_id = $1
+		ORDER BY collected_at DESC, received_at DESC LIMIT 1
+	`, in.HostID).Scan(&prevKernel, &prevCollected)
+	if errors.Is(err, pgx.ErrNoRows) {
+		havePrev = false
+	} else if err != nil {
+		return res, err
+	}
+	if !havePrev {
+		res.KernelChanged = in.KernelRelease != ""
+	} else if !in.CollectedAt.Before(prevCollected) {
+		res.KernelChanged = in.KernelRelease != deref(prevKernel)
+	}
+
 	var snapshotID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO snapshots (
 			host_id, schema_version, collected_at, os_id, os_version_id,
 			os_codename, reboot_required, reboot_packages, source_ip,
-			public_ipv4, public_ipv6, collector_status, package_set_hashes
+			public_ipv4, public_ipv6, collector_status, package_set_hashes, kernel_release
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, '')::inet,
-			NULLIF($10, '')::inet, NULLIF($11, '')::inet, $12::jsonb, $13::jsonb)
+			NULLIF($10, '')::inet, NULLIF($11, '')::inet, $12::jsonb, $13::jsonb, NULLIF($14, ''))
 		RETURNING id
 	`, in.HostID, in.SchemaVersion, in.CollectedAt, in.OSID, in.OSVersionID, in.OSCodename,
 		in.RebootRequired, rebootPackages, in.SourceIP,
-		in.PublicIPv4, in.PublicIPv6, collectorStatus, nullableJSON(hashes)).Scan(&snapshotID)
+		in.PublicIPv4, in.PublicIPv6, collectorStatus, nullableJSON(hashes), in.KernelRelease).Scan(&snapshotID)
 	if err != nil {
 		return res, err
 	}
@@ -133,6 +193,12 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 			return res, fmt.Errorf("apply %s inventory: %w", set.Ecosystem, err)
 		}
 		res.Inventory = append(res.Inventory, r)
+	}
+
+	if in.AfterWrite != nil {
+		if err := in.AfterWrite(ctx, tx, res); err != nil {
+			return res, fmt.Errorf("after write: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

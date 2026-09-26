@@ -36,6 +36,7 @@ func TestCollectUbuntu(t *testing.T) {
 
 	wantStatus := map[string]string{
 		collector.CollectorOS:             collector.StatusOK,
+		collector.CollectorKernel:         collector.StatusOK,
 		collector.CollectorHostIdentity:   collector.StatusOK,
 		"deb_packages":                    collector.StatusOK,
 		collector.CollectorTCPListeners:   collector.StatusOK,
@@ -53,7 +54,7 @@ func TestCollectUbuntu(t *testing.T) {
 	if snap.Host != wantHost {
 		t.Errorf("host = %+v, want %+v", snap.Host, wantHost)
 	}
-	if want := (collector.OSRelease{ID: "ubuntu", VersionID: "22.04", Codename: "jammy"}); snap.OS != want {
+	if want := (collector.OSRelease{ID: "ubuntu", VersionID: "22.04", Codename: "jammy", Kernel: "6.8.0-45-generic"}); snap.OS != want {
 		t.Errorf("os = %+v, want %+v", snap.OS, want)
 	}
 	if snap.SchemaVersion != 1 || snap.CollectedAt != "2026-09-26T12:00:00Z" {
@@ -101,6 +102,9 @@ func TestCollectPackageSourceFailure(t *testing.T) {
 	if st := snap.Collectors[collector.CollectorTCPListeners]; st.Status != collector.StatusSkipped {
 		t.Errorf("tcp_listeners without procfs = %+v, want skipped", st)
 	}
+	if st := snap.Collectors[collector.CollectorKernel]; st.Status != collector.StatusSkipped || snap.OS.Kernel != "" {
+		t.Errorf("kernel without procfs = %+v (%q), want skipped", st, snap.OS.Kernel)
+	}
 
 	b, err := json.Marshal(snap)
 	if err != nil {
@@ -131,7 +135,7 @@ func TestCollectNonLinuxAndUndetected(t *testing.T) {
 				t.Errorf("os status = %s, want %s", got, tt.wantOS)
 			}
 			// No Linux collector, and no dpkg, may run on a non-Linux host.
-			for _, name := range []string{"deb_packages", collector.CollectorHostIdentity,
+			for _, name := range []string{"deb_packages", collector.CollectorHostIdentity, collector.CollectorKernel,
 				collector.CollectorTCPListeners, collector.CollectorRebootRequired} {
 				if st := snap.Collectors[name]; st.Status != collector.StatusSkipped {
 					t.Errorf("%s = %+v, want skipped", name, st)

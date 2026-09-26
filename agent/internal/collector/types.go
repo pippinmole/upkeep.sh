@@ -68,12 +68,17 @@ type OSRelease struct {
 	ID        string `json:"id"`         // e.g. "ubuntu", "debian"
 	VersionID string `json:"version_id"` // e.g. "22.04", "12"
 	Codename  string `json:"codename"`   // e.g. "jammy", "bookworm"
+	// Kernel is the running kernel release ("6.8.0-45-generic"), owned by
+	// the "kernel" collector; omitted when that collector isn't ok. Added
+	// without a schema bump (servers that predate it ignore it).
+	Kernel string `json:"kernel,omitempty"`
 }
 
 // Collector names used as keys in Snapshot.Collectors. Package sources add
 // their own names (e.g. "deb_packages"; see pkgsource.Source.Name).
 const (
 	CollectorOS             = "os"
+	CollectorKernel         = "kernel"
 	CollectorHostIdentity   = "host_identity"
 	CollectorTCPListeners   = "tcp_listeners"
 	CollectorRebootRequired = "reboot_required"

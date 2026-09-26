@@ -25,7 +25,7 @@ func TestOSVSyncIsUniquePerEcosystem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	t.Cleanup(s.Close) // registered first, so it runs after the cleanups below (LIFO)
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	eco := "swtest-" + hex.EncodeToString(b)

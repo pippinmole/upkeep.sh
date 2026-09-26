@@ -3,9 +3,10 @@
 // construction. River's tables come from migrations/0006_river_queue.
 //
 // Queues:
-//   - "feeds":   OSV / KEV / EPSS syncs. Few, long, I/O and CPU heavy.
-//   - "matcher": advisory_rematch (and, later, per-version match and
-//     findings reconcile jobs).
+//   - "feeds":    OSV / KEV / EPSS syncs. Few, long, I/O and CPU heavy.
+//   - "matcher":  match_versions, advisory_rematch, matcher_sweep
+//     (software_vulnerabilities writers; see matching.go).
+//   - "findings": reconcile_host, findings_rerank.
 package jobs
 
 import (
@@ -90,9 +91,13 @@ type OSVSyncWorker struct {
 func (w *OSVSyncWorker) Timeout(*river.Job[OSVSyncArgs]) time.Duration { return time.Hour }
 
 func (w *OSVSyncWorker) Work(ctx context.Context, job *river.Job[OSVSyncArgs]) error {
+	start := time.Now()
 	st, err := w.Syncer.SyncOSV(ctx, job.Args.Ecosystem, job.Args.Full)
 	if err != nil {
 		return err
+	}
+	if st.Written > 0 { // may have changed CVSS vectors on cves
+		enqueueRerank(ctx, start)
 	}
 	log.Printf("osv sync %s: %s in %.1fs: %d records, %d relevant, %d written, %d unchanged, %d rows, %d dirty, %d deleted, %d bad",
 		st.Ecosystem, st.Mode, st.Seconds, st.Records, st.Relevant, st.Written, st.Unchanged, st.AffectedRows, st.Dirty, st.Deleted, st.BadRecords)
@@ -107,9 +112,13 @@ type KEVSyncWorker struct {
 func (w *KEVSyncWorker) Timeout(*river.Job[KEVSyncArgs]) time.Duration { return 10 * time.Minute }
 
 func (w *KEVSyncWorker) Work(ctx context.Context, _ *river.Job[KEVSyncArgs]) error {
+	start := time.Now()
 	st, err := w.Syncer.SyncKEV(ctx)
 	if err != nil {
 		return err
+	}
+	if st.Flagged+st.Unflagged > 0 {
+		enqueueRerank(ctx, start)
 	}
 	log.Printf("kev sync: %s %s: %d entries, %d flagged, %d unflagged", st.Mode, st.Catalog, st.Entries, st.Flagged, st.Unflagged)
 	return nil
@@ -123,34 +132,15 @@ type EPSSSyncWorker struct {
 func (w *EPSSSyncWorker) Timeout(*river.Job[EPSSSyncArgs]) time.Duration { return 10 * time.Minute }
 
 func (w *EPSSSyncWorker) Work(ctx context.Context, _ *river.Job[EPSSSyncArgs]) error {
+	start := time.Now()
 	st, err := w.Syncer.SyncEPSS(ctx)
 	if err != nil {
 		return err
 	}
-	log.Printf("epss sync: %s %s: %d rows, %d updated", st.Mode, st.ScoreDate, st.Rows, st.Updated)
-	return nil
-}
-
-// AdvisoryRematchWorker is the hook for the matcher (P1b, next task).
-type AdvisoryRematchWorker struct {
-	river.WorkerDefaults[AdvisoryRematchArgs]
-	Store *store.Store
-}
-
-func (w *AdvisoryRematchWorker) Work(ctx context.Context, _ *river.Job[AdvisoryRematchArgs]) error {
-	// TODO(matcher): drain advisory_changes. For each (distro, release,
-	// source_package) row read at time T: evaluate every software_versions
-	// row with that (distro, release, source_name) against its
-	// advisory_affected rows (server/internal/debversion), rewrite its
-	// software_vulnerabilities, reconcile findings for hosts that
-	// currently have it, then DELETE the advisory_changes row WHERE
-	// changed_at <= T (a newer change re-dirties it and must survive).
-	// Until then this is a no-op and the rows stay queued in the table.
-	n, err := w.Store.PendingAdvisoryChanges(ctx)
-	if err != nil {
-		return err
+	if st.Updated > 0 {
+		enqueueRerank(ctx, start)
 	}
-	log.Printf("advisory_rematch: %d (distro, release, source package) keys pending; matcher not implemented yet", n)
+	log.Printf("epss sync: %s %s: %d rows, %d updated", st.Mode, st.ScoreDate, st.Rows, st.Updated)
 	return nil
 }
 
@@ -164,6 +154,12 @@ type Config struct {
 	OSVInterval      time.Duration // incremental cadence (full reload cadence is feeds.Config.FullSyncInterval)
 	CVEFeedsInterval time.Duration
 	FeedWorkers      int // concurrent feed jobs
+	FindingsWorkers  int // concurrent reconcile_host / findings_rerank jobs
+	// MatcherInterval is the matcher_sweep / advisory_rematch safety-net
+	// cadence (default 5m); both also run on start.
+	MatcherInterval time.Duration
+	// DisableMatcherSchedule turns the matcher safety net off (tests).
+	DisableMatcherSchedule bool
 }
 
 // NewClient builds a River client that works the feeds and matcher queues
@@ -176,8 +172,30 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	river.AddWorker(workers, &KEVSyncWorker{Syncer: syncer})
 	river.AddWorker(workers, &EPSSSyncWorker{Syncer: syncer})
 	river.AddWorker(workers, &AdvisoryRematchWorker{Store: st})
+	river.AddWorker(workers, &MatchVersionsWorker{Store: st})
+	river.AddWorker(workers, &MatcherSweepWorker{Store: st})
+	river.AddWorker(workers, &ReconcileHostWorker{Store: st})
+	river.AddWorker(workers, &FindingsRerankWorker{Store: st})
 
-	var periodic []*river.PeriodicJob
+	// Matcher safety net, independent of the feed schedule (no network):
+	// drains advisory_changes and evaluates never/stale-evaluated versions
+	// on start (initial run, matcher_version bump) and every few minutes
+	// (a lost trigger only delays matching, never skips it).
+	matcherEvery := cfg.MatcherInterval
+	if matcherEvery <= 0 {
+		matcherEvery = 5 * time.Minute
+	}
+	periodic := []*river.PeriodicJob{
+		river.NewPeriodicJob(river.PeriodicInterval(matcherEvery),
+			func() (river.JobArgs, *river.InsertOpts) { return MatcherSweepArgs{}, nil },
+			&river.PeriodicJobOpts{ID: "matcher_sweep", RunOnStart: true}),
+		river.NewPeriodicJob(river.PeriodicInterval(matcherEvery),
+			func() (river.JobArgs, *river.InsertOpts) { return AdvisoryRematchArgs{}, nil },
+			&river.PeriodicJobOpts{ID: "advisory_rematch", RunOnStart: true}),
+	}
+	if cfg.DisableMatcherSchedule {
+		periodic = nil
+	}
 	if cfg.PeriodicSyncs {
 		for _, eco := range cfg.OSVEcosystems {
 			periodic = append(periodic, river.NewPeriodicJob(
@@ -198,8 +216,9 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
-			QueueFeeds:   {MaxWorkers: max(1, cfg.FeedWorkers)},
-			QueueMatcher: {MaxWorkers: 1},
+			QueueFeeds:    {MaxWorkers: max(1, cfg.FeedWorkers)},
+			QueueMatcher:  {MaxWorkers: 1}, // writes are serialized by an advisory lock anyway
+			QueueFindings: {MaxWorkers: max(1, cfg.FindingsWorkers)},
 		},
 		Workers:              workers,
 		PeriodicJobs:         periodic,

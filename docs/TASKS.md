@@ -127,24 +127,39 @@ inventories.
 - [ ] Faster full OSV sync: skip full parse of zip entries whose
       `modified` matches the stored value (Ubuntu full import is
       CPU-bound, ~3 min native / ~17 min in Docker Desktop).
-- [ ] Matcher: evaluate each `software_versions` row once (by source
-      package + release + source version) → `software_vulnerabilities`.
-      Triggers: new version interned at ingest; advisory change for a
-      (distro, release, source package), drained from `advisory_changes`
-      by the `advisory_rematch` job (no-op hook in `internal/jobs`);
-      `matcher_version` bump. API needs an insert-only River client.
-- [ ] Replace the `TODO(phase 1)` in `server/internal/ingest/handler.go`:
-      enqueue diff/match/reconcile jobs, don't match inline.
-- [ ] Findings reconciliation → `findings` per (host, source package,
-      vuln), `dedup_key = pkg:<source>:<vuln_key>`, open/resolved
-      lifecycle; runs only when a host's inventory or a version's matches
-      change.
+- [x] Matcher (`internal/matcher`, `store/matching.go`, migration 0007):
+      each `software_versions` row evaluated once against
+      `advisory_affected` for its (distro, release, source) with
+      `debversion` → `software_vulnerabilities` (replaced only when the
+      match set changes; CVE-keyed, per-CVE record authoritative, Pro
+      channel labelled). Triggers: `match_versions` enqueued by ingest via
+      an insert-only River client (`InsertTx`); `advisory_rematch` drains
+      `advisory_changes`; `matcher_sweep` (start + every 5m) covers
+      never/stale-evaluated rows and `matcher.Version` bumps.
+- [x] Replace the `TODO(phase 1)` in `server/internal/ingest/handler.go`:
+      ingest enqueues `match_versions` / `reconcile_host` in the snapshot
+      transaction; nothing is matched inline. (The port-exposure half of
+      that TODO remains, as `TODO(phase 1, exposure)`.)
+- [x] Findings reconciliation (`internal/findings`, `store/findings.go`)
+      → `findings` per (host, source package, vuln),
+      `dedup_key = pkg:<source>:<vuln_key>`, open / resolved / reopened
+      lifecycle; runs only when a host's inventory or running kernel
+      changed, or a version it has changed matches. Severity via
+      `severity.Assess`; `findings_rerank` after KEV/EPSS/OSV syncs.
 - [x] Severity-ranking function (single tested Go func): KEV, then EPSS,
       then distro priority/urgency, CVSS only as tiebreaker; "no fix yet"
       kept visible, not hidden.
-- [ ] Kernel source-name mapping (Ubuntu `linux-signed-*`/`linux-meta-*`
-      → advisory `linux*` sources) + running-vs-installed kernel policy
-      (open question Q7).
+- [x] Kernel source-name mapping (Ubuntu `linux-signed-*`/`linux-meta-*`/
+      `linux-restricted-modules-*`, Debian `linux-signed-<arch>` → advisory
+      `linux*` sources) + running-vs-installed policy (Q7 resolved: agent
+      `os.kernel` collector, `snapshots.kernel_release`, findings for the
+      running kernel only, `host_kernel_packages` view for the rest).
+- [ ] Report Ubuntu Pro attachment from the agent
+      (`/var/lib/ubuntu-advantage/status.json`) so attached hosts can show
+      "fix available via Pro" instead of "requires Pro" (Q9 follow-up;
+      the label is correct without it).
+- [ ] Alert hooks on finding transitions (opened / reopened / resolved
+      from `reconcile_host`) — with the alerting worker.
 
 ### Phase 1 remainder — packages & vulnerabilities UI (P1c)
 Design: [DOMAIN_MODEL.md §3](DOMAIN_MODEL.md#3-packages-in-the-dashboard).
@@ -152,7 +167,7 @@ Direct Postgres reads from Server Components, filters in URL search
 params, no new Go endpoints.
 - [x] Host detail shell `/dashboard/hosts/[hostId]` (header: OS, last
       seen, reboot pill, collector-health alerts; link tabs).
-- [ ] Host header vuln/KEV pills — needs P1b.
+- [ ] Host header vuln/KEV pills (data ready: open `findings`).
 - [x] Packages tab: searchable/filterable per-host inventory,
       installed-since, `?at=<date>` point-in-time view.
 - [ ] Packages tab P1b columns: installed vs fixed version, status, top
@@ -212,7 +227,8 @@ Today agent == host: enrollment creates a `hosts` row and the returned
 - [ ] Dashboard: rename the current "Agents" host list to **Hosts**; new
       **Agents** page lists collectors (version, platform, last seen,
       hosts collected, revoke).
-- [ ] Linux collectors: running kernel, uptime, hostname + machine-id,
+- [ ] Linux collectors: uptime, hostname + machine-id (running kernel
+      landed in P1b as `os.kernel`),
       UDP listeners, systemd services (unit files + `/proc/*/cgroup`, no
       D-Bus), local users (`/etc/passwd`/`/etc/group`), processes on
       deleted libraries (`/proc/*/maps`), unattended-upgrades config +

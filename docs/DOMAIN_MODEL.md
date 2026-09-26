@@ -302,6 +302,14 @@ Refresh cadence **(judgment call)**:
 - Only **releases present in `distro_releases` with `supported = true`**
   are imported, to keep the table small. OSV has records back to Debian 3.0.
 
+**As built (P1b, migration 0005).** OSV's per-release ecosystem zips
+(`Debian:12/all.zip`, `Ubuntu:22.04:LTS/all.zip`, ...) have been stale
+since 2024-10, so the sync reads the **top-level ecosystem directories**
+(`Debian/all.zip`, `Ubuntu/all.zip`, plus `modified_id.csv` for
+incremental runs) and keeps only affected entries whose ecosystem maps to
+a supported release. `Ubuntu:Pro:<ver>` entries map to the same release
+with `channel = 'ubuntu-pro'`.
+
 ### 2.4 Advisory schema (replaces `vulnerabilities`)
 
 ```sql
@@ -374,6 +382,26 @@ CREATE TABLE feed_sync_state (
 (The `COALESCE` in a primary key isn't legal as written. In the real
 migration, make `introduced` `NOT NULL DEFAULT ''` instead. It is written
 this way here for readability.)
+
+**As built (migration 0005)**, differences from the sketch above:
+
+- `advisory_affected` gained `channel` (`standard` | `ubuntu-pro`, part
+  of the primary key; Q9), `last_affected` (OSV's rare inclusive upper
+  bound, used instead of `fixed`) and `ecosystem` (as published);
+  `introduced` is `NOT NULL DEFAULT ''`.
+- `advisories` gained `cve_ids` (every CVE the record cites: own id,
+  aliases, upstream), `upstream`, `related`, `severity` (record-level
+  distro severity, e.g. Ubuntu priority) and `content_hash` (a sync skips
+  records whose normalized hash is unchanged); `raw` is trimmed.
+- New table **`advisory_changes`** `(distro, release, source_package,
+  changed_at)`: the matcher's durable dirty set, written in the same
+  transaction as any change to that key's `advisory_affected` rows and
+  drained by the `advisory_rematch` job (§2.6).
+- **`advisories.vuln_key` rule**: the record's own CVE (a `CVE-` id, or
+  the CVE a `DEBIAN-CVE-`/`UBUNTU-CVE-` record wraps); else the single CVE
+  a DSA/DLA/USN cites; else the advisory id (a notice citing several
+  CVEs). The matcher then keys *matches* by CVE wherever possible: a
+  multi-CVE notice is expanded to each CVE it cites (§2.5 "As built").
 
 **Deduplication across sources.** Debian publishes `DSA-5532-1` *and*
 `DEBIAN-CVE-2023-5678` for the same issue. Ubuntu publishes `USN-…` *and*
@@ -448,6 +476,47 @@ whose fixes are listed in the `Ubuntu:Pro:*` ecosystems. Hosts not
 attached should see "fix available only with Ubuntu Pro" rather than a
 normal "fix available". This needs one more agent fact: attachment status
 from `/var/lib/ubuntu-advantage/status.json` (open question Q9).
+
+**As built (P1b matcher, `server/internal/matcher`).**
+
+- *Predicate* per row, installed source version `v`: out of range if
+  `introduced` is set (not `''`/`'0'`) and `v < introduced`; else with
+  `fixed`: affected iff `v < fixed`; with `last_affected`: affected iff
+  `v <= last_affected` (no fix known); with neither: affected, unfixed.
+  Rows with status `not_affected`/`ignored` are skipped.
+- *Keys and precedence*: matches are keyed by CVE. For one (source, CVE)
+  the **per-CVE record** (`DEBIAN-CVE-`/`UBUNTU-CVE-`/`CVE-`) decides when
+  one exists; notices (DSA/DLA/USN/LSN) then only add their ids to
+  `advisory_ids`. Without a per-CVE record, the notices citing the CVE
+  decide. Within one channel, any row saying the installed version is
+  already fixed wins (a regression-update notice doesn't reopen it);
+  otherwise the lowest fixed version among affected rows is the fix.
+- *Channels (Q9, resolved)*: `ubuntu-pro` rows are matched and labelled,
+  never hidden. A standard-channel "not affected/fixed" verdict means no
+  match; so does a Pro-channel "fixed" (the host runs an `+esm` build).
+  Otherwise, a standard fix wins (`fix_channel = 'standard'`); a fix only
+  in Pro gives `fix_channel = 'ubuntu-pro'`, i.e. `requires_pro` ("fix
+  requires Ubuntu Pro"); no fix leaves both NULL. Pro attachment is not
+  collected yet, so an attached host sees the label until it installs the
+  `+esm` build, which then clears the match.
+- *Kernels (Q7, resolved)*: `matcher.Resolve` unwraps
+  `linux-signed[-X]`, `linux-meta[-X]`, `linux-restricted-modules[-X]`
+  (Ubuntu) and `linux-signed[-V]-<arch>` (Debian) to the advisory source
+  (`linux`, `linux-hwe-6.8`, `linux-aws`, `linux-6.12`, ...) and compares
+  the *binary* version for unwrapped sources (Debian's signed source
+  version is `6.1.76+1`; the image's version `6.1.76-1` is the kernel
+  source version). Only kernel image/module binaries
+  (`linux-image[-unsigned]-<release>`, `linux-modules[-extra]-<release>`)
+  are matched, tagged with the `uname -r` release in their name;
+  metapackages, headers, tools, `linux-libc-dev`, `linux-source-*`,
+  Debian's `bpftool`/`linux-cpupower` etc. are not. Kernels from agents
+  that send no `Source:` are not matched (their source can't be derived
+  from the name). Findings are raised only for the release in the newest
+  snapshot's `kernel_release` (agent `os.kernel`); other installed
+  kernels are informational (`host_kernel_packages` view). **Unknown
+  running kernel** (agents older than the `kernel` collector, or the
+  collector failed): every installed kernel raises findings, marked
+  `findings.running_kernel_unknown`, so an unknown never hides risk.
 
 ### 2.6 Materialized or computed on read?
 
@@ -559,6 +628,29 @@ it happens only on change.
 
 The exact formula is a later task. Put it in one Go function that is
 unit-tested.
+
+**As built (P1b, migration 0007).** The matcher (`store/matching.go`)
+writes `software_vulnerabilities` per version (replacing a version's
+rows only when its match set changed) with `fixed_version`,
+`fix_channel` (NULL = no fix, `standard`, `ubuntu-pro`),
+`fix_advisory_id`, `advisory_ids`, `distro_severity`; and stamps
+`software_versions.match_source` / `match_version` / `kernel_release` /
+`matcher_version` / `evaluated_at` / `max_fixed_version` (highest
+standard-channel fix). Triggers are as in the table above: ingest
+enqueues `match_versions` in the snapshot transaction; `advisory_rematch`
+drains `advisory_changes` (delete a key only if its `changed_at` still
+equals the value read); `matcher_sweep` evaluates `matcher_version IS
+NULL OR < matcher.Version` on start and every 5 minutes. A version whose
+matches changed queues `reconcile_host` for every host having it; ingest
+also queues it when ranges opened/closed or the running kernel changed.
+Findings carry a snapshot for display and ranking (installed/fixed
+version, `fix_channel`/`requires_pro`, `advisory_ids`, distro severity,
+`severity` bucket, `severity_rank` = bucket as int, `severity_key` =
+`severity.Key` as bigint for `ORDER BY`, KEV/EPSS/CVSS, `software_ids`,
+`packages`, `kernel_release`) and lifecycle columns (`first_seen_at`,
+`last_seen_at`, `resolved_at`, `reopened_at`, `reopen_count`). KEV, EPSS
+and CVSS changes don't re-match: `findings_rerank` recomputes severity
+for open findings whose `cves` row changed since the sync started.
 
 ---
 
@@ -1164,11 +1256,11 @@ Linux/Debian-family only. Nothing else is collected today.
    the scope change, and which OS comes first. The recommendation is
    Windows before macOS: more servers, a clearer vuln story via MSRC. Or
    keep both deferred and do only the schema groundwork?
-2. **Advisory source.** OSV bulk (recommended: one parser, both distros,
-   includes unfixed CVEs via DEBIAN-CVE and UBUNTU-CVE records) vs the raw
-   Debian Security Tracker JSON plus Ubuntu OVAL (more authoritative and
-   finer statuses, two parsers). The normalized schema allows switching
-   later either way.
+2. **Resolved: OSV bulk** (one parser, both distros, unfixed CVEs via
+   DEBIAN-CVE and UBUNTU-CVE records), read from the top-level `Debian/`
+   and `Ubuntu/` directories because the per-release zips are stale since
+   2024-10 (§2.3). The normalized schema still allows a raw Debian
+   Security Tracker / Ubuntu OVAL importer later.
 3. **Remote collection and exec.** Remote mode (SSH/WinRM) and several
    macOS facts need running fixed, read-only commands. Is the principle
    "the agent never executes commands" negotiable, restated as "the server
@@ -1188,22 +1280,26 @@ Linux/Debian-family only. Nothing else is collected today.
    `host_software` ranges plus `snapshots.package_set_hashes` cover the
    audit need. Ingest no longer writes it; migration
    `0004_drop_snapshot_packages` drops the table.
-7. **Kernel matching.** Flag CVEs against *every installed* `linux-image-*`
-   (noisy: old kernels linger), only the *running* kernel (accurate risk,
-   but misses "you'll boot into a vulnerable one"), or running with a
-   separate "old kernels installed" note? Recommended: running kernel for
-   findings, installed kernels shown as info.
+7. **Resolved: running kernel for findings, installed kernels as info.**
+   The agent reports `os.kernel` (`/proc/sys/kernel/osrelease`); findings
+   are raised only for kernel image/module packages of that release;
+   other installed kernels are listed by the `host_kernel_packages` view
+   with their match counts. While the running kernel is unknown (older
+   agents), all installed kernels raise findings, flagged
+   `running_kernel_unknown` (§2.5 "As built").
 8. **SQL-side version ordering.** Is a Go-computed `version_sort_key` worth
    adding in P1 for fleet "below version X" filters, or is it deferred until
    a page needs it? The alternative, a custom Postgres image with the
    `debversion` extension, is not recommended.
-9. **Ubuntu Pro/ESM.** Should the agent report Pro attachment so fixes that
-   are only in ESM are labelled "fix requires Ubuntu Pro"? Should ESM
-   advisories be imported at all?
-10. **Job queue.** Use a hand-rolled Postgres `jobs` table
-    (`FOR UPDATE SKIP LOCKED`, no new infra) or a library such as River,
-    which is also Postgres-backed? Both avoid adding Redis. Recommended:
-    River if its dependency weight is acceptable, otherwise hand-rolled.
+9. **Resolved: import and match ESM (`channel = 'ubuntu-pro'`), label,
+   never hide.** A finding whose only fix is in Pro has
+   `fix_channel = 'ubuntu-pro'` / `requires_pro = true`; a standard-channel
+   fix wins when one exists. Reporting Pro attachment from the agent is
+   not needed for the label and is left for later (an attached host's
+   installed `+esm` build already clears the match).
+10. **Resolved: River** (Postgres-backed, v0.47, tables vendored as
+    migration 0006), in a separate `cmd/worker` process; the API holds an
+    insert-only client and enqueues with `InsertTx`.
 11. **Table library.** Keep server-driven tables (URL params + existing
     shadcn `Table`, recommended), or add `@tanstack/react-table` to match
     shadcn-admin's data-table pattern with client-side faceting?

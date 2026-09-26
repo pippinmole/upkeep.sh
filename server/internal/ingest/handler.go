@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net"
@@ -8,12 +9,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+
 	"github.com/pippinmole/upkeep.sh/server/internal/authn"
+	"github.com/pippinmole/upkeep.sh/server/internal/jobs"
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
 type Handler struct {
 	Store *store.Store
+	// Jobs is an insert-only River client. Snapshot ingest enqueues the
+	// matcher/findings jobs a push implies inside its own transaction.
+	// nil disables enqueueing (tests); the worker's matcher_sweep then
+	// still evaluates new versions, but findings are not reconciled.
+	Jobs *river.Client[pgx.Tx]
 }
 
 type enrollRequest struct {
@@ -107,6 +117,14 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	in := buildSnapshotInput(payload, hostID, collectedAt, time.Now().UTC(), clientIP(r))
+	// Vulnerability matching and findings run on the worker, never inline:
+	// the jobs are inserted in the snapshot transaction (River InsertTx),
+	// so they exist if and only if the snapshot committed.
+	if h.Jobs != nil {
+		in.AfterWrite = func(ctx context.Context, tx pgx.Tx, res store.SnapshotResult) error {
+			return jobs.EnqueueAfterIngest(ctx, h.Jobs, tx, hostID, res)
+		}
+	}
 
 	res, err := h.Store.InsertSnapshot(ctx, in)
 	if err != nil {
@@ -116,14 +134,17 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, inv := range res.Inventory {
 		if inv.Outcome != store.InventoryUnchanged {
-			log.Printf("host %s: %s inventory %s (+%d -%d, %d new versions)",
-				hostID, inv.Ecosystem, inv.Outcome, inv.Added, inv.Removed, len(inv.NewSoftwareIDs))
+			log.Printf("host %s: %s inventory %s (+%d -%d, %d new versions, %d source resets)",
+				hostID, inv.Ecosystem, inv.Outcome, inv.Added, inv.Removed, len(inv.NewSoftwareIDs), len(inv.ResetSoftwareIDs))
 		}
+	}
+	if res.KernelChanged {
+		log.Printf("host %s: running kernel now %q", hostID, in.KernelRelease)
 	}
 	_ = h.Store.TouchHostLastSeen(ctx, hostID, time.Now().UTC())
 
-	// TODO(phase 1): enqueue vuln matching + port-exposure check for this
-	// snapshot instead of doing it inline, once those workers exist.
+	// TODO(phase 1, exposure): enqueue the external port-exposure check
+	// here (same AfterWrite/InsertTx pattern) once that worker exists.
 
 	w.WriteHeader(http.StatusAccepted)
 }
@@ -146,6 +167,7 @@ func buildSnapshotInput(payload SnapshotPayload, hostID string, collectedAt, now
 		OSID:           payload.OS.ID,
 		OSVersionID:    payload.OS.VersionID,
 		OSCodename:     payload.OS.Codename,
+		KernelRelease:  kernelRelease(payload),
 		RebootRequired: payload.RebootRequired,
 		RebootPackages: payload.RebootPackages,
 		SourceIP:       sourceIP,
@@ -170,6 +192,21 @@ func buildSnapshotInput(payload SnapshotPayload, hostID string, collectedAt, now
 		log.Printf("host %s: %s inventory not diffed: %s", hostID, sk.Ecosystem, sk.Reason)
 	}
 	return in
+}
+
+// kernelRelease returns the running kernel from os.kernel, or "" when it
+// can't be trusted: the kernel collector did not report ok (payloads with
+// a collectors map), or the value is implausible. Payloads without a
+// collectors map predate the field and never carry it.
+func kernelRelease(p SnapshotPayload) string {
+	k := strings.TrimSpace(p.OS.Kernel)
+	if k == "" || len(k) > 256 || strings.ContainsAny(k, "\x00\n\t ") {
+		return ""
+	}
+	if p.Collectors != nil && p.Collectors[CollectorKernel].Status != CollectorStatusOK {
+		return ""
+	}
+	return k
 }
 
 // clientIP prefers X-Forwarded-For because production deploys sit behind

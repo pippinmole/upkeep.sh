@@ -78,8 +78,22 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 		status[name] = st
 	}
 
-	// Live socket state needs the target's procfs (see target.LiveProc).
+	// Live kernel state needs the target's procfs (see target.LiveProc).
 	procRoot, hasProc := target.ProcRootOf(t)
+
+	// Running kernel: the server raises kernel CVEs only against the
+	// kernel actually running (DOMAIN_MODEL.md Q7).
+	switch {
+	case !isLinux:
+		status[collector.CollectorKernel] = notLinux
+	case !hasProc:
+		status[collector.CollectorKernel] = collector.Skipped("target has no readable procfs")
+	default:
+		rel, err := collector.CollectKernelRelease(procRoot)
+		snap.OS.Kernel = rel
+		status[collector.CollectorKernel] = result(err)
+	}
+
 	switch {
 	case !isLinux:
 		status[collector.CollectorTCPListeners] = notLinux

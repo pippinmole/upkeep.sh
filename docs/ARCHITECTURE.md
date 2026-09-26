@@ -27,17 +27,21 @@
 - **`server/`** — Go, two binaries from one image:
   - `cmd/api`: agent enrollment (`POST /v1/enroll`) and snapshot ingest
     (`POST /v1/snapshots`). Intentionally not a general CRUD API — see
-    "Who owns what" below.
+    "Who owns what" below. Holds an insert-only River client: ingest
+    enqueues matcher/findings jobs, it never matches inline.
   - `cmd/worker`: background jobs on [River](https://riverqueue.com)
-    (Postgres-backed queue, no Redis; DOMAIN_MODEL.md Q10). Today: OSV
+    (Postgres-backed queue, no Redis; DOMAIN_MODEL.md Q10): OSV
     Debian/Ubuntu advisory sync (hourly incremental, weekly full), CISA
-    KEV + FIRST EPSS (daily), and the `advisory_rematch` matcher trigger.
-    Planned: vulnerability matching, findings reconciliation, port-exposure
-    scanning, alert dispatch (see [TASKS.md](TASKS.md)). A separate process
-    so multi-minute feed imports (Ubuntu's OSV zip is ~800 MB) never
-    compete with ingest; `worker sync osv|kev|epss` runs one sync in the
-    foreground. River elects a leader for periodic scheduling and syncs are
-    unique jobs, so extra replicas are safe.
+    KEV + FIRST EPSS (daily), the vulnerability matcher and findings
+    reconciliation (see "Vulnerability pipeline" below). Planned:
+    port-exposure scanning, alert dispatch (see [TASKS.md](TASKS.md)). A
+    separate process so multi-minute feed imports (Ubuntu's OSV zip is
+    ~800 MB) never compete with ingest. One-shot commands run the same
+    code in the foreground: `worker sync osv|kev|epss`, `worker match`
+    (sweep + drain), `worker reconcile [host…]`, `worker rerank`. River
+    elects a leader for periodic scheduling, syncs are unique jobs and
+    matcher writes take a Postgres advisory lock, so extra replicas are
+    safe.
 
 - **`web/`** — Next.js (App Router) on Bun. Marketing page, Auth.js
   credentials auth (self-hosted, bcrypt, own `users` table), and the
@@ -61,9 +65,10 @@ for the reasoning.
 | `software_versions`, `host_software`, `host_inventory_state` | Go (ingest diff) |
 | `distro_releases` | migrations (seed); flip `supported` to import a release |
 | `advisories`, `advisory_affected`, `advisory_changes`, `cves`, `feed_sync_state` | Go (worker: OSV/KEV/EPSS sync) |
-| `software_vulnerabilities` | Go (matcher — not yet built) |
-| `river_*` | Go (River job queue, worker process) |
-| `findings`, `alert_events` | Go (matching/alerting workers — not yet built) |
+| `software_vulnerabilities`, `software_versions` matcher columns (`match_*`, `kernel_release`, `matcher_version`, `evaluated_at`, `max_fixed_version`) | Go (worker: matcher) |
+| `river_*` | Go (River job queue; API inserts, worker runs) |
+| `findings` (kind `vulnerable_package`) | Go (worker: findings reconciliation, re-rank) |
+| `alert_events` | Go (alerting worker — not yet built) |
 | `users` | Next.js (signup) |
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
 | `alert_rules`, `notification_channels` | Next.js (settings — not yet built) |
@@ -109,6 +114,50 @@ See `migrations/` for the authoritative schema. Summary:
   owns the whole schema.
 - `hosts` → `findings` (kind: `vulnerable_package` | `public_port` |
   `reboot_required`; deduplicated via `dedup_key`, tracked open/resolved).
+  `vulnerable_package` findings are one per (host, source package,
+  vuln_key), `dedup_key = pkg:<source>:<vuln_key>`, reconciled from
+  `software_vulnerabilities` (migration 0007).
+
+## Vulnerability pipeline
+
+Matching is per interned package version, not per host or per push
+(DOMAIN_MODEL.md §2.6): `software_vulnerabilities` holds the positive
+matches of each `software_versions` row, computed in Go
+(`internal/matcher`, dpkg ordering from `internal/debversion`), and
+per-host `findings` are reconciled from it.
+
+```
+agent push ──> api: InsertSnapshot tx ──┬─ match_versions{ids}   (new / source-reset versions)
+                                         └─ reconcile_host{host}  (ranges changed, or running kernel changed)
+                 (River InsertTx: jobs commit iff the snapshot does)
+
+OSV sync ── advisory_affected + advisory_changes (same tx) ──> advisory_rematch
+worker start, every 5m ──> matcher_sweep, advisory_rematch     (safety net / initial run / version bump)
+
+matcher queue (serialized by pg_advisory_xact_lock):
+  match_versions     evaluate the given versions
+  matcher_sweep      evaluate versions with matcher_version NULL or < matcher.Version
+  advisory_rematch   drain advisory_changes: re-evaluate versions with that
+                     (distro, release, match_source); delete the key iff its
+                     changed_at is unchanged
+      └─ versions whose match set changed ──> reconcile_host for each host having them
+
+findings queue:
+  reconcile_host     host lock; snooze while any installed version is unevaluated;
+                     build desired findings (running-kernel policy), open / keep /
+                     reopen / resolve
+  findings_rerank    after KEV / EPSS / OSV syncs that changed cves rows:
+                     recompute severity of open findings for those CVEs
+```
+
+- Every evaluation takes the matcher advisory lock *before* reading
+  advisories, so evaluations of one version can't commit out of order.
+- `reconcile_host` never runs against unevaluated versions (it snoozes),
+  so an upgrade never resolves findings the pending match job would
+  reopen.
+- Kernel CVEs are raised only for the running kernel
+  (`snapshots.kernel_release`); other installed kernels are exposed by the
+  `host_kernel_packages` view (DOMAIN_MODEL.md Q7).
 - `users` → `alert_rules` → `notification_channels`, and
   `findings` → `alert_events` (delivery log, dedup, digest support).
 

@@ -35,6 +35,10 @@ type OSRelease struct {
 	ID        string `json:"id"`
 	VersionID string `json:"version_id"`
 	Codename  string `json:"codename"`
+	// Kernel is the running kernel release (/proc/sys/kernel/osrelease,
+	// what `uname -r` prints), owned by the "kernel" collector. Added
+	// within schema_version 1; older agents omit it.
+	Kernel string `json:"kernel,omitempty"`
 }
 
 // Host is the snapshot's host block (added within schema_version 1).
@@ -60,6 +64,7 @@ type CollectorStatus struct {
 const (
 	CollectorStatusOK = "ok"
 	CollectorOS       = "os"
+	CollectorKernel   = "kernel"
 )
 
 // Package is one installed package. Source, SourceVersion and Ecosystem

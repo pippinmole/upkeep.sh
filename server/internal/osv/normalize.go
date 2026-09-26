@@ -201,7 +201,7 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 	// Per-CVE records (own id is the CVE, or a DEBIAN-/UBUNTU-CVE wrapper):
 	// their CVSS belongs to that CVE. Multi-CVE advisories (DSA/USN) are
 	// skipped: their record-level severity isn't per CVE.
-	if isPerCVE(r.ID) {
+	if IsPerCVE(r.ID) {
 		for _, s := range r.Severity {
 			if s.Type == "CVSS_V3" && strings.HasPrefix(s.Score, "CVSS:3") {
 				adv.CVSSv3Vector = s.Score // first one listed
@@ -350,7 +350,9 @@ func normSeverity(s string) *string {
 	return &s
 }
 
-func isPerCVE(id string) bool {
+// IsPerCVE reports whether an advisory id is a per-CVE record (CVE-*,
+// DEBIAN-CVE-*, UBUNTU-CVE-*) rather than a DSA/DLA/USN/LSN notice.
+func IsPerCVE(id string) bool {
 	return IsCVE(id) || strings.HasPrefix(id, "DEBIAN-CVE-") || strings.HasPrefix(id, "UBUNTU-CVE-")
 }
 

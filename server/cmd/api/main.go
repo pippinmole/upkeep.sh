@@ -1,6 +1,6 @@
 // Command api is the security-whatnot ingest + platform API: agent
-// enrollment and snapshot ingest today; vuln matching, scanning, and
-// alert dispatch land here as background workers in later phases.
+// enrollment and snapshot ingest. Background work (vulnerability matching,
+// findings, feed syncs) runs in cmd/worker; ingest only enqueues it.
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/ingest"
+	"github.com/pippinmole/upkeep.sh/server/internal/jobs"
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
@@ -38,7 +39,13 @@ func main() {
 	}
 	defer db.Close()
 
-	h := &ingest.Handler{Store: db}
+	// Insert-only River client: ingest enqueues matcher/findings jobs in the
+	// snapshot transaction; cmd/worker runs them.
+	inserter, err := jobs.NewInserter(db.Pool)
+	if err != nil {
+		log.Fatalf("river client: %v", err)
+	}
+	h := &ingest.Handler{Store: db, Jobs: inserter}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/enroll", h.Enroll)
 	mux.HandleFunc("POST /v1/snapshots", h.Snapshot)
