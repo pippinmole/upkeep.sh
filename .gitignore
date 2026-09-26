@@ -4,7 +4,8 @@
 *.exe
 *.test
 
-# Node / Next.js
+# Env files (real secrets) — .env.example files are the templates, kept
+.env
 web/node_modules/
 web/.next/
 web/out/
