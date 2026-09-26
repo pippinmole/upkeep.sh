@@ -8,13 +8,22 @@ package collector
 const SchemaVersion = 1
 
 type Snapshot struct {
-	SchemaVersion    int        `json:"schema_version"`
-	CollectedAt      string     `json:"collected_at"` // RFC3339
-	OS               OSRelease  `json:"os"`
-	Packages         []Package  `json:"packages"`
-	ListeningSockets []Socket   `json:"listening_sockets"`
-	RebootRequired   bool       `json:"reboot_required"`
-	RebootPackages   []string   `json:"reboot_required_packages,omitempty"`
+	SchemaVersion    int       `json:"schema_version"`
+	CollectedAt      string    `json:"collected_at"` // RFC3339
+	OS               OSRelease `json:"os"`
+	Packages         []Package `json:"packages"`
+	ListeningSockets []Socket  `json:"listening_sockets"`
+	RebootRequired   bool      `json:"reboot_required"`
+	RebootPackages   []string  `json:"reboot_required_packages,omitempty"`
+
+	// PublicIPv4 / PublicIPv6 are the agent's own best-effort belief about
+	// its public address(es), looked up via an outbound third-party call
+	// (see CollectPublicIPs). Either may be empty when unavailable — this
+	// is normal and never an error. Distinct from the server-observed
+	// TCP/proxy source IP of the push connection (server-side clientIP()),
+	// which serves a different, security-verification purpose.
+	PublicIPv4 string `json:"public_ipv4,omitempty"`
+	PublicIPv6 string `json:"public_ipv6,omitempty"`
 }
 
 type OSRelease struct {

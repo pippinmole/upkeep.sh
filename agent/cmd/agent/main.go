@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
@@ -70,6 +71,13 @@ func collectSnapshot() (collector.Snapshot, error) {
 	rebootRequired, rebootPkgs := collector.CollectRebootRequired(
 		collector.DefaultRebootRequiredPath, collector.DefaultRebootRequiredPkgsPath)
 
+	// Best-effort only: CollectPublicIPs cannot fail/error by design, so it
+	// can never short-circuit the rest of collection the way the collectors
+	// above do on their first error.
+	pubIPCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	publicIPv4, publicIPv6 := collector.CollectPublicIPs(pubIPCtx)
+
 	return collector.Snapshot{
 		SchemaVersion:    collector.SchemaVersion,
 		CollectedAt:      time.Now().UTC().Format(time.RFC3339),
@@ -78,5 +86,7 @@ func collectSnapshot() (collector.Snapshot, error) {
 		ListeningSockets: sockets,
 		RebootRequired:   rebootRequired,
 		RebootPackages:   rebootPkgs,
+		PublicIPv4:       publicIPv4,
+		PublicIPv6:       publicIPv6,
 	}, nil
 }

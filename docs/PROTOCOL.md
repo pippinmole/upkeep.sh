@@ -52,9 +52,21 @@ Content-Type: application/json
       "pid": 1234, "process_name": "postgres" }
   ],
   "reboot_required": false,
-  "reboot_required_packages": []
+  "reboot_required_packages": [],
+  "public_ipv4": "203.0.113.7",
+  "public_ipv6": "2001:db8::1"
 }
 ```
+
+`public_ipv4` / `public_ipv6` are the agent's own best-effort belief about
+its public address(es) (looked up via an outbound-only call to ipify, the
+agent's only third-party network call). Either or both may be omitted when
+unavailable (no route for that family, DNS failure, lookup timeout) — this
+is normal and never fails the push. This is **separate** from the
+server-observed `source_ip` recorded from the push connection itself (see
+`clientIP()` below): the agent's belief about its own address and what the
+server actually saw connect can legitimately differ (extra NAT hops,
+asymmetric routing), and the two serve different purposes.
 
 → `202 Accepted` on success.
 

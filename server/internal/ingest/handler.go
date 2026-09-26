@@ -115,6 +115,8 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		RebootRequired: payload.RebootRequired,
 		RebootPackages: payload.RebootPackages,
 		SourceIP:       clientIP(r),
+		PublicIPv4:     payload.PublicIPv4,
+		PublicIPv6:     payload.PublicIPv6,
 	}
 	for _, p := range payload.Packages {
 		in.Packages = append(in.Packages, store.PackageInput{Name: p.Name, Version: p.Version, Arch: p.Arch})

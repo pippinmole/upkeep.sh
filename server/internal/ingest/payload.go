@@ -7,13 +7,19 @@ package ingest
 // the agent's collector.Snapshot; a mismatch should only ever be additive
 // fields, gated by schema_version.
 type SnapshotPayload struct {
-	SchemaVersion    int              `json:"schema_version"`
-	CollectedAt      string           `json:"collected_at"`
-	OS               OSRelease        `json:"os"`
-	Packages         []Package        `json:"packages"`
-	ListeningSockets []Socket         `json:"listening_sockets"`
-	RebootRequired   bool             `json:"reboot_required"`
-	RebootPackages   []string         `json:"reboot_required_packages,omitempty"`
+	SchemaVersion    int       `json:"schema_version"`
+	CollectedAt      string    `json:"collected_at"`
+	OS               OSRelease `json:"os"`
+	Packages         []Package `json:"packages"`
+	ListeningSockets []Socket  `json:"listening_sockets"`
+	RebootRequired   bool      `json:"reboot_required"`
+	RebootPackages   []string  `json:"reboot_required_packages,omitempty"`
+
+	// PublicIPv4 / PublicIPv6 are agent-self-reported, best-effort values —
+	// distinct from the server-observed source_ip (see clientIP() in
+	// handler.go). Either may be empty/absent.
+	PublicIPv4 string `json:"public_ipv4,omitempty"`
+	PublicIPv6 string `json:"public_ipv6,omitempty"`
 }
 
 type OSRelease struct {
