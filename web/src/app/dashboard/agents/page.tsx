@@ -1,5 +1,6 @@
 import { Server } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -50,9 +51,8 @@ export default async function AgentsPage() {
             <div>
               <h2 className="font-semibold">No agents registered yet</h2>
               <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-                Register your first agent to start monitoring a host. You'll
-                get a one-time token and a docker command to run on that
-                machine.
+                Register your first agent to start monitoring a host. You'll get a one-time token
+                and a docker command to run on that machine.
               </p>
             </div>
             <RegisterAgentDialog serverUrl={serverUrl} />
@@ -74,11 +74,11 @@ export default async function AgentsPage() {
                 {hosts.map((host) => (
                   <TableRow key={host.id}>
                     <TableCell className="font-medium">
-                      {host.hostname}
+                      <Link href={`/dashboard/hosts/${host.id}`} className="hover:underline">
+                        {host.hostname}
+                      </Link>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {host.label ?? "—"}
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{host.label ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground font-mono text-xs">
                       {host.publicIpv4 || host.publicIpv6 ? (
                         <div className="flex flex-col gap-0.5">
@@ -94,9 +94,7 @@ export default async function AgentsPage() {
                     </TableCell>
                     <TableCell>
                       {host.openFindings > 0 ? (
-                        <Badge variant="destructive">
-                          {host.openFindings}
-                        </Badge>
+                        <Badge variant="destructive">{host.openFindings}</Badge>
                       ) : (
                         <Badge variant="secondary">0</Badge>
                       )}

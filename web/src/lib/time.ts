@@ -28,3 +28,32 @@ export function relativeTime(iso: string | null): string {
   const years = Math.floor(months / 12);
   return `${years}y ago`;
 }
+
+// Absolute timestamp for tables. Rendered on the server, so the time zone
+// is pinned to UTC and labelled rather than guessing the viewer's.
+const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const dateFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : `${dateTimeFmt.format(d)} UTC`;
+}
+
+export function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : dateFmt.format(d);
+}

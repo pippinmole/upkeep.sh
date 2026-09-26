@@ -141,24 +141,31 @@ inventories.
 Design: [DOMAIN_MODEL.md §3](DOMAIN_MODEL.md#3-packages-in-the-dashboard).
 Direct Postgres reads from Server Components, filters in URL search
 params, no new Go endpoints.
-- [ ] Host detail shell `/dashboard/hosts/[hostId]` (header: OS, last
-      seen, reboot/vuln/KEV pills; link tabs).
-- [ ] Packages tab: searchable/filterable per-host inventory — installed
-      vs fixed version, status, top severity, installed-since; row sheet
-      with the package's CVEs; `?at=<date>` point-in-time view.
+- [x] Host detail shell `/dashboard/hosts/[hostId]` (header: OS, last
+      seen, reboot pill, collector-health alerts; link tabs).
+- [ ] Host header vuln/KEV pills — needs P1b.
+- [x] Packages tab: searchable/filterable per-host inventory,
+      installed-since, `?at=<date>` point-in-time view.
+- [ ] Packages tab P1b columns: installed vs fixed version, status, top
+      severity; row sheet with the package's CVEs.
 - [ ] Vulnerabilities tab (replaces the old "findings list/detail page"
       item — currently only a count on the host list), with resolved
       history toggle.
-- [ ] History tab: installed/upgraded/downgraded/removed per snapshot,
-      with "fixed N CVEs" per change (backed by a derived
-      `host_software_changes` table written by ingest).
+- [x] History tab: installed/removed/"changed" per range boundary, paired
+      on read by (ecosystem, name, arch).
+- [ ] History tab: upgraded vs downgraded (via `debversion`) and "fixed N
+      CVEs" per change (backed by a derived `host_software_changes` table
+      written by ingest).
 - [ ] Fleet `/dashboard/vulnerabilities` + `/dashboard/vulnerabilities/[vulnKey]`
       (affected hosts, "previously affected" from inventory history).
-- [ ] Fleet `/dashboard/packages` + `/dashboard/packages/[name]` ("which
-      hosts have package X, at which versions").
+- [x] Fleet `/dashboard/packages` + `/dashboard/packages/[name]` ("which
+      hosts have package X, at which versions", previously installed).
 - [ ] Overview page stat cards (currently a placeholder).
-- [ ] shadcn components needed: `tabs`, `select`/faceted filter,
-      pagination.
+- [x] shadcn components: `select`, `pagination` (host tabs are link tabs,
+      so `tabs` wasn't needed).
+- [ ] Index `host_software (software_id) WHERE removed_at IS NOT NULL`
+      for "previously installed/affected" fleet queries.
+- [ ] 24 pre-existing files fail `oxfmt --check` (ui/*, nav-*, providers).
 
 ### Phase 1 remainder — exposure + alerting
 - [ ] External port-exposure scanner: scan only an IP verified as an

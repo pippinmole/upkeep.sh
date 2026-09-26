@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Server, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Package, Server, ShieldCheck } from "lucide-react";
 import * as React from "react";
 
 import { NavGroup } from "@/components/layout/nav-group";
@@ -20,7 +20,11 @@ export const navGroups: NavGroupType[] = [
     title: "General",
     items: [
       { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
+      // Host list; renamed to "Hosts" (/dashboard/hosts) with the
+      // agent/host split (DOMAIN_MODEL.md §3.1, §4). "Vulnerabilities"
+      // joins this group when P1b's pages exist.
       { title: "Agents", url: "/dashboard/agents", icon: Server },
+      { title: "Packages", url: "/dashboard/packages", icon: Package },
     ],
   },
 ];
@@ -39,9 +43,7 @@ export function AppSidebar({ user, ...props }: Props) {
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate font-semibold">upkeep.sh</span>
-            <span className="text-muted-foreground truncate text-xs">
-              Monitoring
-            </span>
+            <span className="text-muted-foreground truncate text-xs">Monitoring</span>
           </div>
         </div>
       </SidebarHeader>
