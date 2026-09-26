@@ -54,9 +54,9 @@ services:
       - api
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?e.g. https://api.yourdomain.com}
-      AUTH_SECRET: ${AUTH_SECRET:?generate with: openssl rand -base64 32}
-      NEXTAUTH_URL: ${PUBLIC_WEB_URL:?e.g. https://yourdomain.com}
+      NEXT_PUBLIC_API_URL: "${PUBLIC_API_URL:?e.g. https://api.yourdomain.com}"
+      AUTH_SECRET: "${AUTH_SECRET:?generate with 'openssl rand -base64 32'}"
+      NEXTAUTH_URL: "${PUBLIC_WEB_URL:?e.g. https://yourdomain.com}"
     expose:
       - "3000"
     # In Dokploy, point your primary domain at this service (port 3000).
