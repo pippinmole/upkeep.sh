@@ -57,6 +57,10 @@ services:
       NEXT_PUBLIC_API_URL: "${PUBLIC_API_URL:?e.g. https://api.yourdomain.com}"
       AUTH_SECRET: "${AUTH_SECRET:?generate with 'openssl rand -base64 32'}"
       NEXTAUTH_URL: "${PUBLIC_WEB_URL:?e.g. https://yourdomain.com}"
+      # Only set AUTH_TRUST_HOST=true if the host Auth.js sees doesn't
+      # match PUBLIC_WEB_URL (e.g. a reverse proxy not forwarding the
+      # original Host header). Leave unset/false otherwise.
+      AUTH_TRUST_HOST: "${AUTH_TRUST_HOST:-false}"
     expose:
       - "3000"
     # In Dokploy, point your primary domain at this service (port 3000).
