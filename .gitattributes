@@ -1,0 +1,4 @@
+# Shell scripts must check out with LF regardless of the cloning machine's
+# git config — CRLF line endings break bash on macOS/Linux (e.g. a CRLF
+# shebang line, or `$'\r': command not found` from a stray \r on ARGV).
+*.sh text eol=lf
