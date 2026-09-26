@@ -1,7 +1,9 @@
 # Domain model, package inventory and vulnerability matching
 
-Design doc, 2026-09-26. Status: **proposal**, not yet implemented. Nothing
-here has been migrated or coded. Where this doc and the code disagree, the
+Design doc, 2026-09-26. Status: **proposal**, partly implemented: P1a
+(inventory history, §2.2) is built, and the differences are listed under
+"As implemented" in §2.2. The rest has not been migrated or coded.
+Where this doc and the code disagree, the
 code is the truth about *today*, and this doc is the plan. Open questions
 for the user are collected in [section 6](#6-open-questions); anything
 marked **(judgment call)** in the body is also listed there.
@@ -199,6 +201,42 @@ Details:
   existing `snapshot_packages` history by replaying snapshots in order, then
   stop writing it and drop it in a later migration. Keeping raw per-snapshot
   package rows for N days as a debugging aid is optional (open question Q6).
+
+**As implemented (P1a, migration `0003_inventory_history`)**, where it
+differs from the sketch above:
+
+- **Per-ecosystem hashes, not one per host.** Package sources succeed or
+  fail independently (PROTOCOL.md `collectors`), so a single host-level
+  hash can't say which part of the inventory it describes. Instead of
+  `hosts.current_package_set_hash` there is
+  `host_inventory_state (host_id, ecosystem, package_set_hash,
+  confirmed_at, confirmed_snapshot_id, changed_at)`, which also provides
+  the per-source "last confirmed" time mentioned above.
+  `snapshots.package_set_hashes jsonb` is `{"deb": "<sha256>"}` for the
+  ecosystems that were authoritative in that push.
+- **Hash** = SHA-256 over a versioned, NUL-separated encoding of
+  `(ecosystem, distro, release)` and the sorted, de-duplicated
+  `(name, version, arch, source, source_version, source_inferred)` items
+  (`server/internal/inventory`).
+- **Source is not part of the interned key.** `software_versions` is
+  unique on `(ecosystem, distro, release, name, version, arch)`. Older
+  agents (and the backfill) send no source, so it is inferred as the
+  binary name/version with `source_inferred = true`; the first real
+  source reported for that version replaces it and resets the matcher
+  columns. Keying on source would close and reopen every range the day an
+  agent is upgraded.
+- **Distro-scoped ecosystems** (`deb` today) take `distro`/`release` from
+  `os.id`/`os.codename` and are only diffed when the OS is known (the `os`
+  collector is ok). Other ecosystems use `''`.
+- **Ordering**: the host row is locked (`FOR NO KEY UPDATE`) at the start
+  of the snapshot transaction. A push whose boundary is not strictly newer
+  than `confirmed_at` for that ecosystem is stored but not diffed. The
+  boundary is `collected_at` clamped to the server's clock.
+- **Backfill** is set-based SQL in the migration (gaps and islands over
+  the authoritative legacy snapshots), leaving `package_set_hash` NULL so
+  the first live push runs one full diff.
+- **`snapshot_packages` is still written** (deb rows only) until Q6 is
+  decided.
 
 Rough sizing: 100 hosts × 1,500 packages is 150k open rows. Churn is maybe
 20 to 200 rows per host per week of routine `apt upgrade`. That is
@@ -942,8 +980,8 @@ CREATE UNIQUE INDEX agent_hosts_one_local_idx ON agent_hosts (agent_id) WHERE mo
 ALTER TABLE snapshots
     ADD COLUMN agent_id          uuid REFERENCES agents(id) ON DELETE SET NULL,
     ADD COLUMN uptime_seconds    bigint,
-    ADD COLUMN package_set_hash  bytea,
-    ADD COLUMN collector_status  jsonb NOT NULL DEFAULT '{}',
+    -- package_set_hashes jsonb and collector_status jsonb (nullable) already
+    -- exist since P1a (migration 0003); see §2.2 "As implemented".
     ADD COLUMN facts             jsonb NOT NULL DEFAULT '{}';
 -- snapshots keeps its os_* columns as the per-push record; hosts.os_* is the current summary.
 

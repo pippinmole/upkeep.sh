@@ -133,6 +133,22 @@ nothing. Payloads without `collectors` come from older agents, which
 never pushed on a collector failure, so their sections are all
 authoritative.
 
+How the server applies this (`planInventory` in
+`server/internal/ingest/inventory.go`):
+
+- `packages` null or absent: no ecosystem is diffed.
+- With `collectors`: ecosystem `E` is diffed iff `E_packages` is `ok`,
+  even when no `E` packages are listed (then all its ranges close).
+  Packages of any other ecosystem are ignored for inventory.
+- Without `collectors` (older agents): a non-empty `packages` is an ok
+  `deb` source. An empty `packages` is **not** treated as authoritative,
+  since zero installed packages on a Debian-like host is implausible and
+  closing every range is the expensive mistake.
+- `deb` also needs a known OS (`os.id` set, and `collectors.os` ok when
+  present), because interned versions are scoped by distro and release.
+- A push not newer than the last applied inventory for that ecosystem
+  (by `collected_at`, clamped to server time) is stored but not diffed.
+
 A collector failure no longer aborts the push. Before the collectors
 block existed, a dpkg error meant no snapshot at all.
 
@@ -173,7 +189,10 @@ Auth: the bearer secret is verified in constant time
 no shared platform-wide credential — each host has its own scoped secret.
 
 The server keeps **every** historical snapshot (not an upsert) so drift
-and findings history stay auditable — see `store.InsertSnapshot`.
+and findings history stay auditable — see `store.InsertSnapshot`. Package
+inventory is additionally folded into validity ranges (`host_software`)
+in the same transaction; `snapshots.schema_version` stores the payload's
+value.
 
 `clientIP()` in `server/internal/ingest/handler.go` prefers
 `X-Forwarded-For` because production sits behind Dokploy/Coolify's
@@ -212,8 +231,8 @@ manually; a mismatch should only ever be an additive field.
 
 ## Not yet implemented
 
-- Snapshot processing is currently insert-only — see the `TODO(phase 1)`
-  in `handler.go`. Vulnerability matching and port-exposure evaluation
+- Beyond the inventory diff, snapshot processing is insert-only — see the
+  `TODO(phase 1)` in `handler.go`. Vulnerability matching and port-exposure evaluation
   are meant to be enqueued per snapshot once those workers exist, not run
   inline in the request handler.
 - No credential rotation endpoint yet (only initial enrollment).

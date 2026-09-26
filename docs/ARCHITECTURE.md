@@ -49,6 +49,7 @@ for the reasoning.
 | Table | Written by |
 |---|---|
 | `snapshots`, `snapshot_packages`, `listening_sockets` | Go (ingest) |
+| `software_versions`, `host_software`, `host_inventory_state` | Go (ingest diff) |
 | `vulnerabilities` | Go (OSV/KEV/EPSS sync worker — not yet built) |
 | `findings`, `alert_events` | Go (matching/alerting workers — not yet built) |
 | `users` | Next.js (signup) |
@@ -66,7 +67,7 @@ reasoning trail on this.
 
 ## Data model
 
-See `migrations/0001_init.up.sql` for the authoritative schema. Summary:
+See `migrations/` for the authoritative schema. Summary:
 
 - `users` → `hosts` (one user owns many hosts; no orgs/teams yet, see
   DECISIONS.md).
@@ -74,7 +75,14 @@ See `migrations/0001_init.up.sql` for the authoritative schema. Summary:
   `snapshots` (1:many, every historical snapshot kept — not upserted —
   so drift and findings history stay auditable).
 - `snapshots` → `snapshot_packages`, `listening_sockets` (facts for that
-  push).
+  push). `snapshots.collector_status` records each collector's outcome.
+- Package inventory history: `software_versions` (fleet-wide interned
+  versions, keyed by `ecosystem`) and `host_software` (per-host validity
+  ranges, `removed_at IS NULL` = current). Ingest diffs each push against
+  the open ranges per ecosystem, skipping the diff when the set hash in
+  `host_inventory_state` is unchanged (DOMAIN_MODEL.md §2.2).
+  `snapshot_packages` is the legacy per-push copy, still written pending
+  DOMAIN_MODEL.md Q6.
 - `vulnerabilities` — cached CVE data synced from OSV (Debian/Ubuntu
   ecosystems), enriched with CISA KEV and FIRST EPSS.
 - `hosts` → `findings` (kind: `vulnerable_package` | `public_port` |

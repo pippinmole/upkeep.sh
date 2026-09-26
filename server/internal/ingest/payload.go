@@ -7,9 +7,18 @@ package ingest
 // the agent's collector.Snapshot; a mismatch should only ever be additive
 // fields, gated by schema_version.
 type SnapshotPayload struct {
-	SchemaVersion    int       `json:"schema_version"`
-	CollectedAt      string    `json:"collected_at"`
-	OS               OSRelease `json:"os"`
+	SchemaVersion int       `json:"schema_version"`
+	CollectedAt   string    `json:"collected_at"`
+	Host          *Host     `json:"host"`
+	OS            OSRelease `json:"os"`
+
+	// Collectors is nil for agents that predate per-collector status; see
+	// planInventory for how such payloads are interpreted.
+	Collectors map[string]CollectorStatus `json:"collectors"`
+
+	// Packages is nil when the field is absent or null (no package source
+	// succeeded), and a non-nil empty slice for `[]`. The distinction
+	// matters: only the latter can be an authoritative "nothing installed".
 	Packages         []Package `json:"packages"`
 	ListeningSockets []Socket  `json:"listening_sockets"`
 	RebootRequired   bool      `json:"reboot_required"`
@@ -28,10 +37,41 @@ type OSRelease struct {
 	Codename  string `json:"codename"`
 }
 
+// Host is the snapshot's host block (added within schema_version 1).
+// Stored nowhere yet: host upsert by identity is Phase 1.5.
+type Host struct {
+	Ref      string       `json:"ref"`
+	OSFamily string       `json:"os_family"`
+	Hostname string       `json:"hostname"`
+	Identity HostIdentity `json:"identity"`
+}
+
+type HostIdentity struct {
+	MachineID string `json:"machine_id"`
+}
+
+// CollectorStatus is one entry of the collectors map.
+type CollectorStatus struct {
+	Status string `json:"status"` // "ok" | "error" | "skipped"
+	Error  string `json:"error,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+const (
+	CollectorStatusOK = "ok"
+	CollectorOS       = "os"
+)
+
+// Package is one installed package. Source, SourceVersion and Ecosystem
+// were added within schema_version 1; older agents omit them (see
+// defaultPackage).
 type Package struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Arch    string `json:"arch"`
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	Arch          string `json:"arch"`
+	Source        string `json:"source,omitempty"`
+	SourceVersion string `json:"source_version,omitempty"`
+	Ecosystem     string `json:"ecosystem,omitempty"`
 }
 
 type Socket struct {

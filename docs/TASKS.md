@@ -72,18 +72,29 @@ is a history model that doesn't copy ~1,500 rows per snapshot.
       `strings.Contains(status, "installed")` also matches
       `half-installed` / `not-installed`; test the third word of
       `Status:` instead.
-- [ ] Migration: `software_versions` (fleet-wide interned package
-      versions) + `host_software` (per-host `first_seen_at`/`removed_at`
-      validity ranges), `hosts.current_package_set_hash`,
-      `snapshots.package_set_hash`, `hosts(user_id)` index.
-- [ ] Ingest: diff reported packages against the host's open ranges
-      (skip entirely when the set hash is unchanged); never close ranges
-      when the package collector failed or the section is missing.
-- [ ] Backfill `host_software` by replaying existing `snapshot_packages`
-      in order, then stop writing `snapshot_packages` (drop in a later
-      migration — see DOMAIN_MODEL.md open question Q6).
-- [ ] Fix `store.InsertSnapshot` hardcoding `schema_version = 1` instead
+- [x] Migration `0003_inventory_history`: `software_versions`
+      (fleet-wide interned, key `(ecosystem, distro, release, name,
+      version, arch)`) + `host_software` validity ranges, per-(host,
+      ecosystem) `host_inventory_state` (set hash + last confirmed; replaces
+      the single `hosts.current_package_set_hash`),
+      `snapshots.package_set_hashes` + `snapshots.collector_status`,
+      `hosts(user_id)` index.
+- [x] Ingest: per-ecosystem diff against open ranges in the snapshot
+      transaction, host row locked; skipped entirely when the set hash is
+      unchanged; never closes ranges for an ecosystem whose collector isn't
+      `ok` or when `packages` is null/missing (rules for old agents in
+      PROTOCOL.md). `server/internal/inventory` + `ingest/inventory.go`.
+- [x] Backfill `host_software` by replaying existing `snapshot_packages`
+      in order (set-based SQL in migration 0003, idempotent).
+- [ ] Stop writing `snapshot_packages` and drop it in a later migration —
+      **waiting on DOMAIN_MODEL.md Q6** (retire vs keep N days). Ingest
+      still writes it (deb rows only); nothing in `web/` reads it.
+- [x] Fix `store.InsertSnapshot` hardcoding `schema_version = 1` instead
       of using the payload's value.
+- [ ] Agent-clock robustness: range boundaries use `collected_at`
+      (clamped to server time). A host clock that jumps *backwards* makes
+      pushes look stale (stored, not diffed) until it catches up; consider
+      falling back to `received_at` when that happens.
 
 ### Phase 1 remainder — vulnerability pipeline (P1b, the core value prop)
 Design: [DOMAIN_MODEL.md §2.3–2.6](DOMAIN_MODEL.md#23-advisory-source).
@@ -168,7 +179,8 @@ Today agent == host: enrollment creates a `hosts` row and the returned
 - [ ] Migration: `agents`, re-key `agent_credentials` to `agent_id`,
       `agent_hosts` (mode `local`/`ssh`/`winrm`, one local per agent),
       `host_identities`, `hosts.os_family` + current OS summary columns,
-      `snapshots.agent_id`/`collector_status`/`facts`/`uptime_seconds`.
+      `snapshots.agent_id`/`facts`/`uptime_seconds` (`collector_status`
+      already landed in P1a).
       Backfill with `agents.id = hosts.id` so deployed agents'
       `credentials.json` keeps working unchanged.
 - [ ] Enrollment creates an agent, not a host; host upserted on first push
@@ -195,11 +207,11 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       until decided.
 
 ### Cross-cutting gaps worth closing before real users
-- [ ] No automated tests anywhere yet. Highest-value first tests: dpkg
-      status parsing (incl. `Source:` forms and `half-installed`/
-      `not-installed`), dpkg version comparison (once written), the
-      inventory range diff, `/proc/net/tcp` parsing, and the ingest
-      handler's auth path.
+- [ ] Tests: dpkg status parsing, OS detection and the inventory range
+      diff / set hash / old-agent rules now have tests (server store tests
+      need `SW_TEST_DATABASE_URL`, otherwise skipped). Still missing: dpkg
+      version comparison (once written), `/proc/net/tcp` parsing, and the
+      ingest handler's auth path.
 - [ ] No CI pipeline (build/test/lint on push) configured.
 - [ ] No agent credential rotation endpoint — only initial enrollment.
 - [ ] No host management UI beyond "add" — can't rename, delete, or

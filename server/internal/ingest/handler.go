@@ -106,19 +106,59 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		collectedAt = time.Now().UTC()
 	}
 
+	in := buildSnapshotInput(payload, hostID, collectedAt, time.Now().UTC(), clientIP(r))
+
+	res, err := h.Store.InsertSnapshot(ctx, in)
+	if err != nil {
+		log.Printf("insert snapshot: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	for _, inv := range res.Inventory {
+		if inv.Outcome != store.InventoryUnchanged {
+			log.Printf("host %s: %s inventory %s (+%d -%d, %d new versions)",
+				hostID, inv.Ecosystem, inv.Outcome, inv.Added, inv.Removed, len(inv.NewSoftwareIDs))
+		}
+	}
+	_ = h.Store.TouchHostLastSeen(ctx, hostID, time.Now().UTC())
+
+	// TODO(phase 1): enqueue vuln matching + port-exposure check for this
+	// snapshot instead of doing it inline, once those workers exist.
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// buildSnapshotInput maps a decoded payload onto the store input, including
+// the inventory plan (which ecosystems are authoritative this push).
+func buildSnapshotInput(payload SnapshotPayload, hostID string, collectedAt, now time.Time, sourceIP string) store.SnapshotInput {
+	// Range boundaries use collected_at (agent clock), but never a time in
+	// the server's future: a push from a host whose clock runs ahead would
+	// otherwise make every later, correctly-timed push look stale.
+	inventoryAt := collectedAt
+	if inventoryAt.After(now) {
+		inventoryAt = now
+	}
+
 	in := store.SnapshotInput{
 		HostID:         hostID,
+		SchemaVersion:  payload.SchemaVersion,
 		CollectedAt:    collectedAt,
 		OSID:           payload.OS.ID,
 		OSVersionID:    payload.OS.VersionID,
 		OSCodename:     payload.OS.Codename,
 		RebootRequired: payload.RebootRequired,
 		RebootPackages: payload.RebootPackages,
-		SourceIP:       clientIP(r),
+		SourceIP:       sourceIP,
 		PublicIPv4:     payload.PublicIPv4,
 		PublicIPv6:     payload.PublicIPv6,
+		InventoryAt:    inventoryAt,
 	}
-	for _, p := range payload.Packages {
+	if payload.Collectors != nil {
+		if b, err := json.Marshal(payload.Collectors); err == nil {
+			in.CollectorStatus = b
+		}
+	}
+	for _, p := range legacyPackages(payload.Packages) {
 		in.Packages = append(in.Packages, store.PackageInput{Name: p.Name, Version: p.Version, Arch: p.Arch})
 	}
 	for _, s := range payload.ListeningSockets {
@@ -127,17 +167,12 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if _, err := h.Store.InsertSnapshot(ctx, in); err != nil {
-		log.Printf("insert snapshot: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+	sets, skipped := planInventory(payload)
+	in.Inventory = sets
+	for _, sk := range skipped {
+		log.Printf("host %s: %s inventory not diffed: %s", hostID, sk.Ecosystem, sk.Reason)
 	}
-	_ = h.Store.TouchHostLastSeen(ctx, hostID, time.Now().UTC())
-
-	// TODO(phase 1): enqueue vuln matching + port-exposure check for this
-	// snapshot instead of doing it inline, once those workers exist.
-
-	w.WriteHeader(http.StatusAccepted)
+	return in
 }
 
 // clientIP prefers X-Forwarded-For because production deploys sit behind
