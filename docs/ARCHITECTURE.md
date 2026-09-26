@@ -24,11 +24,20 @@
   collects facts only — no command execution, no inbound ports. CVE
   matching happens server-side so the agent stays small and auditable.
 
-- **`server/`** — Go. Today: agent enrollment (`POST /v1/enroll`) and
-  snapshot ingest (`POST /v1/snapshots`). Planned: background workers for
-  OSV/KEV/EPSS sync, vulnerability matching, external port-exposure
-  scanning, and alert dispatch (see [TASKS.md](TASKS.md)). This is
-  intentionally not a general CRUD API — see "Who owns what" below.
+- **`server/`** — Go, two binaries from one image:
+  - `cmd/api`: agent enrollment (`POST /v1/enroll`) and snapshot ingest
+    (`POST /v1/snapshots`). Intentionally not a general CRUD API — see
+    "Who owns what" below.
+  - `cmd/worker`: background jobs on [River](https://riverqueue.com)
+    (Postgres-backed queue, no Redis; DOMAIN_MODEL.md Q10). Today: OSV
+    Debian/Ubuntu advisory sync (hourly incremental, weekly full), CISA
+    KEV + FIRST EPSS (daily), and the `advisory_rematch` matcher trigger.
+    Planned: vulnerability matching, findings reconciliation, port-exposure
+    scanning, alert dispatch (see [TASKS.md](TASKS.md)). A separate process
+    so multi-minute feed imports (Ubuntu's OSV zip is ~800 MB) never
+    compete with ingest; `worker sync osv|kev|epss` runs one sync in the
+    foreground. River elects a leader for periodic scheduling and syncs are
+    unique jobs, so extra replicas are safe.
 
 - **`web/`** — Next.js (App Router) on Bun. Marketing page, Auth.js
   credentials auth (self-hosted, bcrypt, own `users` table), and the
@@ -50,7 +59,10 @@ for the reasoning.
 |---|---|
 | `snapshots`, `listening_sockets` | Go (ingest) |
 | `software_versions`, `host_software`, `host_inventory_state` | Go (ingest diff) |
-| `vulnerabilities` | Go (OSV/KEV/EPSS sync worker — not yet built) |
+| `distro_releases` | migrations (seed); flip `supported` to import a release |
+| `advisories`, `advisory_affected`, `advisory_changes`, `cves`, `feed_sync_state` | Go (worker: OSV/KEV/EPSS sync) |
+| `software_vulnerabilities` | Go (matcher — not yet built) |
+| `river_*` | Go (River job queue, worker process) |
 | `findings`, `alert_events` | Go (matching/alerting workers — not yet built) |
 | `users` | Next.js (signup) |
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
@@ -82,8 +94,19 @@ See `migrations/` for the authoritative schema. Summary:
   `host_inventory_state` is unchanged (DOMAIN_MODEL.md §2.2). The
   legacy per-push copy, `snapshot_packages`, was dropped in migration
   0004 (DOMAIN_MODEL.md Q6).
-- `vulnerabilities` — cached CVE data synced from OSV (Debian/Ubuntu
-  ecosystems), enriched with CISA KEV and FIRST EPSS.
+- Advisories (DOMAIN_MODEL.md §2.4, migration 0005): `advisories` (one
+  row per OSV record: DSA/DLA/DEBIAN-CVE, USN/LSN/UBUNTU-CVE, keyed
+  downstream by `vuln_key`), `advisory_affected` (per release codename +
+  source package + channel: fixed version or NULL = unfixed, distro
+  severity; `channel = 'ubuntu-pro'` marks ESM/Pro-only rows), only for
+  `distro_releases.supported` releases. `advisory_changes` is the matcher's
+  durable dirty set of (distro, release, source package). `cves` holds
+  per-CVE KEV/EPSS/CVSS. `feed_sync_state` holds cursors/ETags/stats per
+  feed. `software_vulnerabilities` (positive matches per interned version)
+  is filled by the matcher.
+- River's tables (`river_job`, `river_leader`, `river_queue`, ...) are
+  vendored as migration 0006 from `river migrate-get`, so golang-migrate
+  owns the whole schema.
 - `hosts` → `findings` (kind: `vulnerable_package` | `public_port` |
   `reboot_required`; deduplicated via `dedup_key`, tracked open/resolved).
 - `users` → `alert_rules` → `notification_channels`, and

@@ -108,22 +108,31 @@ inventories.
       non-digit runs) — backport suffixes like `~deb11u1`, `+deb12u1`,
       `ubuntu0.22.04.1`, `+esm1` must not be compared as semver/strings.
       Test against dpkg's own vectors. Postgres never compares versions.
-- [ ] Migration: replace `vulnerabilities` (its `id` PK can only hold one
-      package/release per CVE) with `distro_releases`, `advisories`,
-      `advisory_affected` (per source package + release codename, fixed
-      version or NULL = no fix), `cves` (KEV/EPSS/CVSS per CVE),
-      `feed_sync_state`, and `software_vulnerabilities` (positive matches
-      per interned package version). Repoint `findings.vulnerability_id`.
-- [ ] OSV sync worker: Debian + Ubuntu ecosystems (DSA/DLA/DEBIAN-CVE,
-      USN/UBUNTU-CVE — includes unfixed CVEs) → normalized advisory
-      tables, supported releases only; incremental hourly, full weekly.
-- [ ] CISA KEV + FIRST EPSS daily sync into `cves`.
-- [ ] Postgres-backed job queue (`SKIP LOCKED` or River — open question
-      Q10) for match/reconcile jobs.
+- [x] Migration `0005_advisories`: replaces `vulnerabilities` with
+      `distro_releases` (seeded, `supported` flag), `advisories`,
+      `advisory_affected` (per release + source package + `channel`
+      standard|ubuntu-pro), `advisory_changes` (matcher dirty set), `cves`,
+      `feed_sync_state`, `software_vulnerabilities` (empty).
+      `findings.vulnerability_id` → `findings.vuln_key text`.
+- [x] OSV sync worker (`server/cmd/worker`, `internal/osv`,
+      `internal/feeds`): Debian + Ubuntu top-level `all.zip` (per-release
+      zips are stale since 2024-10); hourly incremental via
+      `modified_id.csv` + ETag; full import weekly, on first run, or when
+      the supported set changes; changes recorded per (distro, release,
+      source) in `advisory_changes`.
+- [x] CISA KEV + FIRST EPSS daily sync into `cves` (KEV falls back to
+      CISA's GitHub `cisagov/kev-data` when cisa.gov returns 403).
+- [x] Postgres-backed job queue: River v0.47 (Q10 resolved), tables
+      vendored as migration `0006_river_queue`, separate worker process.
+- [ ] Faster full OSV sync: skip full parse of zip entries whose
+      `modified` matches the stored value (Ubuntu full import is
+      CPU-bound, ~3 min native / ~17 min in Docker Desktop).
 - [ ] Matcher: evaluate each `software_versions` row once (by source
       package + release + source version) → `software_vulnerabilities`.
       Triggers: new version interned at ingest; advisory change for a
-      (distro, release, source package); `matcher_version` bump.
+      (distro, release, source package), drained from `advisory_changes`
+      by the `advisory_rematch` job (no-op hook in `internal/jobs`);
+      `matcher_version` bump. API needs an insert-only River client.
 - [ ] Replace the `TODO(phase 1)` in `server/internal/ingest/handler.go`:
       enqueue diff/match/reconcile jobs, don't match inline.
 - [ ] Findings reconciliation → `findings` per (host, source package,

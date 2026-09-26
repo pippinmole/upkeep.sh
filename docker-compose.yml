@@ -46,6 +46,24 @@ services:
     # In Dokploy, point a domain at this service (port 8080) instead of
     # publishing a host port here.
 
+  # Background jobs on River (Postgres-backed queue): OSV advisory sync
+  # (hourly incremental, weekly full), CISA KEV + FIRST EPSS (daily), and
+  # the matcher trigger. Same image as api; no ports. Needs ~1 GB of free
+  # disk in /tmp during a full Ubuntu sync (the all.zip is streamed to disk,
+  # not memory). Safe to run more than one replica: River elects a leader
+  # for scheduling and syncs are unique jobs.
+  worker:
+    build:
+      context: ./server
+    entrypoint: ["/worker"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
+      SW_FEED_SYNC_ENABLED: ${SW_FEED_SYNC_ENABLED:-true}
+
   web:
     build:
       context: ./web

@@ -40,6 +40,23 @@ services:
     ports:
       - "8080:8080"
 
+  # Background jobs (River): OSV Debian/Ubuntu advisory sync, CISA KEV and
+  # FIRST EPSS. Same image as api, different entrypoint. The first start
+  # downloads ~870 MB of OSV data and takes a few minutes; set
+  # SW_FEED_SYNC_ENABLED=false in your shell to skip scheduled syncs (jobs
+  # can still be run by hand: `docker compose -f docker-compose.dev.yml
+  # run --rm worker sync osv Debian`).
+  worker:
+    build:
+      context: ./server
+    entrypoint: ["/worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable
+      SW_FEED_SYNC_ENABLED: ${SW_FEED_SYNC_ENABLED:-true}
+
   # `web` is intentionally NOT run here. Turbopack's file watcher does not
   # reliably see changes made to a Windows-path bind mount under Docker
   # Desktop — not even with next.config.ts's `watchOptions.pollIntervalMs`
