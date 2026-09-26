@@ -1,9 +1,11 @@
-import { AlertTriangle, ArrowLeft, RotateCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Cpu, RotateCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { collectorLabel, hostTitle, osLabel, requireHost } from "@/lib/host-page";
+import { getHostVulnSummary } from "@/lib/queries-vulns";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
 import { HostTabs } from "./host-tabs";
@@ -16,8 +18,10 @@ export default async function HostLayout({
   params: Promise<{ hostId: string }>;
 }) {
   const { hostId } = await params;
-  const { host } = await requireHost(hostId);
+  const { userId, host } = await requireHost(hostId);
+  const vulns = await getHostVulnSummary(userId, host.id);
   const snap = host.latestSnapshot;
+  const vulnHref = `/dashboard/hosts/${host.id}/vulnerabilities`;
   const os = osLabel(snap);
 
   // Surface every collector that didn't report ok in the latest push:
@@ -57,6 +61,47 @@ export default async function HostLayout({
               Reboot required
             </Badge>
           )}
+          {vulns.open > 0 ? (
+            <Link href={vulnHref} className="inline-flex items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className="gap-1"
+                title={`${vulns.open} open vulnerabilities; most severe: ${vulns.topSeverity}`}
+              >
+                <ShieldAlert className="size-3" />
+                {vulns.open} {vulns.open === 1 ? "vulnerability" : "vulnerabilities"}
+              </Badge>
+              {vulns.topSeverity && <SeverityBadge severity={vulns.topSeverity} />}
+              {vulns.kev > 0 && <KevBadge count={vulns.kev} />}
+            </Link>
+          ) : (
+            host.inventory.length > 0 && (
+              <Badge variant="outline" className="text-muted-foreground gap-1 font-normal">
+                <ShieldCheck className="size-3" />
+                No open vulnerabilities
+              </Badge>
+            )
+          )}
+          {snap &&
+            (host.runningKernel ? (
+              <Badge
+                variant="outline"
+                className="text-muted-foreground gap-1 font-mono font-normal"
+                title="Running kernel (uname -r) from the latest snapshot"
+              >
+                <Cpu className="size-3" />
+                {host.runningKernel}
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="text-muted-foreground gap-1 border-dashed font-normal"
+                title="The agent didn't report the running kernel (older agent, or the collector failed). Kernel vulnerabilities are raised for every installed kernel until it does."
+              >
+                <Cpu className="size-3" />
+                Running kernel unknown
+              </Badge>
+            ))}
         </div>
         <p className="text-muted-foreground mt-1 text-sm">
           Last seen{" "}
@@ -102,7 +147,7 @@ export default async function HostLayout({
         </p>
       )}
 
-      <HostTabs hostId={host.id} />
+      <HostTabs hostId={host.id} openVulns={vulns.open} />
       <div className="min-h-0 flex-1">{children}</div>
     </main>
   );

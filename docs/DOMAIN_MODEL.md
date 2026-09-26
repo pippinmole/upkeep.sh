@@ -699,6 +699,15 @@ host detail pages hang off `/dashboard/hosts/[hostId]`.
   scalars and finding counts. It returns 404 if the host is not owned by the
   user.
 
+**As implemented (P1c).** The header shows OS, last seen, reboot pill,
+open-vulnerability count with top severity, a KEV count pill, and the
+running kernel (newest snapshot by `collected_at`, as the
+`host_kernel_packages` view uses) or an explicit "Running kernel
+unknown". Counts come from `getHostVulnSummary` (open/resolved
+`vulnerable_package` findings, React-cached per request) rather than
+`getHost`. Tabs: Overview · Packages · Vulnerabilities (with count) ·
+History. `requireHost()` gates the layout and every tab page.
+
 ### 3.3 Per-host packages: `/dashboard/hosts/[hostId]/packages`
 
 Search params:
@@ -751,6 +760,24 @@ ORDER BY any_kev DESC NULLS LAST, max_epss DESC NULLS LAST, sv.name
 LIMIT 100 OFFSET $4;
 ```
 
+**As implemented (P1c).** Status comes from findings, not raw matches:
+open `host_software` rows join `host_package_vuln_status` on
+`(host_id, software_id)` (open findings, top severity, KEV / fixable /
+Pro-only / unfixed counts), plus a lateral count of
+`software_vulnerabilities` for the version ("known" matches). Status
+reads "Vulnerable (n)" with "n no fix yet · n fix requires Pro", or, for
+a kernel known not to be the running one, "Not the running kernel (n)"
+(informational). Params: `status` = `vulnerable` | `kev` | `no-fix`,
+`sort` = `severity` (default: top `severity_key`, then count, then
+name) | `name`. "Fixed in" is `software_versions.max_fixed_version`.
+Under `?at=` the findings join is off and status/filters use the
+version's matches against today's advisories (the banner says so).
+The row sheet is `?pkg=<software_id>`: honoured only if this host has
+(or had) that version in `host_software`, else 404; it lists
+`software_vulnerabilities` for the version with severity from this
+host's open finding (`$sid = ANY(software_ids)`), KEV/EPSS/CVSS, fix
+and advisory links.
+
 ### 3.4 Per-host change history: `/dashboard/hosts/[hostId]/history`
 
 Search params: `from`, `to` (default: last 30 days), `q`, `type` =
@@ -782,6 +809,16 @@ source of truth.
 A small "packages changed" sparkline on the host Overview tab can use the
 same table.
 
+**As implemented (P1c).** Computed on read, no `host_software_changes`
+table. Changes are paired per boundary as before; deb pairs are
+classified Upgraded / Downgraded with a TS port of dpkg ordering
+(`web/src/lib/debversion.ts`, verified against the Go package's dpkg
+vectors; unparseable versions and other ecosystems stay "Changed").
+"Security effect" is "Fixed N (k KEV)" / "Introduced N": the
+`software_vulnerabilities` set difference between the two versions, one
+query per page, labelled as today's advisory knowledge. No `type`/`from`/
+`to` filters yet; cursor paging by boundary.
+
 ### 3.5 Per-host vulnerabilities: `/dashboard/hosts/[hostId]/vulnerabilities`
 
 This is the existing TASKS item "findings list/detail page", now scoped per
@@ -797,6 +834,21 @@ host. There is one row per open finding, `(source package, vuln_key)`:
 
 There is a toggle for `status=resolved` (history: "fixed on 12 Sep by
 upgrading openssl").
+
+**As implemented (P1c).** One row per open finding
+`(source package, vuln_key)`, `ORDER BY severity_key DESC, vuln_key`;
+columns vulnerability (+ CVE description), severity badge + KEV + EPSS/
+CVSS/distro priority, source package + binaries, installed, fixed in
+(or "No fix yet" / "Fix requires Ubuntu Pro"), detected (reopened
+noted). `status=resolved` lists resolved findings by `resolved_at`.
+Filters `q`, `severity`, `kev=1`, `fix` = `available` | `pro` | `none`,
+`sort` = `severity` | `recent`. `?v=<vuln_key>` opens a sheet (404 if
+this host has no finding for it) with the `cves` row (description, KEV
+dates, EPSS, CVSS vector) and the finding's `advisories`. A kernel panel
+above the table lists `host_kernel_packages` grouped by kernel release
+(running / not running · info only / running state unknown), and
+explains that findings cover every installed kernel while the running
+kernel is unknown.
 
 ### 3.6 Fleet-wide views
 
@@ -845,6 +897,30 @@ to `cves`.
 
 Plus a "top 5 vulnerabilities by rank across fleet" table and "recent
 package changes across fleet".
+
+**As implemented (P1c).**
+- `/dashboard/vulnerabilities`: the user's findings grouped by
+  `vuln_key`: affected hosts (open), previously affected (resolved),
+  top severity, KEV, EPSS/CVSS, source packages, fix availability
+  (any standard fix / some Pro-only / some unfixed), first seen.
+  `status=resolved` shows "resolved everywhere" (no open finding left).
+  Same filters as the host tab plus `sort=hosts|recent`. The "Vulnerable
+  hosts" column on `/dashboard/packages` is not built.
+- `/dashboard/vulnerabilities/[vulnKey]` (key validated, 404 when no
+  `cves` row, advisory or finding of this user exists): CVE facts,
+  affected hosts (open findings), affected versions currently installed
+  on the user's hosts (`software_vulnerabilities` ⋈ open
+  `host_software` ⋈ the user's `hosts`; non-running kernels appear here
+  without a finding), previously affected (resolved findings; not yet
+  from inventory ranges), per-release fixes from `advisory_affected`
+  (capped at 200 rows) and all advisories
+  (`vuln_key = $1 OR cve_ids @> ARRAY[$1]`, so the GIN index is used).
+- Overview (`/dashboard`): hosts (not seen in 24h), open findings and
+  distinct vulns, KEV findings and hosts, reboot pending (newest
+  snapshot), findings by severity, fix available / Pro-only / no fix,
+  top 5 vulnerabilities. No "recent package changes" feed yet.
+- Severity colours live in one component
+  (`web/src/components/vuln/badges.tsx`).
 
 ### 3.7 Query and index notes
 

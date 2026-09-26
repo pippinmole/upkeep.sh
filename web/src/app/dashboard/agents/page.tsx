@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
+import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import {
   Table,
   TableBody,
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { auth } from "@/lib/auth";
 import { getHostsForUser } from "@/lib/queries";
+import { getHostsVulnCounts } from "@/lib/queries-vulns";
 import { relativeTime } from "@/lib/time";
 
 import { RegisterAgentDialog } from "./register-agent-dialog";
@@ -26,7 +28,10 @@ export default async function AgentsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const hosts = await getHostsForUser(session.user.id);
+  const [hosts, vulnCounts] = await Promise.all([
+    getHostsForUser(session.user.id),
+    getHostsVulnCounts(session.user.id),
+  ]);
 
   // Same source of truth the docker-compose.dev/prod stacks use to tell
   // the browser bundle where the API lives; the agent needs the same URL.
@@ -66,7 +71,7 @@ export default async function AgentsPage() {
                   <TableHead>Label</TableHead>
                   <TableHead>Public IP</TableHead>
                   <TableHead>Last seen</TableHead>
-                  <TableHead>Open findings</TableHead>
+                  <TableHead>Vulnerabilities</TableHead>
                   <TableHead className="text-right">Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -93,11 +98,11 @@ export default async function AgentsPage() {
                       {relativeTime(host.lastSeenAt)}
                     </TableCell>
                     <TableCell>
-                      {host.openFindings > 0 ? (
-                        <Badge variant="destructive">{host.openFindings}</Badge>
-                      ) : (
-                        <Badge variant="secondary">0</Badge>
-                      )}
+                      <VulnPills
+                        hostId={host.id}
+                        counts={vulnCounts.get(host.id)}
+                        otherFindings={host.openFindings - (vulnCounts.get(host.id)?.open ?? 0)}
+                      />
                     </TableCell>
                     <TableCell className="text-right">
                       {/* TODO: online/offline status needs more than a raw
@@ -115,5 +120,35 @@ export default async function AgentsPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function VulnPills({
+  hostId,
+  counts,
+  otherFindings,
+}: {
+  hostId: string;
+  counts: { open: number; kev: number; topSeverity: string | null } | undefined;
+  // Open findings of other kinds (ports, reboot) once those exist.
+  otherFindings: number;
+}) {
+  if (!counts || counts.open === 0) {
+    return (
+      <span className="text-muted-foreground text-sm">
+        0{otherFindings > 0 && ` · ${otherFindings} other findings`}
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={`/dashboard/hosts/${hostId}/vulnerabilities`}
+      className="inline-flex flex-wrap items-center gap-1"
+      title={`${counts.open} open vulnerabilities`}
+    >
+      <span className="mr-0.5 font-medium tabular-nums">{counts.open}</span>
+      {counts.topSeverity && <SeverityBadge severity={counts.topSeverity} />}
+      {counts.kev > 0 && <KevBadge count={counts.kev} />}
+    </Link>
   );
 }

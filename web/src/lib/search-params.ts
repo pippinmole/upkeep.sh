@@ -58,3 +58,14 @@ export function withParams(
   const qs = out.toString();
   return qs ? `?${qs}` : "";
 }
+
+// An enum-valued param: the value if it's one of `allowed`, else null
+// (so unknown values fall back to the default rather than erroring).
+export function oneOf<T extends string>(
+  sp: SearchParams,
+  key: string,
+  allowed: readonly T[],
+): T | null {
+  const v = filterParam(sp, key);
+  return v !== null && (allowed as readonly string[]).includes(v) ? (v as T) : null;
+}

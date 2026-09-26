@@ -1,6 +1,7 @@
-import { History } from "lucide-react";
+import { History, Info } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 
 import { FilterBar } from "@/components/inventory/filter-bar";
 import { Pager } from "@/components/inventory/pager";
@@ -14,10 +15,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FixCell, KevBadge, ScoreLine, SeverityBadge } from "@/components/vuln/badges";
+import { AdvisoryLinks, vulnHref } from "@/components/vuln/links";
+import { UrlSheet } from "@/components/vuln/url-sheet";
 import { hostTitle, requireHost } from "@/lib/host-page";
-import { getHostEcosystems, getHostPackages, type HostPackageRow } from "@/lib/queries-inventory";
+import {
+  getHostEcosystems,
+  getHostPackages,
+  type HostPackageRow,
+  type PackageStatusFilter,
+} from "@/lib/queries-inventory";
+import { getPackageVulns, type PackageVulnSheet } from "@/lib/queries-vulns";
 import {
   filterParam,
+  oneOf,
   pageParam,
   param,
   parseAt,
@@ -35,9 +46,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   return { title: `Packages · ${hostTitle(host)}` };
 }
 
-// Column definitions. Adding a column (P1b: Status, Top severity, Fixed
-// in) is one entry here plus the matching field on HostPackageRow; the
-// table markup below doesn't change.
+// Column definitions. Adding a column is one entry here plus the matching
+// field on HostPackageRow; the table markup below doesn't change.
 type Column = {
   key: string;
   header: string;
@@ -45,7 +55,11 @@ type Column = {
   cell: (r: HostPackageRow) => React.ReactNode;
 };
 
-function columns(opts: { pointInTime: boolean }): Column[] {
+function columns(opts: {
+  pointInTime: boolean;
+  runningKernel: string | null;
+  sheetHref: (softwareId: string) => string;
+}): Column[] {
   return [
     {
       key: "package",
@@ -84,9 +98,48 @@ function columns(opts: { pointInTime: boolean }): Column[] {
       className: "text-muted-foreground",
       cell: (r) => r.arch || "—",
     },
-    // P1b: { key: "status", header: "Status", ... }
-    // P1b: { key: "severity", header: "Top severity", ... }
-    // P1b: { key: "fixed", header: "Fixed in", ... }
+    {
+      key: "status",
+      header: "Status",
+      cell: (r) => (
+        <StatusCell
+          r={r}
+          pointInTime={opts.pointInTime}
+          runningKernel={opts.runningKernel}
+          href={opts.sheetHref}
+        />
+      ),
+    },
+    {
+      key: "severity",
+      header: "Top severity",
+      cell: (r) =>
+        r.vuln.open > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            <SeverityBadge severity={r.vuln.topSeverity} />
+            {r.vuln.kev > 0 && <KevBadge count={r.vuln.kev > 1 ? r.vuln.kev : undefined} />}
+          </div>
+        ) : opts.pointInTime && r.known.kev > 0 ? (
+          <KevBadge count={r.known.kev > 1 ? r.known.kev : undefined} />
+        ) : null,
+    },
+    {
+      key: "fixed",
+      header: "Fixed in",
+      cell: (r) =>
+        r.vuln.open > 0 || r.known.total > 0 ? (
+          r.maxFixedVersion ? (
+            <span
+              className="font-mono text-xs"
+              title="Highest fixed version in the standard archive across this package's vulnerabilities: upgrading to it fixes every fixable one"
+            >
+              {r.maxFixedVersion}
+            </span>
+          ) : (
+            <span className="text-muted-foreground text-xs">no standard fix</span>
+          )
+        ) : null,
+    },
     {
       key: "ecosystem",
       header: "Ecosystem",
@@ -137,15 +190,25 @@ export default async function HostPackagesPage({
     q: param(sp, "q"),
     ecosystem: filterParam(sp, "ecosystem"),
     at,
+    status: oneOf<PackageStatusFilter>(sp, "status", ["vulnerable", "kev", "no-fix"]),
+    sort: oneOf(sp, "sort", ["severity", "name"] as const) ?? "severity",
     page: pageParam(sp),
     pageSize: PAGE_SIZE,
   };
-  const [{ rows, total }, ecosystems] = await Promise.all([
+  const pkgParam = param(sp, "pkg");
+  const [{ rows, total }, ecosystems, sheet] = await Promise.all([
     getHostPackages(userId, host.id, filters),
     getHostEcosystems(userId, host.id),
+    pkgParam ? getPackageVulns(userId, host.id, pkgParam) : null,
   ]);
-  const cols = columns({ pointInTime: at !== null });
+  // ?pkg= for a version this host never had (or another user's) is a 404.
+  if (pkgParam && !sheet) notFound();
   const basePath = `/dashboard/hosts/${host.id}/packages`;
+  const cols = columns({
+    pointInTime: at !== null,
+    runningKernel: host.runningKernel,
+    sheetHref: (id) => `${basePath}${withParams(sp, { pkg: id })}`,
+  });
   const firstRecorded = host.inventory.length
     ? null
     : "No package inventory has been recorded for this host yet.";
@@ -157,6 +220,27 @@ export default async function HostPackagesPage({
         q={filters.q}
         qPlaceholder="Filter by package or source…"
         ecosystem={{ value: filters.ecosystem, options: ecosystems }}
+        selects={[
+          {
+            name: "status",
+            label: "Vulnerability status",
+            value: filters.status,
+            allLabel: "All packages",
+            options: [
+              { value: "vulnerable", label: "Vulnerable only" },
+              { value: "kev", label: "Known exploited" },
+              { value: "no-fix", label: "With unfixed vulns" },
+            ],
+            className: "w-44",
+          },
+        ]}
+        sort={{
+          value: filters.sort,
+          options: [
+            { value: "severity", label: "Most urgent first" },
+            { value: "name", label: "Name" },
+          ],
+        }}
         at={{ value: at ? at.slice(0, 10) : null }}
       />
 
@@ -173,7 +257,8 @@ export default async function HostPackagesPage({
           <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
             <span>
               Inventory as of <strong>{formatDateTime(at)}</strong>: packages installed at that
-              moment, including ones removed since.
+              moment, including ones removed since. Vulnerability counts are those versions matched
+              against today&apos;s advisories.
             </span>
             <Link
               href={`${basePath}${withParams(sp, { at: null, page: null })}`}
@@ -199,9 +284,11 @@ export default async function HostPackagesPage({
               <TableRow>
                 <TableCell colSpan={cols.length} className="text-muted-foreground h-24 text-center">
                   {firstRecorded ??
-                    (at
-                      ? "No packages were recorded as installed at that time."
-                      : "No packages match these filters.")}
+                    (filters.status
+                      ? "No packages match this vulnerability filter."
+                      : at
+                        ? "No packages were recorded as installed at that time."
+                        : "No packages match these filters.")}
                 </TableCell>
               </TableRow>
             ) : (
@@ -225,6 +312,180 @@ export default async function HostPackagesPage({
         pageSize={PAGE_SIZE}
         total={total}
       />
+      {sheet && (
+        <PackageSheet
+          sheet={sheet}
+          closeHref={`${basePath}${withParams(sp, { pkg: null })}`}
+          runningKernel={host.runningKernel}
+        />
+      )}
     </div>
+  );
+}
+
+// A kernel package that is known not to be the running kernel: its
+// matches are informational (no findings). False while the running kernel
+// is unknown, since findings then cover every installed kernel.
+function isOtherKernel(kernelRelease: string | null, runningKernel: string | null): boolean {
+  return kernelRelease !== null && runningKernel !== null && kernelRelease !== runningKernel;
+}
+
+function StatusCell({
+  r,
+  pointInTime,
+  runningKernel,
+  href,
+}: {
+  r: HostPackageRow;
+  pointInTime: boolean;
+  runningKernel: string | null;
+  href: (softwareId: string) => string;
+}) {
+  const link = (children: React.ReactNode, title?: string) => (
+    <Link href={href(r.softwareId)} scroll={false} title={title} className="hover:underline">
+      {children}
+    </Link>
+  );
+  if (!pointInTime && r.vuln.open > 0) {
+    const details = [
+      r.vuln.unfixed > 0 && `${r.vuln.unfixed} no fix yet`,
+      r.vuln.proOnly > 0 && `${r.vuln.proOnly} fix requires Pro`,
+    ].filter(Boolean);
+    return (
+      <div className="flex flex-col">
+        {link(<span className="font-medium whitespace-nowrap">Vulnerable ({r.vuln.open})</span>)}
+        {details.length > 0 && (
+          <span className="text-muted-foreground text-xs whitespace-nowrap">
+            {details.join(" · ")}
+          </span>
+        )}
+      </div>
+    );
+  }
+  if (r.known.total > 0) {
+    // Point-in-time: today's matches for that version. Current view with
+    // matches but no open finding: a kernel that isn't the running one
+    // (Q7), or a finding not reconciled yet.
+    const otherKernel = isOtherKernel(r.kernelRelease, runningKernel);
+    const label = pointInTime
+      ? `${r.known.total} known ${r.known.total === 1 ? "vulnerability" : "vulnerabilities"}`
+      : otherKernel
+        ? `Not the running kernel (${r.known.total})`
+        : `${r.known.total} matched, no open finding`;
+    return link(
+      <span className="text-muted-foreground text-xs whitespace-nowrap">{label}</span>,
+      otherKernel && !pointInTime
+        ? "Informational: kernel vulnerabilities are raised only for the running kernel"
+        : undefined,
+    );
+  }
+  return <span className="text-muted-foreground text-xs">—</span>;
+}
+
+function PackageSheet({
+  sheet,
+  closeHref,
+  runningKernel,
+}: {
+  sheet: PackageVulnSheet;
+  closeHref: string;
+  runningKernel: string | null;
+}) {
+  const { pkg, vulns } = sheet;
+  const withFinding = vulns.filter((v) => v.hasFinding).length;
+  const otherKernel = isOtherKernel(pkg.kernelRelease, runningKernel);
+  let kernelNote: string | null = null;
+  if (pkg.kernelRelease) {
+    kernelNote =
+      runningKernel === null
+        ? "The running kernel is unknown, so this kernel's vulnerabilities are raised as findings like any installed kernel's."
+        : pkg.kernelRelease === runningKernel
+          ? "This is the running kernel."
+          : `Not the running kernel (${runningKernel}): these apply only if the host boots into ${pkg.kernelRelease}, so no findings are raised for them.`;
+  }
+
+  return (
+    <UrlSheet
+      key={pkg.softwareId}
+      closeHref={closeHref}
+      title={
+        <>
+          {pkg.name} <span className="font-mono text-sm font-normal">{pkg.version}</span>
+        </>
+      }
+      description={
+        <>
+          {pkg.arch && `${pkg.arch} · `}
+          {pkg.sourceName && pkg.sourceName !== pkg.name && `source ${pkg.sourceName} · `}
+          {vulns.length === 0
+            ? "no known vulnerabilities"
+            : `${vulns.length} known ${vulns.length === 1 ? "vulnerability" : "vulnerabilities"}, ${withFinding} open on this host`}
+          {!pkg.installed && " · no longer installed"}
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 text-sm">
+        {kernelNote && (
+          <Alert>
+            <Info className="size-4" />
+            <AlertDescription>{kernelNote}</AlertDescription>
+          </Alert>
+        )}
+        {pkg.maxFixedVersion && (
+          <p>
+            Upgrade to <span className="font-mono text-xs">{pkg.maxFixedVersion}</span> or later to
+            fix every vulnerability that has a standard-archive fix.
+          </p>
+        )}
+        {pkg.matchSource === null && vulns.length === 0 && (
+          <p className="text-muted-foreground">
+            This package isn&apos;t matched against advisories (not a deb from a supported release,
+            or a kernel metapackage/header package).
+          </p>
+        )}
+        <ul className="flex flex-col divide-y rounded-lg border">
+          {vulns.map((v) => (
+            <li key={v.vulnKey} className="flex flex-col gap-1 px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Link href={vulnHref(v.vulnKey)} className="font-medium hover:underline">
+                  {v.vulnKey}
+                </Link>
+                {v.hasFinding ? (
+                  <SeverityBadge severity={v.severity} />
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="text-muted-foreground font-normal"
+                    title={
+                      otherKernel
+                        ? "Not the running kernel: informational, no finding raised"
+                        : "No open finding on this host for this match"
+                    }
+                  >
+                    {otherKernel ? "info · not the running kernel" : "no open finding"}
+                  </Badge>
+                )}
+                {v.isKev && <KevBadge />}
+              </div>
+              {v.description && (
+                <p className="text-muted-foreground line-clamp-3 text-xs">{v.description}</p>
+              )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <ScoreLine
+                  epss={v.epssScore}
+                  cvss={v.cvssV3Score}
+                  distroSeverity={v.distroSeverity}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Fixed in</span>
+                <FixCell fixedVersion={v.fixedVersion} fixChannel={v.fixChannel} />
+              </div>
+              <AdvisoryLinks ids={v.advisoryIds} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </UrlSheet>
   );
 }

@@ -3,24 +3,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 // Link tabs (not Radix Tabs): each tab is its own route, so the URL, back
 // button and server rendering all work. Styled after shadcn's TabsList.
-export function HostTabs({ hostId }: { hostId: string }) {
+export function HostTabs({ hostId, openVulns }: { hostId: string; openVulns: number }) {
   const pathname = usePathname();
   const base = `/dashboard/hosts/${hostId}`;
   const tabs = [
     { href: base, label: "Overview", exact: true },
     { href: `${base}/packages`, label: "Packages" },
+    { href: `${base}/vulnerabilities`, label: "Vulnerabilities", count: openVulns },
     { href: `${base}/history`, label: "History" },
   ];
 
   return (
     <nav
       aria-label="Host sections"
-      className="bg-muted text-muted-foreground inline-flex h-9 w-fit items-center rounded-lg p-[3px]"
+      className="bg-muted text-muted-foreground inline-flex h-9 w-fit max-w-full items-center overflow-x-auto rounded-lg p-[3px]"
     >
       {tabs.map((t) => {
         const active = t.exact
@@ -37,22 +37,14 @@ export function HostTabs({ hostId }: { hostId: string }) {
             )}
           >
             {t.label}
+            {t.count ? (
+              <span className="bg-muted-foreground/15 ml-1.5 rounded px-1.5 text-xs tabular-nums">
+                {t.count}
+              </span>
+            ) : null}
           </Link>
         );
       })}
-      {/* Vulnerabilities tab: placeholder until vulnerability matching
-          (P1b) lands; becomes a Link to `${base}/vulnerabilities` then.
-          Deliberately not a link so there is no dead route. */}
-      <span
-        aria-disabled="true"
-        title="Available once vulnerability matching is enabled"
-        className="inline-flex h-full cursor-not-allowed items-center gap-1.5 rounded-md px-3 text-sm font-medium whitespace-nowrap opacity-60"
-      >
-        Vulnerabilities
-        <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
-          Soon
-        </Badge>
-      </span>
     </nav>
   );
 }

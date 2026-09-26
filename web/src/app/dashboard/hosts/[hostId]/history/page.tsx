@@ -11,8 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { compareDebVersions } from "@/lib/debversion";
 import { hostTitle, requireHost } from "@/lib/host-page";
 import { getHostHistory, type RangeEvent } from "@/lib/queries-inventory";
+import { type ChangeEffect, getChangeEffects } from "@/lib/queries-vulns";
 import { param, parseAt, type SearchParams } from "@/lib/search-params";
 import { formatDate, formatDateTime } from "@/lib/time";
 
@@ -29,11 +31,22 @@ type Change =
   | { kind: "installed"; e: RangeEvent }
   | { kind: "removed"; e: RangeEvent }
   // A range close + open of the same (ecosystem, name, arch) at the same
-  // boundary. Upgrade vs downgrade needs ecosystem version semantics
-  // (dpkg ordering for deb), which neither SQL nor this page implements,
-  // so it is shown as "changed". P1b's Go debversion package can classify
-  // it (see DOMAIN_MODEL.md §3.4).
-  | { kind: "changed"; from: RangeEvent; to: RangeEvent };
+  // boundary. Direction needs ecosystem version semantics: deb uses the
+  // dpkg ordering port in lib/debversion.ts (checked against the Go
+  // debversion package's dpkg vectors); other ecosystems, and versions
+  // dpkg rejects, stay "changed".
+  | { kind: "upgraded" | "downgraded" | "changed"; from: RangeEvent; to: RangeEvent };
+
+type PairKind = "upgraded" | "downgraded" | "changed";
+
+function direction(from: RangeEvent, to: RangeEvent): PairKind {
+  if (from.ecosystem !== "deb") return "changed";
+  const c = compareDebVersions(from.version, to.version);
+  return c === -1 ? "upgraded" : c === 1 ? "downgraded" : "changed";
+}
+
+const isPair = (c: Change): c is Extract<Change, { from: RangeEvent }> => "from" in c;
+const pairKey = (from: RangeEvent, to: RangeEvent) => `${from.softwareId}>${to.softwareId}`;
 
 function pairChanges(events: RangeEvent[]): Change[] {
   const groups = new Map<string, { opens: RangeEvent[]; closes: RangeEvent[] }>();
@@ -49,13 +62,15 @@ function pairChanges(events: RangeEvent[]): Change[] {
     // ecosystem allowing several versions of one name side by side) is
     // shown as the raw installs/removals.
     if (g.opens.length === 1 && g.closes.length === 1) {
-      out.push({ kind: "changed", from: g.closes[0], to: g.opens[0] });
+      const from = g.closes[0];
+      const to = g.opens[0];
+      out.push({ kind: direction(from, to), from, to });
     } else {
       for (const e of g.closes) out.push({ kind: "removed", e });
       for (const e of g.opens) out.push({ kind: "installed", e });
     }
   }
-  const name = (c: Change) => (c.kind === "changed" ? c.to : c.e);
+  const name = (c: Change) => (isPair(c) ? c.to : c.e);
   return out.sort(
     (a, b) => name(a).name.localeCompare(name(b).name) || name(a).arch.localeCompare(name(b).arch),
   );
@@ -70,11 +85,43 @@ const KIND_BADGE: Record<Change["kind"], { label: string; className: string }> =
     label: "Removed",
     className: "border-red-500/40 text-red-700 dark:text-red-400",
   },
+  upgraded: {
+    label: "Upgraded",
+    className: "border-sky-500/40 text-sky-700 dark:text-sky-400",
+  },
+  downgraded: {
+    label: "Downgraded",
+    className: "border-amber-500/50 text-amber-700 dark:text-amber-400",
+  },
   changed: {
     label: "Changed",
     className: "border-sky-500/40 text-sky-700 dark:text-sky-400",
   },
 };
+
+// "Fixed 3 CVEs (1 KEV)" / "Introduced 1": set difference of today's
+// matches (software_vulnerabilities) between the two versions.
+function EffectCell({ effect }: { effect: ChangeEffect | undefined }) {
+  if (!effect || (effect.fixed === 0 && effect.introduced === 0)) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  return (
+    <div className="flex flex-col text-xs">
+      {effect.fixed > 0 && (
+        <span className="text-emerald-700 dark:text-emerald-400">
+          Fixed {effect.fixed} {effect.fixed === 1 ? "vulnerability" : "vulnerabilities"}
+          {effect.fixedKev > 0 && <strong> ({effect.fixedKev} KEV)</strong>}
+        </span>
+      )}
+      {effect.introduced > 0 && (
+        <span className="text-red-700 dark:text-red-400">
+          Introduced {effect.introduced}{" "}
+          {effect.introduced === 1 ? "vulnerability" : "vulnerabilities"}
+        </span>
+      )}
+    </div>
+  );
+}
 
 function PackageCell({ e }: { e: RangeEvent }) {
   return (
@@ -120,26 +167,36 @@ export default async function HostHistoryPage({
     );
   }
 
+  // Pair every boundary's changes up front so the security effect of all
+  // version changes on this page is one query.
+  const perBoundary = boundaries.map((b) => {
+    const baseline = new Set(b.baselineEcosystems);
+    const baselineCount = new Map<string, number>();
+    const rest: RangeEvent[] = [];
+    for (const e of b.events) {
+      if (e.kind === "open" && baseline.has(e.ecosystem)) {
+        baselineCount.set(e.ecosystem, (baselineCount.get(e.ecosystem) ?? 0) + 1);
+      } else {
+        rest.push(e);
+      }
+    }
+    return { b, baselineCount, changes: pairChanges(rest) };
+  });
+  const pairs = perBoundary.flatMap((x) =>
+    x.changes.filter(isPair).map((c) => ({ from: c.from.softwareId, to: c.to.softwareId })),
+  );
+  const effects = await getChangeEffects(userId, host.id, pairs);
+
   const days = boundaries.map((b) => formatDate(b.at));
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">
         Package changes per applied inventory, newest first. Times are the snapshot&apos;s
-        collection time.
+        collection time. Security effect compares the two versions against today&apos;s advisory
+        data, not what was known at the time.
       </p>
-      {boundaries.map((b, i) => {
-        const baseline = new Set(b.baselineEcosystems);
-        const baselineCount = new Map<string, number>();
-        const rest: RangeEvent[] = [];
-        for (const e of b.events) {
-          if (e.kind === "open" && baseline.has(e.ecosystem)) {
-            baselineCount.set(e.ecosystem, (baselineCount.get(e.ecosystem) ?? 0) + 1);
-          } else {
-            rest.push(e);
-          }
-        }
-        const changes = pairChanges(rest);
-        const counts = { installed: 0, removed: 0, changed: 0 };
+      {perBoundary.map(({ b, baselineCount, changes }, i) => {
+        const counts = { installed: 0, removed: 0, upgraded: 0, downgraded: 0, changed: 0 };
         for (const c of changes) counts[c.kind]++;
         const day = days[i];
         const showDay = i === 0 || day !== days[i - 1];
@@ -157,6 +214,8 @@ export default async function HostHistoryPage({
                         ([eco, n]) => `initial ${eco} inventory: ${n} packages`,
                       ),
                       counts.installed && `${counts.installed} installed`,
+                      counts.upgraded && `${counts.upgraded} upgraded`,
+                      counts.downgraded && `${counts.downgraded} downgraded`,
                       counts.changed && `${counts.changed} changed`,
                       counts.removed && `${counts.removed} removed`,
                     ]
@@ -179,12 +238,12 @@ export default async function HostHistoryPage({
                       <TableHead>Package</TableHead>
                       <TableHead>Version</TableHead>
                       <TableHead>Arch</TableHead>
-                      {/* P1b: "Security effect" (fixed / introduced CVEs) */}
+                      <TableHead>Security effect</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {changes.map((c) => {
-                      const e = c.kind === "changed" ? c.to : c.e;
+                      const e = isPair(c) ? c.to : c.e;
                       const badge = KIND_BADGE[c.kind];
                       return (
                         <TableRow key={`${c.kind}:${e.ecosystem}:${e.name}:${e.arch}:${e.version}`}>
@@ -197,7 +256,7 @@ export default async function HostHistoryPage({
                             <PackageCell e={e} />
                           </TableCell>
                           <TableCell className="font-mono text-xs">
-                            {c.kind === "changed" ? (
+                            {isPair(c) ? (
                               <>
                                 <span className="text-muted-foreground">{c.from.version}</span>
                                 {" → "}
@@ -212,6 +271,13 @@ export default async function HostHistoryPage({
                             )}
                           </TableCell>
                           <TableCell className="text-muted-foreground">{e.arch || "—"}</TableCell>
+                          <TableCell>
+                            {isPair(c) ? (
+                              <EffectCell effect={effects.get(pairKey(c.from, c.to))} />
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
                         </TableRow>
                       );
                     })}

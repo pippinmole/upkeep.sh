@@ -51,6 +51,10 @@ export type HostDetail = {
     // PROTOCOL.md `collectors`; null for agents that predate it.
     collectorStatus: Record<string, CollectorStatus> | null;
   } | null;
+  // Running kernel (`uname -r`) from the newest snapshot by collected_at,
+  // the same rule the matcher's running-kernel policy uses. Null = unknown
+  // (agent predates the kernel collector, or it failed).
+  runningKernel: string | null;
   inventory: {
     ecosystem: string;
     openPackages: number;
@@ -82,11 +86,12 @@ export const getHost = cache(async function getHost(
     reboot_required: boolean | null;
     reboot_packages: string[] | null;
     collector_status: Record<string, CollectorStatus> | null;
+    running_kernel: string | null;
   }>(
     `SELECT h.id, h.hostname, h.label, h.created_at, h.last_seen_at,
             s.id AS snapshot_id, s.collected_at, s.os_id, s.os_version_id,
             s.os_codename, s.reboot_required, s.reboot_packages,
-            s.collector_status
+            s.collector_status, rk.kernel_release AS running_kernel
      FROM hosts h
      LEFT JOIN LATERAL (
        SELECT * FROM snapshots s
@@ -94,6 +99,13 @@ export const getHost = cache(async function getHost(
        ORDER BY s.received_at DESC   -- snapshots_host_id_received_at_idx
        LIMIT 1
      ) s ON true
+     LEFT JOIN LATERAL (
+       -- As host_kernel_packages: newest by collected_at.
+       SELECT s2.kernel_release FROM snapshots s2
+       WHERE s2.host_id = h.id
+       ORDER BY s2.collected_at DESC   -- snapshots_host_collected_idx
+       LIMIT 1
+     ) rk ON true
      WHERE h.id = $2 AND h.user_id = $1`,
     [userId, hostId],
   );
@@ -138,6 +150,7 @@ export const getHost = cache(async function getHost(
             collectorStatus: r.collector_status,
           }
         : null,
+    runningKernel: r.running_kernel,
     inventory: inv.rows.map((i) => ({
       ecosystem: i.ecosystem,
       openPackages: Number(i.open_packages),
@@ -152,8 +165,8 @@ export const getHost = cache(async function getHost(
 // ---------------------------------------------------------------------------
 
 export type HostPackageRow = {
-  // software_versions.id: the join key P1b's software_vulnerabilities /
-  // max_fixed_version columns hang off.
+  // software_versions.id: the key for the row sheet (?pkg=) and the
+  // software_vulnerabilities / host_package_vuln_status joins.
   softwareId: string;
   ecosystem: string;
   name: string;
@@ -164,7 +177,28 @@ export type HostPackageRow = {
   sourceInferred: boolean;
   firstSeenAt: string;
   removedAt: string | null;
+  // Highest standard-archive fix over this version's matches
+  // (software_versions.max_fixed_version, written by the matcher).
+  maxFixedVersion: string | null;
+  // `uname -r` for kernel image/module binaries, else null.
+  kernelRelease: string | null;
+  // This host's open findings the binary contributes to
+  // (host_package_vuln_status). Current view only; zero under ?at=.
+  vuln: {
+    open: number;
+    topSeverity: string | null;
+    kev: number;
+    fixable: number;
+    proOnly: number;
+    unfixed: number;
+  };
+  // Matches for this version under today's advisory data
+  // (software_vulnerabilities), whether or not a finding was raised: the
+  // ?at= view's status, and non-running kernels' informational count.
+  known: { total: number; unfixed: number; kev: number };
 };
+
+export type PackageStatusFilter = "vulnerable" | "kev" | "no-fix";
 
 export type HostPackageFilters = {
   q: string | null; // substring of binary or source name, case-insensitive
@@ -172,6 +206,8 @@ export type HostPackageFilters = {
   // Point in time as an exact timestamptz string (see parseAt); null =
   // current (open ranges).
   at: string | null;
+  status: PackageStatusFilter | null;
+  sort: "severity" | "name";
   page: number; // 1-based
   pageSize: number;
 };
@@ -192,10 +228,15 @@ export async function getHostPackages(
       ? // $3 is NULL here; referenced only so its type is known.
         "hs.removed_at IS NULL AND $3::timestamptz IS NULL"
       : "hs.first_seen_at <= $3::timestamptz AND (hs.removed_at IS NULL OR hs.removed_at > $3::timestamptz)";
+  const orderBy =
+    f.sort === "name"
+      ? "r.name, r.arch, r.version"
+      : "r.top_severity_key DESC NULLS LAST, r.vuln_n DESC, r.name, r.arch, r.version";
 
-  // The inv CTE is the stable shape later columns join onto: P1b adds
-  // LEFT JOIN software_vulnerabilities / cves on inv.software_id and a
-  // severity sort without restructuring this query.
+  // Status filter / severity sort use open findings in the current view
+  // and today's matches (software_vulnerabilities) under ?at=, where
+  // findings (current state) don't apply. vs is reached only through inv,
+  // i.e. this user's host_software rows.
   const { rows } = await pool.query<{
     software_id: string;
     ecosystem: string;
@@ -207,6 +248,17 @@ export async function getHostPackages(
     source_inferred: boolean;
     first_seen_at: Date;
     removed_at: Date | null;
+    max_fixed_version: string | null;
+    kernel_release: string | null;
+    open_findings: string;
+    top_severity: string | null;
+    kev_count: string;
+    fixable_count: string;
+    pro_only_count: string;
+    unfixed_count: string;
+    known: string;
+    known_unfixed: string;
+    known_kev: string;
     total: string;
   }>(
     `WITH inv AS (
@@ -215,20 +267,52 @@ export async function getHostPackages(
        JOIN host_software hs ON hs.host_id = h.id
        WHERE h.id = $2 AND h.user_id = $1
          AND ${rangePredicate}
+     ),
+     r AS (
+       SELECT sv.id AS software_id, sv.ecosystem, sv.name, sv.version, sv.arch,
+              sv.source_name, sv.source_version, sv.source_inferred,
+              sv.max_fixed_version, sv.kernel_release,
+              inv.first_seen_at, inv.removed_at,
+              coalesce(vs.open_findings, 0) AS open_findings,
+              vs.top_severity, vs.top_severity_key,
+              coalesce(vs.kev_count, 0) AS kev_count,
+              coalesce(vs.fixable_count, 0) AS fixable_count,
+              coalesce(vs.pro_only_count, 0) AS pro_only_count,
+              coalesce(vs.unfixed_count, 0) AS unfixed_count,
+              k.known, k.known_unfixed, k.known_kev,
+              CASE WHEN $3::timestamptz IS NULL THEN coalesce(vs.open_findings, 0)
+                   ELSE k.known END AS vuln_n,
+              CASE WHEN $3::timestamptz IS NULL THEN coalesce(vs.kev_count, 0)
+                   ELSE k.known_kev END AS kev_n,
+              CASE WHEN $3::timestamptz IS NULL THEN coalesce(vs.unfixed_count, 0)
+                   ELSE k.known_unfixed END AS nofix_n
+       FROM inv
+       JOIN software_versions sv ON sv.id = inv.software_id
+       LEFT JOIN host_package_vuln_status vs
+         ON vs.host_id = $2 AND vs.software_id = inv.software_id
+        AND $3::timestamptz IS NULL
+       CROSS JOIN LATERAL (
+         SELECT count(*) AS known,
+                count(*) FILTER (WHERE sw.fixed_version IS NULL) AS known_unfixed,
+                count(*) FILTER (WHERE c.is_kev) AS known_kev
+         FROM software_vulnerabilities sw
+         LEFT JOIN cves c ON c.id = sw.vuln_key
+         WHERE sw.software_id = inv.software_id
+       ) k
+       WHERE ($4::text IS NULL OR sv.ecosystem = $4)
+         AND ($5::text IS NULL
+              OR strpos(lower(sv.name), lower($5)) > 0
+              OR strpos(lower(coalesce(sv.source_name, '')), lower($5)) > 0)
      )
-     SELECT sv.id AS software_id, sv.ecosystem, sv.name, sv.version, sv.arch,
-            sv.source_name, sv.source_version, sv.source_inferred,
-            inv.first_seen_at, inv.removed_at,
-            count(*) OVER () AS total
-     FROM inv
-     JOIN software_versions sv ON sv.id = inv.software_id
-     WHERE ($4::text IS NULL OR sv.ecosystem = $4)
-       AND ($5::text IS NULL
-            OR strpos(lower(sv.name), lower($5)) > 0
-            OR strpos(lower(coalesce(sv.source_name, '')), lower($5)) > 0)
-     ORDER BY sv.name, sv.arch, sv.version
+     SELECT r.*, count(*) OVER () AS total
+     FROM r
+     WHERE ($8::text IS NULL
+            OR ($8 = 'vulnerable' AND r.vuln_n > 0)
+            OR ($8 = 'kev' AND r.kev_n > 0)
+            OR ($8 = 'no-fix' AND r.nofix_n > 0))
+     ORDER BY ${orderBy}
      LIMIT $6 OFFSET $7`,
-    [userId, hostId, f.at, f.ecosystem, f.q, f.pageSize, (f.page - 1) * f.pageSize],
+    [userId, hostId, f.at, f.ecosystem, f.q, f.pageSize, (f.page - 1) * f.pageSize, f.status],
   );
   return {
     rows: rows.map((r) => ({
@@ -242,6 +326,21 @@ export async function getHostPackages(
       sourceInferred: r.source_inferred,
       firstSeenAt: r.first_seen_at.toISOString(),
       removedAt: r.removed_at?.toISOString() ?? null,
+      maxFixedVersion: r.max_fixed_version,
+      kernelRelease: r.kernel_release,
+      vuln: {
+        open: Number(r.open_findings),
+        topSeverity: r.top_severity,
+        kev: Number(r.kev_count),
+        fixable: Number(r.fixable_count),
+        proOnly: Number(r.pro_only_count),
+        unfixed: Number(r.unfixed_count),
+      },
+      known: {
+        total: Number(r.known),
+        unfixed: Number(r.known_unfixed),
+        kev: Number(r.known_kev),
+      },
     })),
     total: rows[0] ? Number(rows[0].total) : 0,
   };
@@ -267,6 +366,7 @@ export async function getHostEcosystems(userId: string, hostId: string): Promise
 
 export type RangeEvent = {
   kind: "open" | "close";
+  softwareId: string;
   at: string; // exact UTC range boundary (collected_at, clamped); see utcKey
   snapshotId: string | null;
   ecosystem: string;
@@ -326,6 +426,7 @@ export async function getHostHistory(
   //    first-ever open time (to recognise the baseline inventory).
   const ev = await pool.query<{
     kind: "open" | "close";
+    software_id: string;
     at: string;
     snapshot_id: string | null;
     ecosystem: string;
@@ -335,7 +436,7 @@ export async function getHostHistory(
     source_name: string | null;
   }>(
     `WITH owned AS (SELECT id FROM hosts WHERE id = $2 AND user_id = $1)
-     SELECT 'open' AS kind, ${utcKey("hs.first_seen_at")} AS at,
+     SELECT 'open' AS kind, hs.software_id, ${utcKey("hs.first_seen_at")} AS at,
             hs.first_seen_snapshot_id AS snapshot_id,
             sv.ecosystem, sv.name, sv.version, sv.arch, sv.source_name
      FROM host_software hs
@@ -343,7 +444,7 @@ export async function getHostHistory(
      JOIN software_versions sv ON sv.id = hs.software_id
      WHERE hs.first_seen_at BETWEEN $3::timestamptz AND $4::timestamptz
      UNION ALL
-     SELECT 'close', ${utcKey("hs.removed_at")}, hs.removed_snapshot_id,
+     SELECT 'close', hs.software_id, ${utcKey("hs.removed_at")}, hs.removed_snapshot_id,
             sv.ecosystem, sv.name, sv.version, sv.arch, sv.source_name
      FROM host_software hs
      JOIN owned ON hs.host_id = owned.id
@@ -367,6 +468,7 @@ export async function getHostHistory(
   for (const e of ev.rows) {
     byAt.get(e.at)?.push({
       kind: e.kind,
+      softwareId: e.software_id,
       at: e.at,
       snapshotId: e.snapshot_id,
       ecosystem: e.ecosystem,
