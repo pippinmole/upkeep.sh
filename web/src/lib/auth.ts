@@ -23,9 +23,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: string;
           email: string;
           password_hash: string;
-        }>("SELECT id, email, password_hash FROM users WHERE email = $1", [
-          email.toLowerCase(),
-        ]);
+        }>("SELECT id, email, password_hash FROM users WHERE email = $1", [email.toLowerCase()]);
         const user = rows[0];
         if (!user) return null;
 

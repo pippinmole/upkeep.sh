@@ -29,10 +29,7 @@ export default function LoginPage() {
           required
           className="rounded border px-3 py-2"
         />
-        <button
-          type="submit"
-          className="rounded bg-black px-3 py-2 text-white"
-        >
+        <button type="submit" className="rounded bg-black px-3 py-2 text-white">
           Sign in
         </button>
       </form>

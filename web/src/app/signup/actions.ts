@@ -6,7 +6,9 @@ import { pool } from "@/lib/db";
 import { signIn } from "@/lib/auth";
 
 export async function signUp(formData: FormData) {
-  const email = String(formData.get("email") ?? "").toLowerCase().trim();
+  const email = String(formData.get("email") ?? "")
+    .toLowerCase()
+    .trim();
   const password = String(formData.get("password") ?? "");
   if (!email || password.length < 8) {
     throw new Error("email and an 8+ character password are required");
