@@ -1,4 +1,4 @@
-module github.com/icondesk/security-whatnot/server
+module github.com/pippinmole/upkeep.sh/server
 
 go 1.26.0
 

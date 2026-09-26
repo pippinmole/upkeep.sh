@@ -1,4 +1,4 @@
-module github.com/icondesk/security-whatnot/agent
+module github.com/pippinmole/upkeep.sh/agent
 
 go 1.25.0
 

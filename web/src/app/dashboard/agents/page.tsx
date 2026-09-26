@@ -1,4 +1,5 @@
 import { Server } from "lucide-react";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,10 @@ import { getHostsForUser } from "@/lib/queries";
 import { relativeTime } from "@/lib/time";
 
 import { RegisterAgentDialog } from "./register-agent-dialog";
+
+export const metadata: Metadata = {
+  title: "Agents",
+};
 
 export default async function AgentsPage() {
   const session = await auth();

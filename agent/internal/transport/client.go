@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/icondesk/security-whatnot/agent/internal/collector"
+	"github.com/pippinmole/upkeep.sh/agent/internal/collector"
 )
 
 type Client struct {

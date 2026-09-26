@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/icondesk/security-whatnot/agent/internal/collector"
-	"github.com/icondesk/security-whatnot/agent/internal/transport"
+	"github.com/pippinmole/upkeep.sh/agent/internal/collector"
+	"github.com/pippinmole/upkeep.sh/agent/internal/transport"
 )
 
 func envOr(key, fallback string) string {

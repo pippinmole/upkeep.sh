@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/icondesk/security-whatnot/agent/internal/transport"
+	"github.com/pippinmole/upkeep.sh/agent/internal/transport"
 )
 
 type storedCredentials struct {

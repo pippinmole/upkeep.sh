@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/icondesk/security-whatnot/server/internal/ingest"
-	"github.com/icondesk/security-whatnot/server/internal/store"
+	"github.com/pippinmole/upkeep.sh/server/internal/ingest"
+	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
 func envOr(key, fallback string) string {

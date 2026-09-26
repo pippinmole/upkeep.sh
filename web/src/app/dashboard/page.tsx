@@ -1,3 +1,9 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Dashboard",
+};
+
 export default function DashboardPage() {
   return (
     <main className="flex-1 px-4 py-10 sm:px-6">

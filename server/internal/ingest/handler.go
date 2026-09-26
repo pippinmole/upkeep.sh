@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/icondesk/security-whatnot/server/internal/authn"
-	"github.com/icondesk/security-whatnot/server/internal/store"
+	"github.com/pippinmole/upkeep.sh/server/internal/authn"
+	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
 type Handler struct {

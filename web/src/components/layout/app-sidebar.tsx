@@ -38,7 +38,7 @@ export function AppSidebar({ user, ...props }: Props) {
             <ShieldCheck className="size-4" />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate font-semibold">Security Whatnot</span>
+            <span className="truncate font-semibold">upkeep.sh</span>
             <span className="text-muted-foreground truncate text-xs">
               Monitoring
             </span>
