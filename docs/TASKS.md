@@ -103,7 +103,7 @@ Design: [DOMAIN_MODEL.md §2.3–2.6](DOMAIN_MODEL.md#23-advisory-source).
 Matching is server-side against the stored inventory (not per snapshot),
 so new advisories apply retroactively to current *and* historical
 inventories.
-- [ ] `server/internal/debversion`: real `dpkg --compare-versions`
+- [x] `server/internal/debversion`: real `dpkg --compare-versions`
       semantics in Go (epochs, `~` sorts before end-of-string, digit/
       non-digit runs) — backport suffixes like `~deb11u1`, `+deb12u1`,
       `ubuntu0.22.04.1`, `+esm1` must not be compared as semver/strings.
@@ -130,7 +130,7 @@ inventories.
       vuln), `dedup_key = pkg:<source>:<vuln_key>`, open/resolved
       lifecycle; runs only when a host's inventory or a version's matches
       change.
-- [ ] Severity-ranking function (single tested Go func): KEV, then EPSS,
+- [x] Severity-ranking function (single tested Go func): KEV, then EPSS,
       then distro priority/urgency, CVSS only as tiebreaker; "no fix yet"
       kept visible, not hidden.
 - [ ] Kernel source-name mapping (Ubuntu `linux-signed-*`/`linux-meta-*`
