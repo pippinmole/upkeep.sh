@@ -2,12 +2,12 @@
 # `output: "standalone"`, which traces only the deps actually used at
 # runtime into .next/standalone, instead of shipping full node_modules.
 
-FROM oven/bun:1-alpine AS deps
+FROM oven/bun:1.4.2-alpine AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-FROM oven/bun:1-alpine AS build
+FROM oven/bun:1.4.2-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -20,9 +20,9 @@ ENV AUTH_SECRET="build-time-placeholder-not-used-at-runtime"
 RUN bun run build
 
 # Runtime stays on plain node: Next.js's standalone output's server.js is
-# just a Node entrypoint, and node:22-alpine is smaller/more battle-tested
-# for this than pulling bun in just to run it.
-FROM node:22-alpine AS runtime
+# just a Node entrypoint, and node:24-alpine (current Active LTS) is
+# smaller/more battle-tested for this than pulling bun in just to run it.
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs

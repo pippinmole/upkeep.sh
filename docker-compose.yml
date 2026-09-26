@@ -21,7 +21,7 @@ services:
       retries: 10
 
   migrate:
-    image: migrate/migrate:v4.17.1
+    image: migrate/migrate:v4.20.1
     depends_on:
       postgres:
         condition: service_healthy
