@@ -39,7 +39,8 @@ func (Dpkg) Collect(_ context.Context, t target.Target) ([]collector.Package, er
 	return pkgs, nil
 }
 
-// parseDpkgStatus returns every package in the "installed" state. Records
+// parseDpkgStatus returns every package whose files are on disk (see
+// isInstalled). Records
 // are deb822 paragraphs separated by blank lines; continuation lines (which
 // start with whitespace, e.g. Description, Conffiles) never match a field
 // prefix below, so they are ignored without special handling.
@@ -94,12 +95,28 @@ func field(line, key string) (string, bool) {
 }
 
 // isInstalled checks the third word of "Status: want flag status" (e.g.
-// "install ok installed"). A substring match on "installed" would also
-// accept "half-installed" and "not-installed", which are not on disk as a
-// working package.
+// "install ok installed") against dpkg's package states.
+//
+// Included: "installed", plus "triggers-pending" and "triggers-awaited".
+// Those packages are fully unpacked and configured; only a trigger
+// (man-db, ldconfig, ...) is outstanding. apt runs triggers in batches,
+// so a push landing mid-upgrade would otherwise drop every such package
+// and re-add it on the next push, writing false remove/re-add history.
+//
+// Excluded: "not-installed", "config-files" (only conffiles remain),
+// "half-installed" (unpack or removal interrupted), "unpacked" and
+// "half-configured" (postinst not run or failed). A substring match on
+// "installed" would wrongly accept "half-installed" and "not-installed".
 func isInstalled(status string) bool {
 	f := strings.Fields(status)
-	return len(f) == 3 && f[2] == "installed"
+	if len(f) != 3 {
+		return false
+	}
+	switch f[2] {
+	case "installed", "triggers-pending", "triggers-awaited":
+		return true
+	}
+	return false
 }
 
 // parseSource resolves a package's source name and version from its

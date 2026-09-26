@@ -61,16 +61,20 @@ had to decide what counts as vulnerable. What the plan did not have was:
 
 ### 1.2 How it is stored today
 
-- `server/internal/ingest/handler.go` `Snapshot()` authenticates the push,
-  then calls `store.InsertSnapshot` (`server/internal/store/snapshots.go`).
-  That inserts one `snapshots` row, then `COPY`s **every package** into
+*(Historical: this describes the schema before P1a. Package history now
+lives in `host_software` ranges (§2.2), and `snapshot_packages` was
+dropped in migration `0004_drop_snapshot_packages`, see Q6.)*
+
+- `server/internal/ingest/handler.go` `Snapshot()` authenticated the push,
+  then called `store.InsertSnapshot` (`server/internal/store/snapshots.go`).
+  That inserted one `snapshots` row, then `COPY`d **every package** into
   `snapshot_packages (snapshot_id, name, version, arch)` and every socket
-  into `listening_sockets`. After the insert there is a
+  into `listening_sockets`. After the insert there was a
   `TODO(phase 1)` and nothing else.
 - Volume: a typical Debian/Ubuntu server has 600 to 2,000 packages. At a 15m
-  interval that is roughly 60k to 190k `snapshot_packages` rows per host per
-  day. At the 30s dev interval it is about 30x that. Almost all of those rows
-  repeat the previous snapshot.
+  interval that was roughly 60k to 190k `snapshot_packages` rows per host per
+  day. At the 30s dev interval it was about 30x that. Almost all of those rows
+  repeated the previous snapshot.
 
 ### 1.3 Identity and topology today: agent == host
 
@@ -106,6 +110,8 @@ had to decide what counts as vulnerable. What the plan did not have was:
    `purge ok not-installed`. It should test that the third word of `Status:`
    is `installed`. This is a small fix, and the first dpkg parser test should
    cover it.
+   (Done. The check also accepts `triggers-pending` and `triggers-awaited`,
+   whose files are fully on disk; see PROTOCOL.md.)
 3. **The `vulnerabilities` table can't hold what it describes.** It has
    `id text PRIMARY KEY -- e.g. "CVE-2024-1234"`, but each row is also
    per `package_name` and `distro_release`. One CVE affects many (package,
@@ -199,8 +205,8 @@ Details:
   agent per host and a sequential push loop, this is rare.
 - **`snapshot_packages` is retired.** Backfill `host_software` from the
   existing `snapshot_packages` history by replaying snapshots in order, then
-  stop writing it and drop it in a later migration. Keeping raw per-snapshot
-  package rows for N days as a debugging aid is optional (open question Q6).
+  stop writing it and drop it in a later migration. No raw per-snapshot
+  package rows are kept (Q6, resolved).
 
 **As implemented (P1a, migration `0003_inventory_history`)**, where it
 differs from the sketch above:
@@ -235,8 +241,9 @@ differs from the sketch above:
 - **Backfill** is set-based SQL in the migration (gaps and islands over
   the authoritative legacy snapshots), leaving `package_set_hash` NULL so
   the first live push runs one full diff.
-- **`snapshot_packages` is still written** (deb rows only) until Q6 is
-  decided.
+- **`snapshot_packages` is gone.** Ingest stopped writing it once Q6 was
+  resolved, and migration `0004_drop_snapshot_packages` drops it. 0003 is
+  unchanged, so its backfill still reads the table before 0004 drops it.
 
 Rough sizing: 100 hosts × 1,500 packages is 150k open rows. Churn is maybe
 20 to 200 rows per host per week of routine `apt upgrade`. That is
@@ -1176,8 +1183,11 @@ Linux/Debian-family only. Nothing else is collected today.
    (`source_ip` equals the agent's connection) can't verify a remote host's
    address. Should remote hosts simply be ineligible, or verified another
    way, for example the user proving control with a DNS TXT record?
-6. **Retire `snapshot_packages` entirely**, or keep raw per-snapshot package
-   rows for N days (for example 7) as a debugging and audit aid?
+6. **Resolved: `snapshot_packages` is retired entirely** (the alternative
+   was keeping raw per-snapshot package rows for N days). Nothing read it beyond the one-off 0003 backfill, and
+   `host_software` ranges plus `snapshots.package_set_hashes` cover the
+   audit need. Ingest no longer writes it; migration
+   `0004_drop_snapshot_packages` drops the table.
 7. **Kernel matching.** Flag CVEs against *every installed* `linux-image-*`
    (noisy: old kernels linger), only the *running* kernel (accurate risk,
    but misses "you'll boot into a vulnerable one"), or running with a

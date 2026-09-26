@@ -35,6 +35,10 @@ func TestParseDpkgStatusFixture(t *testing.T) {
 		// is a want state, still installed.
 		{Name: "libfoo1", Version: "1.2-3+b1", Arch: "arm64", Source: "foo", SourceVersion: "1.2-3"},
 		// half-installed, not-installed, config-files, unpacked: excluded.
+		// triggers-pending: files are on disk, only a trigger is
+		// outstanding, so included.
+		{Name: "man-db", Version: "2.10.2-1", Arch: "amd64", Source: "man-db", SourceVersion: "2.10.2-1"},
+		// half-configured: excluded.
 		// Last record, no trailing newline at all: still included.
 		{Name: "tzdata", Version: "2024a-0ubuntu0.22.04", Arch: "all", Source: "tzdata", SourceVersion: "2024a-0ubuntu0.22.04"},
 	}
@@ -74,6 +78,22 @@ func TestParseDpkgStatusRecords(t *testing.T) {
 			record: "Package: a\nStatus: install ok installed\nArchitecture: amd64\nSource: src (\nVersion: 1.0\n",
 			want:   []collector.Package{{Name: "a", Version: "1.0", Arch: "amd64", Source: "src", SourceVersion: "1.0"}},
 		},
+		{
+			name:   "triggers-pending",
+			record: "Package: a\nStatus: install ok triggers-pending\nArchitecture: amd64\nVersion: 1.0\n",
+			want:   []collector.Package{{Name: "a", Version: "1.0", Arch: "amd64", Source: "a", SourceVersion: "1.0"}},
+		},
+		{
+			name:   "triggers-awaited",
+			record: "Package: a\nStatus: install ok triggers-awaited\nArchitecture: amd64\nVersion: 1.0\n",
+			want:   []collector.Package{{Name: "a", Version: "1.0", Arch: "amd64", Source: "a", SourceVersion: "1.0"}},
+		},
+		{
+			name:   "triggers-pending under hold",
+			record: "Package: a\nStatus: hold ok triggers-pending\nArchitecture: amd64\nVersion: 1.0\n",
+			want:   []collector.Package{{Name: "a", Version: "1.0", Arch: "amd64", Source: "a", SourceVersion: "1.0"}},
+		},
+		{name: "unpacked", record: "Package: a\nStatus: install ok unpacked\nVersion: 1.0\n"},
 		{name: "half-installed", record: "Package: a\nStatus: install reinstreq half-installed\nVersion: 1.0\n"},
 		{name: "not-installed", record: "Package: a\nStatus: purge ok not-installed\n"},
 		{name: "config-files", record: "Package: a\nStatus: deinstall ok config-files\nVersion: 1.0\n"},

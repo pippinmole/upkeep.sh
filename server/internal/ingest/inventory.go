@@ -152,16 +152,3 @@ func okPackageEcosystems(collectors map[string]CollectorStatus) []string {
 	slices.Sort(out)
 	return out
 }
-
-// legacyPackages returns the rows still written to snapshot_packages. That
-// table predates ecosystems and its key is (snapshot_id, name, arch), so it
-// only ever holds deb packages; other ecosystems live in host_software only.
-func legacyPackages(pkgs []Package) []Package {
-	var out []Package
-	for _, p := range pkgs {
-		if p.Ecosystem == "" || p.Ecosystem == DefaultEcosystem {
-			out = append(out, p)
-		}
-	}
-	return out
-}

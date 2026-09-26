@@ -58,6 +58,18 @@ Architecture: amd64
 Version: 0.1-1
 Description: unpacked but not configured, must be excluded
 
+Package: man-db
+Status: install ok triggers-pending
+Architecture: amd64
+Version: 2.10.2-1
+Description: files on disk, only a trigger outstanding, must be included
+
+Package: half-configured
+Status: install ok half-configured
+Architecture: amd64
+Version: 0.2-1
+Description: postinst did not finish, must be excluded
+
 Package: tzdata
 Status: install ok installed
 Priority: required

@@ -158,9 +158,6 @@ func buildSnapshotInput(payload SnapshotPayload, hostID string, collectedAt, now
 			in.CollectorStatus = b
 		}
 	}
-	for _, p := range legacyPackages(payload.Packages) {
-		in.Packages = append(in.Packages, store.PackageInput{Name: p.Name, Version: p.Version, Arch: p.Arch})
-	}
 	for _, s := range payload.ListeningSockets {
 		in.ListeningSockets = append(in.ListeningSockets, store.SocketInput{
 			Proto: s.Proto, LocalAddr: s.LocalAddr, Port: s.Port, PID: s.PID, ProcessName: s.ProcessName,

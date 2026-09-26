@@ -160,9 +160,13 @@ block existed, a dpkg error meant no snapshot at all.
 | `source`, `source_version` | The source package it was built from. Debian/Ubuntu advisories are keyed by source package and version (DOMAIN_MODEL.md §2.5). From dpkg's `Source:` field: absent means the same as the binary; `Source: foo` means source `foo` at the binary's version; `Source: foo (1.2-3)` gives an explicit source version (binNMUs). Always set by this agent; older agents omit both. |
 | `ecosystem` | Which package source reported it: `"deb"` (dpkg). Keys `software_versions.ecosystem`. Older agents omit it; treat as `"deb"`. |
 
-Only packages whose dpkg `Status:` state (third word) is exactly
-`installed` are sent. `half-installed`, `not-installed`, `config-files`,
-`unpacked` and `half-configured` are excluded.
+Only packages whose dpkg `Status:` state (third word) is `installed`,
+`triggers-pending` or `triggers-awaited` are sent. The trigger states mean
+the package's files are fully on disk and only a trigger is outstanding;
+apt runs triggers in batches, so excluding them would make a push that
+lands mid-upgrade record false remove/re-add history. `half-installed`,
+`not-installed`, `config-files`, `unpacked` and `half-configured` are
+excluded.
 
 ### Other fields
 

@@ -12,21 +12,17 @@ import (
 )
 
 type SnapshotInput struct {
-	HostID         string
-	SchemaVersion  int
-	CollectedAt    time.Time
-	OSID           string
-	OSVersionID    string
-	OSCodename     string
-	RebootRequired bool
-	RebootPackages []string
-	SourceIP       string
-	PublicIPv4     string
-	PublicIPv6     string
-	// Packages are the legacy snapshot_packages rows (deb only). Still
-	// written until DOMAIN_MODEL.md Q6 is decided; host_software is the
-	// inventory of record.
-	Packages         []PackageInput
+	HostID           string
+	SchemaVersion    int
+	CollectedAt      time.Time
+	OSID             string
+	OSVersionID      string
+	OSCodename       string
+	RebootRequired   bool
+	RebootPackages   []string
+	SourceIP         string
+	PublicIPv4       string
+	PublicIPv6       string
 	ListeningSockets []SocketInput
 
 	// CollectorStatus is the payload's collectors map as JSON, stored
@@ -48,17 +44,13 @@ type SnapshotResult struct {
 	Inventory  []InventoryResult
 }
 
-type PackageInput struct {
-	Name, Version, Arch string
-}
-
 type SocketInput struct {
 	Proto, LocalAddr, ProcessName string
 	Port, PID                     int
 	IsPublic                      bool
 }
 
-// InsertSnapshot writes a full snapshot (packages, sockets) and applies its
+// InsertSnapshot writes a full snapshot (row, sockets) and applies its
 // package inventory to host_software, all in one transaction. It keeps
 // every historical snapshot rather than upserting the latest, so drift and
 // findings history stay auditable.
@@ -120,20 +112,6 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 		return res, err
 	}
 	res.SnapshotID = snapshotID
-
-	pkgRows := make([][]any, len(in.Packages))
-	for i, p := range in.Packages {
-		pkgRows[i] = []any{snapshotID, p.Name, p.Version, p.Arch}
-	}
-	if len(pkgRows) > 0 {
-		if _, err := tx.CopyFrom(ctx,
-			pgx.Identifier{"snapshot_packages"},
-			[]string{"snapshot_id", "name", "version", "arch"},
-			pgx.CopyFromRows(pkgRows),
-		); err != nil {
-			return res, err
-		}
-	}
 
 	sockRows := make([][]any, len(in.ListeningSockets))
 	for i, sock := range in.ListeningSockets {

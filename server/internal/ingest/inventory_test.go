@@ -163,9 +163,6 @@ func TestBuildSnapshotInput(t *testing.T) {
 	if !in.InventoryAt.Equal(now) || !in.CollectedAt.Equal(now.Add(time.Hour)) {
 		t.Fatalf("future collected_at must clamp only the range boundary: at=%v collected=%v", in.InventoryAt, in.CollectedAt)
 	}
-	if len(in.Packages) != 1 || in.Packages[0].Name != "a" {
-		t.Fatalf("legacy snapshot_packages rows should be deb only: %#v", in.Packages)
-	}
 	if len(in.Inventory) != 2 || in.CollectorStatus == nil {
 		t.Fatalf("inventory=%d collector_status=%s", len(in.Inventory), in.CollectorStatus)
 	}

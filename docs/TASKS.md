@@ -72,6 +72,9 @@ is a history model that doesn't copy ~1,500 rows per snapshot.
       `strings.Contains(status, "installed")` also matches
       `half-installed` / `not-installed`; test the third word of
       `Status:` instead.
+- [x] Agent: also count `triggers-pending` / `triggers-awaited` as
+      installed (files on disk, only a trigger outstanding), so a push
+      landing mid-`apt` doesn't record false remove/re-add history.
 - [x] Migration `0003_inventory_history`: `software_versions`
       (fleet-wide interned, key `(ecosystem, distro, release, name,
       version, arch)`) + `host_software` validity ranges, per-(host,
@@ -86,9 +89,8 @@ is a history model that doesn't copy ~1,500 rows per snapshot.
       PROTOCOL.md). `server/internal/inventory` + `ingest/inventory.go`.
 - [x] Backfill `host_software` by replaying existing `snapshot_packages`
       in order (set-based SQL in migration 0003, idempotent).
-- [ ] Stop writing `snapshot_packages` and drop it in a later migration —
-      **waiting on DOMAIN_MODEL.md Q6** (retire vs keep N days). Ingest
-      still writes it (deb rows only); nothing in `web/` reads it.
+- [x] Stop writing `snapshot_packages` and drop it (migration
+      `0004_drop_snapshot_packages`; DOMAIN_MODEL.md Q6 resolved: retire).
 - [x] Fix `store.InsertSnapshot` hardcoding `schema_version = 1` instead
       of using the payload's value.
 - [ ] Agent-clock robustness: range boundaries use `collected_at`
