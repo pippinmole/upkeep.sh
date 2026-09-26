@@ -1,0 +1,32 @@
+# One-click agent stack for Dokploy / Coolify.
+#
+# Copy this file into your Dokploy/Coolify compose app, set
+# SW_SERVER_URL and SW_ENROLLMENT_TOKEN (from the dashboard's
+# "Add host" page), and deploy. The agent needs no inbound ports.
+#
+# pid: host + network_mode: host let the agent read the REAL host's
+# process table and listening sockets (not the container's own).
+# /:/host:ro is a read-only bind mount used only for filesystem facts
+# (dpkg database, os-release, reboot-required flag) that aren't
+# visible through the host namespaces above.
+services:
+  security-whatnot-agent:
+    image: ghcr.io/icondesk/security-whatnot-agent:latest
+    restart: unless-stopped
+    pid: host
+    network_mode: host
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - /:/host:ro
+      - sw-agent-data:/var/lib/security-whatnot
+    environment:
+      SW_SERVER_URL: "https://your-security-whatnot-instance.example.com"
+      SW_ENROLLMENT_TOKEN: "paste-one-time-token-here"
+      SW_INTERVAL: "15m"
+
+volumes:
+  sw-agent-data:

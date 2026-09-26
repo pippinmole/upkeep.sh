@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS alert_events;
+DROP TABLE IF EXISTS notification_channels;
+DROP TABLE IF EXISTS alert_rules;
+DROP TABLE IF EXISTS findings;
+DROP TABLE IF EXISTS vulnerabilities;
+DROP TABLE IF EXISTS listening_sockets;
+DROP TABLE IF EXISTS snapshot_packages;
+DROP TABLE IF EXISTS snapshots;
+DROP TABLE IF EXISTS agent_credentials;
+DROP TABLE IF EXISTS enrollment_tokens;
+DROP TABLE IF EXISTS hosts;
+DROP TABLE IF EXISTS users;

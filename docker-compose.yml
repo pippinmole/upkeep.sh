@@ -1,0 +1,65 @@
+# Production stack for the security-whatnot platform itself (the
+# dashboard + API you deploy once, on your own box, e.g. via Dokploy).
+# This is separate from agent/docker-compose.example.yml, which is what
+# gets deployed on each *monitored* host.
+name: security-whatnot
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-swuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong password}
+      POSTGRES_DB: ${POSTGRES_DB:-security_whatnot}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-swuser}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    entrypoint: ["migrate", "-path", "/migrations", "-database",
+      "postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable", "up"]
+    restart: "no"
+
+  api:
+    build:
+      context: ./server
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
+      SW_LISTEN_ADDR: ":8080"
+    expose:
+      - "8080"
+    # In Dokploy, point a domain at this service (port 8080) instead of
+    # publishing a host port here.
+
+  web:
+    build:
+      context: ./web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?e.g. https://api.yourdomain.com}
+      AUTH_SECRET: ${AUTH_SECRET:?generate with: openssl rand -base64 32}
+      NEXTAUTH_URL: ${PUBLIC_WEB_URL:?e.g. https://yourdomain.com}
+    expose:
+      - "3000"
+    # In Dokploy, point your primary domain at this service (port 3000).
+
+volumes:
+  pgdata:

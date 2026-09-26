@@ -1,0 +1,21 @@
+# Go
+/agent/agent
+/server/api
+*.exe
+*.test
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/.env
+web/.env.local
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Agent local state (dev)
+*.credentials.json

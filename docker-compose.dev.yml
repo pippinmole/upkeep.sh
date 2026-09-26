@@ -1,0 +1,55 @@
+name: security-whatnot-dev
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: swuser
+      POSTGRES_PASSWORD: swpass
+      POSTGRES_DB: security_whatnot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swuser"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    entrypoint: ["migrate", "-path", "/migrations", "-database",
+      "postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable", "up"]
+    restart: "no"
+
+  api:
+    build:
+      context: ./server
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable
+      SW_LISTEN_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      - api
+    environment:
+      DATABASE_URL: postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
