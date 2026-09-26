@@ -5,16 +5,21 @@ server never connects to it. Everything below is initiated by the agent.
 
 ## 1. Enrollment
 
-One-time, per host. The dashboard generates a token (`enrollment_tokens`
-table, 1-hour expiry) via the "Add host" button
-(`web/src/app/dashboard/actions.ts`).
+One-time, per **agent**. The dashboard generates a token
+(`enrollment_tokens` table, 1-hour expiry, optional `agent_name`) via the
+"Register agent" / "Add host" button (`web/src/app/dashboard/actions.ts`).
 
 ```
 POST /v1/enroll
 Content-Type: application/json
 
-{ "enrollment_token": "<token>", "hostname": "my-vps" }
+{ "enrollment_token": "<token>", "hostname": "my-vps",
+  "version": "0.3.0", "platform": "linux/amd64" }
 ```
+
+`version` and `platform` (the agent build, `GOOS/GOARCH`) are optional;
+agents that predate them omit them and report them in each push's `agent`
+block instead.
 
 → `200 OK`
 
@@ -22,9 +27,15 @@ Content-Type: application/json
 { "agent_id": "<uuid>", "agent_secret": "<random>" }
 ```
 
-The token is deleted atomically on use (`ConsumeEnrollmentToken` in
-`server/internal/store/store.go`) so it can't be replayed even if leaked
-after use. `agent_secret` is generated with 32 bytes of `crypto/rand`
+Enrollment creates an `agents` row (named after the token's
+`agent_name`, else `hostname`) and its `agent_credentials` row, in one
+transaction that also deletes the token (`EnrollAgent` in
+`server/internal/store/agents.go`), so the token can't be replayed even if
+leaked after use. **No host is created**: the host is created, or
+re-attached by identity, on the agent's first push (see `host` below).
+Before migration 0008 enrollment created a host and `agent_id` was its
+`hosts.id`; the migration gave every such host an agent with the same
+id, so existing `credentials.json` files keep working unchanged. `agent_secret` is generated with 32 bytes of `crypto/rand`
 (`server/internal/authn/secret.go`); only its SHA-256 hash is ever stored
 server-side. The agent persists both values to
 `SW_DATA_DIR/credentials.json` (mode `0600`) and re-enrolls only if that
@@ -43,6 +54,7 @@ Content-Type: application/json
 {
   "schema_version": 1,
   "collected_at": "2026-09-26T12:00:00Z",
+  "agent": { "version": "0.3.0", "platform": "linux/amd64", "interval_seconds": 900 },
   "host": {
     "ref": "local",
     "os_family": "linux",
@@ -76,6 +88,15 @@ Content-Type: application/json
 }
 ```
 
+### `agent`
+
+The agent build that collected the snapshot (not the host): `version`
+(`-X main.version` at build time, `dev` otherwise), `platform`
+(`GOOS/GOARCH` of the agent binary) and `interval_seconds` (its
+`SW_INTERVAL`). Stored on the `agents` row every push; empty fields leave
+the stored value alone. The interval decides when the agent stops counting
+as **active** (see "Host resolution"). Omitted by older agents.
+
 ### `host`
 
 Which host the snapshot describes, and what it is. The agent works this
@@ -93,12 +114,48 @@ it is never told.
   (enrollment's `hostname` is only the initial value). Omitted if the file
   is missing.
 - `identity.machine_id`: the host's `/etc/machine-id`. This is the key the
-  server should upsert hosts on (DOMAIN_MODEL.md §4.3), so a reinstalled
-  agent reattaches to its host. Omitted when unreadable, empty or
+  server upserts hosts on (`host_identities`, kind `machine_id`,
+  lowercased), so a reinstalled agent re-attaches to its host. Omitted when unreadable, empty or
   `uninitialized`; `collectors.host_identity` is then `error`.
 
-Snapshots from agents that predate the host block omit it entirely. Treat
-those as the authenticating agent's local host.
+Snapshots from agents that predate the host block omit it entirely. They
+are the authenticating agent's local host, with no identity; their
+`os_family` is taken to be `linux` (the only agent that existed).
+
+#### Host resolution (server)
+
+`store.resolveHost`, inside the snapshot transaction, after the agent is
+authenticated:
+
+- `ref` other than `"local"` must match an existing `agent_hosts`
+  assignment (`target_ref`), else `422`. None exist yet: remote targets
+  will be created in the dashboard, never by a push.
+- `ref: "local"`, the agent already has a local host: the push goes to
+  it (assignments are sticky). An unclaimed `machine_id` is recorded for
+  it; a `machine_id` already owned by another host flags this one
+  `hosts.duplicate_of` that host.
+- First push of an agent, `machine_id` unknown (missing, empty,
+  `uninitialized`, or `collectors.host_identity` not `ok`): a new host is
+  created for the agent. Later pushes reuse it through the assignment, so
+  a host is never duplicated per push.
+- First push, `machine_id` unclaimed within the agent's user: a new host,
+  with that identity.
+- First push, `machine_id` owned by host H: if no **other active** agent
+  has H as its local host, the agent re-attaches to H and its history
+  (reinstall). Otherwise a new host is created with
+  `duplicate_of = H` (cloned VM or a second agent on one machine;
+  DOMAIN_MODEL.md Q12). Hosts are never merged automatically.
+
+An agent is **active** when `agents.revoked_at` is NULL and it pushed
+within `max(3 × interval, 2 minutes)`, where the interval is its reported
+`interval_seconds`, else 15 minutes.
+
+Every push then sets `agents.last_seen_at` (and version/platform/interval),
+`agent_hosts.last_collected_at`, `hosts.last_seen_at`, and, when the
+snapshot is the host's newest by `collected_at`: `hosts.hostname` (when
+sent), `hosts.os_family`, `os_id`, `os_version`, `os_codename` (when
+`collectors.os` is `ok`) and `hosts.kernel` (the trusted `os.kernel`, NULL
+when unknown). `snapshots.agent_id` records the agent.
 
 ### `collectors`
 
@@ -210,9 +267,10 @@ asymmetric routing), and the two serve different purposes.
 
 → `202 Accepted` on success.
 
-Auth: the bearer secret is verified in constant time
-(`authn.VerifySecret`) against the hash stored for `X-Agent-ID`. There is
-no shared platform-wide credential — each host has its own scoped secret.
+Auth: `X-Agent-ID` is an `agents.id`. The bearer secret is verified in
+constant time (`authn.VerifySecret`) against the hash stored for that
+agent; a revoked agent (`agents.revoked_at` set) gets `401`. There is no
+shared platform-wide credential — each agent has its own scoped secret.
 
 The server keeps **every** historical snapshot (not an upsert) so drift
 and findings history stay auditable — see `store.InsertSnapshot`. Package
@@ -249,7 +307,7 @@ manually; a mismatch should only ever be an additive field.
 - Additive fields never require a bump. Only bump on a breaking shape
   change, and document the migration path for already-deployed agents
   before doing so (they can't be force-upgraded — it's push-only).
-- `host`, `collectors` and the package `source` / `source_version` /
+- `agent`, `host`, `collectors` and the package `source` / `source_version` /
   `ecosystem` fields were added **within `schema_version: 1`**. The
   server's decoder ignores unknown fields, so servers that predate them
   keep accepting these pushes. A newer server detects them by presence:
@@ -266,4 +324,5 @@ manually; a mismatch should only ever be an additive field.
   are meant to be enqueued per snapshot once those workers exist, not run
   inline in the request handler.
 - No credential rotation endpoint yet (only initial enrollment).
-- No agent self-update / version-reporting in the payload yet.
+  Revocation is `agents.revoked_at`; no dashboard action sets it yet.
+- No agent self-update.

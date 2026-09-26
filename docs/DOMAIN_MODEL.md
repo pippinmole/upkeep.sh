@@ -78,6 +78,10 @@ dropped in migration `0004_drop_snapshot_packages`, see Q6.)*
 
 ### 1.3 Identity and topology today: agent == host
 
+*(Historical: this describes the model before P1.5. Migration
+`0008_agent_host_split` split agents from hosts; see §4.3 and §4.7 "As
+implemented".)*
+
 - `POST /v1/enroll` (`handler.go` `Enroll()`) consumes an
   `enrollment_tokens` row, then **creates a `hosts` row**
   (`store.CreateHost`) and stores the secret hash in
@@ -1006,6 +1010,39 @@ made.
   (`agents.revoked_at`, `agent_credentials.rotated_at`). This lines up with
   the existing TASKS items.
 
+**As implemented (P1.5, migration 0008, `server/internal/store/agents.go`).**
+
+- `POST /v1/enroll` creates `agents` + `agent_credentials` in one
+  transaction with the token delete (`EnrollAgent`). Name: the token's
+  `agent_name`, else the enrolling hostname. `version`/`platform` are
+  stored when sent. No host is created.
+- Ingest authenticates `X-Agent-ID` against `agent_credentials`
+  (revoked → 401), then `resolveHost` maps the push to a host inside the
+  snapshot transaction. The agent row is locked `FOR UPDATE` (one agent's
+  pushes resolve one at a time), and the identity is serialised with a
+  transaction advisory lock on (user, kind, value), so two agents
+  claiming one machine-id at once resolve in turn.
+- Rules (PROTOCOL.md "Host resolution"): an agent's local assignment is
+  **sticky**; a first push re-attaches by identity only when no *other
+  active* agent collects that host locally, otherwise it creates a new
+  host flagged `hosts.duplicate_of` (Q12); with no identity, the first
+  push creates a host for the agent and every later push reuses it.
+- **Active** = `revoked_at IS NULL` and `last_seen_at` within
+  `max(3 × push interval, 2 min)`; the interval is the agent's reported
+  `agent.interval_seconds` (`agents.push_interval_seconds`), else 15 min.
+  So a reinstall re-attaches once the old agent is revoked or has been
+  silent for three intervals. A reinstall *faster* than that (container
+  recreated with a lost volume and pushing again within 45 min at the
+  default interval) is indistinguishable from a clone on its first push,
+  and gets a flagged duplicate host; merge (below) is the fix.
+- Identity kinds are the payload's `host.identity` keys (`machine_id`;
+  later `machine_guid`, `smbios_uuid`, `platform_uuid`) rather than the
+  `linux-machine-id` style sketched in §4.6. Values are lowercased.
+- A machine-id that shows up later for a host (older agent upgraded, or
+  a host created without one) is attached to that host if unclaimed.
+- Not built: dashboard merge/split actions, revoke/rotate actions, and
+  remote hosts created in the dashboard.
+
 ### 4.4 Wire protocol changes (additive where possible)
 
 ```jsonc
@@ -1198,6 +1235,21 @@ Existing rows can be migrated with **no agent-side change**:
 Old agents keep pushing. The new agent's v2 payload adds `host.identity`,
 which fills `host_identities` on the next push.
 
+**As implemented (`migrations/0008_agent_host_split.up.sql`).** Steps
+1–4 as above, for every `hosts` row (not only those with a credential),
+with `agents.created_at`/`last_seen_at` copied from the host and
+`agent_hosts.last_collected_at` = the host's newest snapshot
+`received_at`. Also: `hosts.os_family = 'linux'` and the OS summary
+(`os_id`, `os_version`, `os_codename`, `kernel`) from each host's newest
+snapshot; `enrollment_tokens.agent_name`; `snapshots.uptime_seconds` and
+`snapshots.facts` (reserved, not written yet); `hosts.os_build`/`arch`
+(not written yet: the agent doesn't report them). No payload `v2` was
+needed: the `host` and `agent` blocks were added within
+`schema_version: 1` (PROTOCOL.md "Versioning"). The down migration keeps
+only credentials whose agent id is also a host id. Verified on the dev
+data: all six pre-existing agents kept pushing with their old
+`credentials.json` onto their old hosts, with findings intact.
+
 ### 4.8 Per-OS collectors: what's worth sampling
 
 "No exec" means pure file, registry, API or `/proc` reads. That is the
@@ -1379,10 +1431,13 @@ Linux/Debian-family only. Nothing else is collected today.
 11. **Table library.** Keep server-driven tables (URL params + existing
     shadcn `Table`, recommended), or add `@tanstack/react-table` to match
     shadcn-admin's data-table pattern with client-side faceting?
-12. **Host identity collisions** (cloned VMs with the same `machine-id`).
-    Recommended: never auto-merge on a conflicting active agent; create a
-    separate host and flag it. Acceptable, or also combine `machine-id` with
-    hostname?
+12. **Resolved by recommendation (P1.5): host identity collisions**
+    (cloned VMs with the same `machine-id`). Never auto-merge when a
+    different *active* agent already collects the identity's host locally;
+    create a separate host with `hosts.duplicate_of` set. The hostname is
+    not part of the identity. "Active" and the reinstall trade-off are in
+    §4.3 "As implemented". Still open: the dashboard merge/split actions
+    that resolve a flag.
 13. **Non-security pending upgrades on Debian/Ubuntu.** Is it worth parsing
     `/var/lib/apt/lists` (large) to show "N updates pending", or is
     "security fixes available" (server-computed, free) enough?

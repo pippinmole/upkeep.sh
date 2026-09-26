@@ -234,21 +234,35 @@ Design: [DOMAIN_MODEL.md §4](DOMAIN_MODEL.md#4-domain-model-agents-hosts-os-fam
 Today agent == host: enrollment creates a `hosts` row and the returned
 `agent_id` *is* `hosts.id`. Independent of P1a–c (new tables key on
 `host_id`, which survives the split).
-- [ ] Migration: `agents`, re-key `agent_credentials` to `agent_id`,
-      `agent_hosts` (mode `local`/`ssh`/`winrm`, one local per agent),
-      `host_identities`, `hosts.os_family` + current OS summary columns,
+- [x] Migration `0008_agent_host_split`: `agents`, re-key
+      `agent_credentials` to `agent_id`, `agent_hosts` (mode
+      `local`/`ssh`/`winrm`, one local per agent), `host_identities`,
+      `hosts.os_family` + current OS summary columns + `duplicate_of`,
       `snapshots.agent_id`/`facts`/`uptime_seconds` (`collector_status`
-      already landed in P1a).
+      already landed in P1a), `enrollment_tokens.agent_name`.
       Backfill with `agents.id = hosts.id` so deployed agents'
       `credentials.json` keeps working unchanged.
-- [ ] Enrollment creates an agent, not a host; host upserted on first push
+- [x] Enrollment creates an agent, not a host; host upserted on first push
       by identity (`/etc/machine-id`), so an agent reinstall reattaches to
       the existing host instead of duplicating it. Duplicate-identity
-      flagging (open question Q12).
-- [ ] Payload `schema_version: 2`: `agent` + `host` blocks (ref,
-      identity, hostname refreshed every push, `os_family`) and
-      per-collector status; v1 payloads keep mapping to the agent's local
-      host.
+      flagging: Q12 resolved by recommendation (`hosts.duplicate_of`,
+      never auto-merged). Rules and "active" in PROTOCOL.md "Host
+      resolution".
+- [x] Payload `agent` + `host` blocks (ref, identity, hostname refreshed
+      every push, `os_family`) and per-collector status; payloads without
+      a host block keep mapping to the agent's local host. Shipped within
+      `schema_version: 1` (additive), so no v2 was needed. Ingest keeps
+      `hosts.hostname` and the OS summary current from the newest
+      snapshot.
+- [ ] Dashboard host management for the split: merge/split a flagged
+      duplicate (`hosts.duplicate_of`), revoke an agent
+      (`agents.revoked_at`; ingest already refuses revoked agents),
+      rotate its credential. Pre-name agents via
+      `enrollment_tokens.agent_name` in the Register dialog.
+- [ ] Agent/host reporting gaps: `hosts.arch` and `hosts.os_build` are
+      never written (the agent doesn't report them yet); the production
+      image build needs `--build-arg VERSION=...` so `agent.version` isn't
+      `dev`.
 - [ ] Dashboard: rename the current "Agents" host list to **Hosts**; new
       **Agents** page lists collectors (version, platform, last seen,
       hosts collected, revoke).

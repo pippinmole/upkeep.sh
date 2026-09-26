@@ -13,12 +13,25 @@ import (
 )
 
 type SnapshotInput struct {
-	HostID        string
+	// AgentID is the authenticated agent. When set, the host is resolved
+	// from Host inside the snapshot transaction (resolveHost) and HostID
+	// must be empty. When empty (tests, tools), HostID names the host
+	// directly and no agent bookkeeping happens.
+	AgentID string
+	Agent   AgentReport
+	Host    HostClaim
+	HostID  string
+
 	SchemaVersion int
 	CollectedAt   time.Time
 	OSID          string
 	OSVersionID   string
 	OSCodename    string
+	// OSFamily ("linux" | "windows" | "macos") and OSKnown drive the
+	// hosts.os_* summary: OS fields are copied only when OSKnown (the os
+	// collector succeeded); an empty OSFamily leaves hosts.os_family as is.
+	OSFamily string
+	OSKnown  bool
 	// KernelRelease is the running kernel (payload os.kernel), "" when
 	// unknown (older agent, or the kernel collector did not succeed).
 	KernelRelease    string
@@ -51,7 +64,11 @@ type SnapshotInput struct {
 // SnapshotResult reports what InsertSnapshot did, for logging and tests.
 type SnapshotResult struct {
 	SnapshotID string
-	Inventory  []InventoryResult
+	// HostID is the host the snapshot was stored under; Host says how it
+	// was resolved (zero when SnapshotInput.HostID was given).
+	HostID    string
+	Host      HostResolution
+	Inventory []InventoryResult
 	// KernelChanged: this snapshot is the host's newest (by collected_at)
 	// and its kernel_release differs from the previous newest one's
 	// (including unknown <-> known), i.e. the host rebooted into another
@@ -104,6 +121,17 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 	}
 	defer tx.Rollback(ctx)
 
+	if in.AgentID != "" {
+		if in.HostID != "" {
+			return res, errors.New("SnapshotInput: AgentID and HostID are mutually exclusive")
+		}
+		if res.Host, err = resolveHost(ctx, tx, in.AgentID, in.Host, in.Agent); err != nil {
+			return res, err
+		}
+		in.HostID = res.Host.HostID
+	}
+	res.HostID = in.HostID
+
 	var locked string
 	if err := tx.QueryRow(ctx, `SELECT id FROM hosts WHERE id = $1 FOR NO KEY UPDATE`, in.HostID).Scan(&locked); err != nil {
 		return res, fmt.Errorf("lock host: %w", err)
@@ -150,9 +178,10 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 	} else if err != nil {
 		return res, err
 	}
+	newest := !havePrev || !in.CollectedAt.Before(prevCollected)
 	if !havePrev {
 		res.KernelChanged = in.KernelRelease != ""
-	} else if !in.CollectedAt.Before(prevCollected) {
+	} else if newest {
 		res.KernelChanged = in.KernelRelease != deref(prevKernel)
 	}
 
@@ -161,17 +190,36 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 		INSERT INTO snapshots (
 			host_id, schema_version, collected_at, os_id, os_version_id,
 			os_codename, reboot_required, reboot_packages, source_ip,
-			public_ipv4, public_ipv6, collector_status, package_set_hashes, kernel_release
+			public_ipv4, public_ipv6, collector_status, package_set_hashes, kernel_release, agent_id
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, '')::inet,
-			NULLIF($10, '')::inet, NULLIF($11, '')::inet, $12::jsonb, $13::jsonb, NULLIF($14, ''))
+			NULLIF($10, '')::inet, NULLIF($11, '')::inet, $12::jsonb, $13::jsonb, NULLIF($14, ''), NULLIF($15, '')::uuid)
 		RETURNING id
 	`, in.HostID, in.SchemaVersion, in.CollectedAt, in.OSID, in.OSVersionID, in.OSCodename,
 		in.RebootRequired, rebootPackages, in.SourceIP,
-		in.PublicIPv4, in.PublicIPv6, collectorStatus, nullableJSON(hashes), in.KernelRelease).Scan(&snapshotID)
+		in.PublicIPv4, in.PublicIPv6, collectorStatus, nullableJSON(hashes), in.KernelRelease, in.AgentID).Scan(&snapshotID)
 	if err != nil {
 		return res, err
 	}
 	res.SnapshotID = snapshotID
+
+	// Host summary: last seen always; hostname and OS only from the newest
+	// snapshot (an out-of-order older push must not roll them back). The
+	// kernel mirrors the newest snapshot's value, NULL when unknown, the
+	// same "running kernel" the findings policy uses.
+	if _, err := tx.Exec(ctx, `
+		UPDATE hosts SET
+			last_seen_at = now(),
+			hostname    = CASE WHEN $2 AND $3 <> '' THEN $3 ELSE hostname END,
+			os_family   = CASE WHEN $2 AND $4 <> '' THEN $4 ELSE os_family END,
+			os_id       = CASE WHEN $2 AND $5 THEN NULLIF($6, '') ELSE os_id END,
+			os_version  = CASE WHEN $2 AND $5 THEN NULLIF($7, '') ELSE os_version END,
+			os_codename = CASE WHEN $2 AND $5 THEN NULLIF($8, '') ELSE os_codename END,
+			kernel      = CASE WHEN $2 THEN NULLIF($9, '') ELSE kernel END
+		WHERE id = $1
+	`, in.HostID, newest, in.Host.Hostname, in.OSFamily, in.OSKnown,
+		in.OSID, in.OSVersionID, in.OSCodename, in.KernelRelease); err != nil {
+		return res, fmt.Errorf("update host summary: %w", err)
+	}
 
 	sockRows := make([][]any, len(in.ListeningSockets))
 	for i, sock := range in.ListeningSockets {

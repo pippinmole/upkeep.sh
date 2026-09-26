@@ -62,6 +62,8 @@ for the reasoning.
 | Table | Written by |
 |---|---|
 | `snapshots`, `listening_sockets` | Go (ingest) |
+| `agents`, `agent_credentials` | Go (enrollment creates; ingest updates `last_seen_at` / version / platform) |
+| `hosts`, `host_identities`, `agent_hosts` | Go (ingest resolves/creates the host on an agent's push, refreshes hostname + OS summary) |
 | `software_versions`, `host_software`, `host_inventory_state` | Go (ingest diff) |
 | `distro_releases` | migrations (seed); flip `supported` to import a release |
 | `advisories`, `advisory_affected`, `advisory_changes`, `cves`, `feed_sync_state` | Go (worker: OSV/KEV/EPSS sync) |
@@ -86,11 +88,23 @@ reasoning trail on this.
 
 See `migrations/` for the authoritative schema. Summary:
 
-- `users` → `hosts` (one user owns many hosts; no orgs/teams yet, see
-  DECISIONS.md).
-- `hosts` → `agent_credentials` (1:1, only a secret hash is stored) and
-  `snapshots` (1:many, every historical snapshot kept — not upserted —
-  so drift and findings history stay auditable).
+- `users` → `agents` and `hosts` (one user owns many of each; no
+  orgs/teams yet, see DECISIONS.md).
+- **Agent ≠ host** (migration 0008, DOMAIN_MODEL.md §4): an `agents` row is
+  one deployed collector with its own credential (`agent_credentials`,
+  1:1, only a secret hash is stored; `agents.revoked_at` refuses it). A
+  `hosts` row is one monitored machine; everything below hangs off
+  `host_id`. `agent_hosts` assigns hosts to agents with a mode (`local`
+  only today; `ssh`/`winrm` reserved), at most one `local` per agent.
+  `host_identities` maps stable machine identifiers (`machine_id`) to a
+  host, unique per user. Enrollment creates only the agent; ingest creates
+  or re-attaches the host on the first push (`store.resolveHost`).
+  `hosts` also carries the current OS summary (`os_family`, `os_id`,
+  `os_version`, `os_codename`, `kernel`) from the newest snapshot, and
+  `duplicate_of` for a possible duplicate identity (Q12).
+- `hosts` → `snapshots` (1:many, every historical snapshot kept — not
+  upserted — so drift and findings history stay auditable).
+  `snapshots.agent_id` records which agent collected it.
 - `snapshots` → `listening_sockets` (facts for that push). `snapshots.collector_status` records each collector's outcome.
 - Package inventory history: `software_versions` (fleet-wide interned
   versions, keyed by `ecosystem`) and `host_software` (per-host validity

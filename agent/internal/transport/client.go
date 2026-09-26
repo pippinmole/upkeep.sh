@@ -29,6 +29,10 @@ func New(baseURL string) *Client {
 type EnrollRequest struct {
 	EnrollmentToken string `json:"enrollment_token"`
 	Hostname        string `json:"hostname"`
+	// Version and Platform describe the agent build; servers that predate
+	// them ignore them.
+	Version  string `json:"version,omitempty"`
+	Platform string `json:"platform,omitempty"`
 }
 
 type EnrollResponse struct {
@@ -40,8 +44,8 @@ type EnrollResponse struct {
 // for a durable agent_id + secret. The secret is stored locally by the
 // caller (e.g. in a 0600 file) and never transmitted again in the clear;
 // subsequent requests use it as a bearer token over TLS.
-func (c *Client) Enroll(token, hostname string) (*EnrollResponse, error) {
-	body, _ := json.Marshal(EnrollRequest{EnrollmentToken: token, Hostname: hostname})
+func (c *Client) Enroll(in EnrollRequest) (*EnrollResponse, error) {
+	body, _ := json.Marshal(in)
 	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/v1/enroll", bytes.NewReader(body))
 	if err != nil {
 		return nil, err

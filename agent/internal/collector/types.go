@@ -18,6 +18,10 @@ type Snapshot struct {
 	SchemaVersion int    `json:"schema_version"`
 	CollectedAt   string `json:"collected_at"` // RFC3339
 
+	// Agent describes the agent build that collected this snapshot (not the
+	// host). Added without a schema bump; older agents omit it.
+	Agent *Agent `json:"agent,omitempty"`
+
 	// Host says which host this snapshot describes and what it is. It is
 	// always present in snapshots from this agent version; older agents
 	// omit it, which the server treats as the agent's local host.
@@ -47,6 +51,15 @@ type Snapshot struct {
 	// which serves a different, security-verification purpose.
 	PublicIPv4 string `json:"public_ipv4,omitempty"`
 	PublicIPv6 string `json:"public_ipv6,omitempty"`
+}
+
+// Agent is the snapshot's agent block. The server stores it on the agent
+// row (agents.agent_version / platform / push_interval_seconds) and uses the
+// interval to judge whether the agent is still active.
+type Agent struct {
+	Version         string `json:"version"`                    // build version, "dev" when unset
+	Platform        string `json:"platform"`                   // runtime GOOS/GOARCH, "linux/amd64"
+	IntervalSeconds int    `json:"interval_seconds,omitempty"` // push interval (SW_INTERVAL)
 }
 
 // Host identifies the collected host (DOMAIN_MODEL.md §4.3–4.4).

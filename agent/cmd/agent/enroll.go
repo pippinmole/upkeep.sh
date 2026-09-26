@@ -29,7 +29,9 @@ func loadOrEnroll(client *transport.Client, credPath string) (agentID, agentSecr
 	}
 	hostname, _ := os.Hostname()
 
-	resp, err := client.Enroll(token, hostname)
+	resp, err := client.Enroll(transport.EnrollRequest{
+		EnrollmentToken: token, Hostname: hostname, Version: version, Platform: platform(),
+	})
 	if err != nil {
 		return "", "", err
 	}

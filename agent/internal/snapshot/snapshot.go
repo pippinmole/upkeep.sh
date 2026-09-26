@@ -27,6 +27,9 @@ type Collector struct {
 
 	// Now defaults to time.Now.
 	Now func() time.Time
+
+	// Agent, if set, is sent as the snapshot's agent block.
+	Agent *collector.Agent
 }
 
 // New returns a Collector with the production package sources and public
@@ -44,6 +47,7 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 	snap := collector.Snapshot{
 		SchemaVersion: collector.SchemaVersion,
 		CollectedAt:   now().UTC().Format(time.RFC3339),
+		Agent:         c.Agent,
 		Host:          collector.Host{Ref: t.Ref()},
 		Collectors:    map[string]collector.CollectorStatus{},
 	}

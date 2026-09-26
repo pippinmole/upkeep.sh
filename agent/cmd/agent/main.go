@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"time"
 
@@ -16,6 +17,13 @@ import (
 	"github.com/pippinmole/upkeep.sh/agent/internal/target"
 	"github.com/pippinmole/upkeep.sh/agent/internal/transport"
 )
+
+// version is the agent build version, set at build time with
+// -ldflags "-X main.version=...".
+var version = "dev"
+
+// platform is the agent binary's GOOS/GOARCH.
+func platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
 
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -52,6 +60,7 @@ func main() {
 	hostRoot := envOr("SW_HOST_ROOT", "/host")
 	targets := []target.Target{target.NewLocal(hostRoot, "/proc")}
 	collect := snapshot.New()
+	collect.Agent = &collector.Agent{Version: version, Platform: platform(), IntervalSeconds: int(interval.Seconds())}
 
 	for {
 		for _, t := range targets {

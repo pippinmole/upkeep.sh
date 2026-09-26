@@ -7,10 +7,14 @@ package ingest
 // the agent's collector.Snapshot; a mismatch should only ever be additive
 // fields, gated by schema_version.
 type SnapshotPayload struct {
-	SchemaVersion int       `json:"schema_version"`
-	CollectedAt   string    `json:"collected_at"`
-	Host          *Host     `json:"host"`
-	OS            OSRelease `json:"os"`
+	SchemaVersion int    `json:"schema_version"`
+	CollectedAt   string `json:"collected_at"`
+	// Agent describes the pushing agent build; nil for older agents.
+	Agent *Agent `json:"agent"`
+	// Host is nil for agents that predate the host block: the push is for
+	// the authenticating agent's local host.
+	Host *Host     `json:"host"`
+	OS   OSRelease `json:"os"`
 
 	// Collectors is nil for agents that predate per-collector status; see
 	// planInventory for how such payloads are interpreted.
@@ -41,8 +45,16 @@ type OSRelease struct {
 	Kernel string `json:"kernel,omitempty"`
 }
 
-// Host is the snapshot's host block (added within schema_version 1).
-// Stored nowhere yet: host upsert by identity is Phase 1.5.
+// Agent is the snapshot's agent block (added within schema_version 1).
+type Agent struct {
+	Version         string `json:"version"`          // agent build version
+	Platform        string `json:"platform"`         // GOOS/GOARCH of the agent binary, "linux/amd64"
+	IntervalSeconds int    `json:"interval_seconds"` // the agent's push interval
+}
+
+// Host is the snapshot's host block (added within schema_version 1). The
+// server resolves the host from it (store.resolveHost): ref "local" is the
+// agent's own machine, identity.machine_id is the key hosts are upserted on.
 type Host struct {
 	Ref      string       `json:"ref"`
 	OSFamily string       `json:"os_family"`
@@ -65,6 +77,8 @@ const (
 	CollectorStatusOK = "ok"
 	CollectorOS       = "os"
 	CollectorKernel   = "kernel"
+
+	CollectorHostIdentity = "host_identity"
 )
 
 // Package is one installed package. Source, SourceVersion and Ecosystem

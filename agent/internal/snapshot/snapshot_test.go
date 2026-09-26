@@ -155,3 +155,19 @@ type fsTarget struct{ fsys fs.FS }
 func (f fsTarget) Ref() string       { return target.LocalRef }
 func (f fsTarget) Mode() target.Mode { return target.ModeLocal }
 func (f fsTarget) FS() fs.FS         { return f.fsys }
+
+// The agent block is sent when configured and omitted otherwise, so the
+// server can tell an older agent from one reporting its build.
+func TestCollectAgentBlock(t *testing.T) {
+	tgt := target.NewLocal("testdata/ubuntu", "testdata/proc")
+	c := testCollector()
+	b, _ := json.Marshal(c.Collect(context.Background(), tgt))
+	if strings.Contains(string(b), `"agent"`) {
+		t.Errorf("agent block sent without Collector.Agent: %s", b)
+	}
+	c.Agent = &collector.Agent{Version: "1.2.3", Platform: "linux/amd64", IntervalSeconds: 900}
+	b, _ = json.Marshal(c.Collect(context.Background(), tgt))
+	if !strings.Contains(string(b), `"agent":{"version":"1.2.3","platform":"linux/amd64","interval_seconds":900}`) {
+		t.Errorf("agent block missing or wrong: %s", b)
+	}
+}
