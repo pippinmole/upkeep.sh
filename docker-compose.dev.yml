@@ -40,16 +40,15 @@ services:
     ports:
       - "8080:8080"
 
-  web:
-    build:
-      context: ./web
-    depends_on:
-      - api
-    environment:
-      DATABASE_URL: postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable
-      NEXT_PUBLIC_API_URL: http://localhost:8080
-    ports:
-      - "3000:3000"
+  # `web` is intentionally NOT run here. Turbopack's file watcher does not
+  # reliably see changes made to a Windows-path bind mount under Docker
+  # Desktop — not even with next.config.ts's `watchOptions.pollIntervalMs`
+  # (the documented fix for "native watching doesn't work e.g. docker"),
+  # verified by editing a file, confirming the container saw the updated
+  # mtime, and getting no recompile. Run the Next.js dev server natively
+  # instead: `cd web && bun run dev` (see web/.env.example — it already
+  # points at localhost:5432/localhost:8080, i.e. these services' published
+  # ports below, which is exactly why this file still runs postgres/api).
 
 volumes:
   pgdata:
