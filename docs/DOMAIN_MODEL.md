@@ -1,0 +1,1208 @@
+# Domain model, package inventory and vulnerability matching
+
+Design doc, 2026-09-26. Status: **proposal**, not yet implemented. Nothing
+here has been migrated or coded. Where this doc and the code disagree, the
+code is the truth about *today*, and this doc is the plan. Open questions
+for the user are collected in [section 6](#6-open-questions); anything
+marked **(judgment call)** in the body is also listed there.
+
+It covers three connected changes:
+
+1. **Vulnerability reporting.** The agent reports the full package inventory.
+   The server keeps that inventory's history and joins it against advisory
+   data.
+2. **Packages in the dashboard**: per-host packages, change history, and
+   fleet-wide package and CVE views.
+3. **Domain model**: split *agent* from *host*, add OS families
+   (Linux, Windows, macOS), and pick a schema shape for per-OS data.
+
+Contents:
+
+- [1. Current state (verified in code)](#1-current-state-verified-in-code)
+- [2. Package inventory and vulnerability matching](#2-package-inventory-and-vulnerability-matching)
+- [3. Packages in the dashboard](#3-packages-in-the-dashboard)
+- [4. Domain model: agents, hosts, OS families](#4-domain-model-agents-hosts-os-families)
+- [5. Support matrix](#5-support-matrix)
+- [6. Open questions](#6-open-questions)
+- [7. Suggested sequencing](#7-suggested-sequencing)
+
+---
+
+## 1. Current state (verified in code)
+
+### 1.1 What the agent sends
+
+The agent **already sends the full installed package inventory**, not only
+vulnerable packages. No agent change is needed to get "all packages", but
+the source-package fields described below still need adding.
+
+- `agent/internal/collector/packages.go` parses `/host/var/lib/dpkg/status`
+  and returns every package whose `Status:` contains `installed`, as
+  `{name, version, arch}`.
+- `agent/cmd/agent/main.go` `collectSnapshot()` builds one `Snapshot` per
+  push. It includes OS release (`osrelease.go`: `ID`, `VERSION_ID`,
+  `VERSION_CODENAME`), listening TCP/TCP6 sockets with pid and process name
+  (`ports.go`, native `/proc`), the reboot-required flag and packages
+  (`reboot.go`), and best-effort public IPv4/IPv6 (`publicip.go`, via
+  ipify). The push interval comes from `SW_INTERVAL`: 15m by default, 30s in
+  the dev test agents.
+- The payload shape is `agent/internal/collector/types.go` (agent side) and
+  `server/internal/ingest/payload.go` (server side), `schema_version: 1`.
+
+The TASKS.md "Phase 1 remainder" plan was already server-side matching
+("OSV sync worker … into `vulnerabilities`", then match). The agent never
+had to decide what counts as vulnerable. What the plan did not have was:
+
+- any **history model** for packages beyond "copy every row every push"
+- source-package handling
+- a working shape for the `vulnerabilities` table (see gap 3 below)
+
+### 1.2 How it is stored today
+
+- `server/internal/ingest/handler.go` `Snapshot()` authenticates the push,
+  then calls `store.InsertSnapshot` (`server/internal/store/snapshots.go`).
+  That inserts one `snapshots` row, then `COPY`s **every package** into
+  `snapshot_packages (snapshot_id, name, version, arch)` and every socket
+  into `listening_sockets`. After the insert there is a
+  `TODO(phase 1)` and nothing else.
+- Volume: a typical Debian/Ubuntu server has 600 to 2,000 packages. At a 15m
+  interval that is roughly 60k to 190k `snapshot_packages` rows per host per
+  day. At the 30s dev interval it is about 30x that. Almost all of those rows
+  repeat the previous snapshot.
+
+### 1.3 Identity and topology today: agent == host
+
+- `POST /v1/enroll` (`handler.go` `Enroll()`) consumes an
+  `enrollment_tokens` row, then **creates a `hosts` row**
+  (`store.CreateHost`) and stores the secret hash in
+  `agent_credentials (host_id PK)`. The `agent_id` it returns **is the
+  `hosts.id`**.
+- `POST /v1/snapshots` reads `X-Agent-ID`, looks up
+  `agent_credentials.host_id` and writes `snapshots.host_id` from it. There is
+  no `agents` table. "Agent" and "host" are the same row.
+- In the dashboard, `web/src/app/dashboard/agents/page.tsx` ("Agents") lists
+  `hosts` through `getHostsForUser` (`web/src/lib/queries.ts`). The
+  "Register agent" dialog issues an enrollment token. The UI uses the two
+  words for the same thing.
+- The agent only runs on Linux, in Docker, with `pid: host`,
+  `network_mode: host` and `/:/host:ro` (`agent/docker-compose.example.yml`).
+  It always collects the machine it runs on. There is no remote collection
+  and no OS family field. `snapshots.os_id` is free text from
+  `/etc/os-release`.
+- The hostname is sent once, at enrollment (`os.Hostname()` in
+  `agent/cmd/agent/enroll.go`). It is never refreshed.
+
+### 1.4 Gaps and bugs found while reading (relevant to this design)
+
+1. **The dpkg parser drops the `Source:` field.** Debian and Ubuntu advisories
+   are keyed by *source* package (`openssl`), but hosts install *binary*
+   packages (`libssl3`, `openssl`). Without `Source:`, `libssl3` cannot be
+   matched. The source version can also differ from the binary version
+   (binNMUs, `Source: foo (1.2-3)`). Fix: an additive payload field.
+2. **The `installed` check is too loose.** `strings.Contains(status, "installed")`
+   also matches `half-installed` and `not-installed`, for example
+   `purge ok not-installed`. It should test that the third word of `Status:`
+   is `installed`. This is a small fix, and the first dpkg parser test should
+   cover it.
+3. **The `vulnerabilities` table can't hold what it describes.** It has
+   `id text PRIMARY KEY -- e.g. "CVE-2024-1234"`, but each row is also
+   per `package_name` and `distro_release`. One CVE affects many (package,
+   release) pairs, so the primary key allows only one of them. The table
+   needs replacing, not just filling (see §2.4).
+4. **The schema version is hardcoded on insert.** `store.InsertSnapshot`
+   writes `schema_version = 1` as a literal instead of the payload's
+   value. This is harmless today and wrong once v2 exists.
+5. **Failure is all or nothing.** If the dpkg collector fails,
+   `collectSnapshot` returns early and nothing is pushed. With history
+   ranges (§2.2) that is safe, since there is no false "everything removed".
+   With more collectors it is too coarse; see per-collector status in §4.5.
+6. **Windows and macOS are listed as explicit non-goals** in `README.md` and
+   `docs/TASKS.md`. Section 4 of this doc assumes they are coming. That
+   change of product scope needs an explicit decision (open question Q1).
+
+---
+
+## 2. Package inventory and vulnerability matching
+
+### 2.1 Principle
+
+- The agent reports **facts only**: every installed package with
+  binary name, version, arch, source name and source version. It never
+  decides what is vulnerable. This is already the architecture, and it keeps
+  the agent small and auditable.
+- The server stores the inventory **as history**: which package versions
+  were on which host, and when.
+- The server keeps **its own copy of advisory data** and joins the two. New
+  advisories apply to current *and* past inventories without the agent
+  resending anything.
+
+### 2.2 Storage model for inventory history
+
+Four options were considered:
+
+| Option | Rows written per push when nothing changed | Current inventory query | "What changed / as of date T" | Notes |
+|---|---|---|---|---|
+| A. Full copy per snapshot (today) | ~1,500 | easy | diff two snapshots | Most storage by far; needs pruning, and pruning destroys history |
+| B. Change events only | 0 | replay events (or keep a separate "current" table) | natural | Two sources of truth; replay needed for "as of T" |
+| C. Content-addressed package sets (hash of sorted list → set rows) | 0 | join through set | diff two sets | Dedups identical hosts well, but every single upgrade writes a whole new ~1,500-row set; "when did X appear" needs set diffs |
+| **D. Validity ranges per (host, package version)** | **0** | `WHERE removed_at IS NULL` | range predicates | One table gives current state, history, and point-in-time views |
+
+**Recommendation: D, validity ranges, plus two cheap additions:**
+
+1. **Intern package versions fleet-wide.** A `software_versions` row is one
+   distinct `(ecosystem, distro, release, name, version, arch)`, plus source
+   name and version, and it never changes. Hosts reference it by id. Fifty
+   hosts on the same Ubuntu release share most rows. More importantly,
+   **vulnerability evaluation happens once per distinct version, not once
+   per host** (§2.5).
+2. **Short-circuit with a set hash.** The server computes a hash of the
+   sorted `(name, arch, version, source, source_version)` list and stores it
+   on the snapshot. If it equals the host's previous hash, ingest skips the
+   diff entirely. This is the one piece of option C worth keeping, and it
+   makes the common case (nothing changed) nearly free.
+
+Ingest algorithm, in Go, in the ingest transaction or a job right after it:
+
+```
+if snapshot.package_set_hash == host.current_package_set_hash: done
+load open rows:  host_software WHERE host_id = $1 AND removed_at IS NULL
+intern reported versions (INSERT ... ON CONFLICT DO NOTHING, then SELECT ids)
+added   = reported − open   → INSERT host_software (first_seen_at = collected_at, first_seen_snapshot_id)
+removed = open − reported   → UPDATE host_software SET removed_at = collected_at, removed_snapshot_id
+host.current_package_set_hash = snapshot.package_set_hash
+enqueue evaluate(software_id) for any newly interned versions (§2.6)
+```
+
+Details:
+
+- **An upgrade is a close plus an open.** `openssl 3.0.2-0ubuntu1.15`
+  closes and `3.0.2-0ubuntu1.16` opens in the same snapshot. The History UI
+  pairs these into "upgraded" by `(host, name, arch, snapshot)` (§3.4).
+- **Unchanged rows don't carry `last_seen_at`.** Updating 1,500 rows per push
+  is the write amplification we are trying to avoid. "Last confirmed" is a
+  host-level fact instead: `hosts.inventory_confirmed_at`, or per collector
+  (§4.5). An open range means "still installed as of the last successful
+  inventory".
+- **Missing data is never a removal.** If a push has no package section,
+  or the packages collector reports an error, the diff is skipped. Today the
+  agent never sends a partial payload, but multi-collector payloads will
+  (§4.5).
+- **Reinstalling a version later opens a new range.** The same software id
+  can have several non-overlapping ranges on one host.
+- **Point in time**: "the inventory at T" is
+  `first_seen_at <= T AND (removed_at IS NULL OR removed_at > T)`.
+- **Out-of-order pushes**: ingest uses `collected_at` as the range boundary
+  but applies snapshots in `received_at` order. A snapshot collected before
+  the host's newest applied inventory is stored but not diffed. With one
+  agent per host and a sequential push loop, this is rare.
+- **`snapshot_packages` is retired.** Backfill `host_software` from the
+  existing `snapshot_packages` history by replaying snapshots in order, then
+  stop writing it and drop it in a later migration. Keeping raw per-snapshot
+  package rows for N days as a debugging aid is optional (open question Q6).
+
+Rough sizing: 100 hosts × 1,500 packages is 150k open rows. Churn is maybe
+20 to 200 rows per host per week of routine `apt upgrade`. That is
+**well under a million rows per year for 100 hosts**, where option A writes
+about 14M rows per *day* at a 15m interval.
+
+### 2.3 Advisory source
+
+**Recommendation: OSV.dev bulk data for the `Debian` and `Ubuntu`
+ecosystems as the single ingestion format.** We normalize it into our own
+tables. The server never calls OSV per query.
+
+Why OSV over the raw distro feeds:
+
+- **One parser covers both distros.** Debian's data comes from the Debian
+  Security Tracker (DSA, DLA, DTSA, plus `DEBIAN-CVE-*` records that
+  include **not-yet-fixed** CVEs). Ubuntu's comes from Ubuntu's own security
+  team (`USN-*`, plus `UBUNTU-CVE-*` records that also include unfixed
+  CVEs). Both use the same JSON schema: `affected[].package.ecosystem` such
+  as `Debian:12` or `Ubuntu:22.04:LTS`, the *source* package name, and
+  `ECOSYSTEM` ranges with `introduced` and `fixed` events.
+- **Distro severity is included**: Debian `urgency` and Ubuntu `priority`
+  (negligible, low, medium, high, critical) appear in
+  `ecosystem_specific` / `database_specific`. We need these because CVSS
+  alone ranks everything "high".
+- **CVE aliases and upstream links are included.** These are the join keys
+  for CISA KEV and FIRST EPSS, which are keyed by CVE.
+- **It extends later.** Alpine, Rocky/Alma and others (Phase 2 RHEL/Alpine
+  collectors) are OSV ecosystems too, so no new parser is needed.
+- **Refresh is cheap.** OSV publishes a per-ecosystem `all.zip` (initial
+  load) and per-record `modified` timestamps, so updates can be incremental.
+
+Trade-offs, and why this is **(judgment call)** Q2:
+
+- OSV is a conversion of the distro data, so it lags the source by hours
+  and conversion bugs are possible. The raw Debian tracker JSON
+  (`security-tracker.debian.org/tracker/data/json`) is the most
+  authoritative Debian source. It has finer statuses (`not-affected`,
+  `<no-dsa>`, `<ignored>`, `<postponed>`, `unimportant`) and is one file keyed
+  by source package → CVE → release. For Ubuntu, the equivalent is OVAL or
+  the Ubuntu CVE tracker.
+- **Fallback plan**: keep the normalized tables (§2.4) source-agnostic, so a
+  `debian-tracker` importer can replace `osv-debian` later without touching
+  matching or the UI.
+
+Enrichment, unchanged from the existing plan:
+
+- **CISA KEV**: JSON catalog, daily
+- **FIRST EPSS**: daily CSV, keyed by CVE
+- Both land on a per-CVE `cves` row, not per advisory.
+
+Refresh cadence **(judgment call)**:
+
+- OSV incremental sync hourly, full reload weekly (self-healing)
+- KEV and EPSS daily
+- Only **releases present in `distro_releases` with `supported = true`**
+  are imported, to keep the table small. OSV has records back to Debian 3.0.
+
+### 2.4 Advisory schema (replaces `vulnerabilities`)
+
+```sql
+-- Which distro releases we understand, and how OSV names them.
+CREATE TABLE distro_releases (
+    distro          text NOT NULL,           -- 'debian' | 'ubuntu'
+    codename        text NOT NULL,           -- 'bookworm', 'jammy'
+    version         text NOT NULL,           -- '12', '22.04'
+    osv_ecosystem   text NOT NULL,           -- 'Debian:12', 'Ubuntu:22.04:LTS'
+    eol_date        date,
+    supported       boolean NOT NULL DEFAULT true,
+    PRIMARY KEY (distro, codename)
+);
+
+-- One row per upstream advisory record, whatever its source.
+CREATE TABLE advisories (
+    id              text PRIMARY KEY,        -- 'DSA-5532-1', 'DEBIAN-CVE-2024-1234', 'USN-6500-1', 'UBUNTU-CVE-2024-1234'
+    source          text NOT NULL,           -- 'osv-debian' | 'osv-ubuntu' (later 'debian-tracker', ...)
+    vuln_key        text NOT NULL,           -- canonical id used everywhere else: the CVE alias if any, else id
+    aliases         text[] NOT NULL DEFAULT '{}',
+    summary         text,
+    details         text,
+    published_at    timestamptz,
+    modified_at     timestamptz NOT NULL,
+    withdrawn_at    timestamptz,
+    raw             jsonb NOT NULL,          -- full source record, for re-normalizing without re-downloading
+    synced_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX advisories_vuln_key_idx ON advisories (vuln_key);
+
+-- Normalized "which source package in which release is affected, fixed in what".
+CREATE TABLE advisory_affected (
+    advisory_id     text NOT NULL REFERENCES advisories(id) ON DELETE CASCADE,
+    distro          text NOT NULL,
+    release         text NOT NULL,           -- codename, via distro_releases.osv_ecosystem
+    source_package  text NOT NULL,
+    introduced      text,                    -- NULL / '0' = all earlier versions
+    fixed_version   text,                    -- NULL = no fix available (yet)
+    distro_severity text,                    -- Debian urgency / Ubuntu priority, normalized lowercase
+    status          text NOT NULL,           -- 'fixed' | 'unfixed' | 'not_affected' | 'ignored'
+    PRIMARY KEY (advisory_id, distro, release, source_package, COALESCE(introduced, ''))
+);
+CREATE INDEX advisory_affected_lookup_idx ON advisory_affected (distro, release, source_package);
+
+-- Per-CVE enrichment (KEV/EPSS/CVSS). One row per CVE, however many advisories cite it.
+CREATE TABLE cves (
+    id                 text PRIMARY KEY,     -- 'CVE-2024-1234'
+    description        text,
+    cvss_v3_score      numeric,
+    cvss_v3_vector     text,
+    epss_score         numeric,
+    epss_percentile    numeric,
+    epss_date          date,
+    is_kev             boolean NOT NULL DEFAULT false,
+    kev_added_at       date,
+    kev_due_date       date,
+    kev_ransomware     boolean,
+    updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE feed_sync_state (
+    feed            text PRIMARY KEY,        -- 'osv-debian', 'osv-ubuntu', 'cisa-kev', 'first-epss'
+    last_success_at timestamptz,
+    last_attempt_at timestamptz,
+    cursor          text,                    -- e.g. newest `modified` seen, ETag
+    last_error      text
+);
+```
+
+(The `COALESCE` in a primary key isn't legal as written. In the real
+migration, make `introduced` `NOT NULL DEFAULT ''` instead. It is written
+this way here for readability.)
+
+**Deduplication across sources.** Debian publishes `DSA-5532-1` *and*
+`DEBIAN-CVE-2023-5678` for the same issue. Ubuntu publishes `USN-…` *and*
+`UBUNTU-CVE-…`. Everything downstream (matches, findings, UI) is keyed by
+**`vuln_key`**, which is the CVE id when there is one. Advisory ids are
+kept as a list of references ("fixed by DSA-5532-1") for display and links.
+Where the per-CVE record and the DSA disagree on the fixed version, prefer
+the per-CVE record, since the tracker is the source the DSA is derived from.
+Store both anyway.
+
+### 2.5 The join: version semantics, source vs binary, per-release fixes
+
+**A package version is affected by a vuln_key when all of these hold:**
+
+```
+software.distro   = aa.distro
+software.release  = aa.release                 -- fixed versions are per codename
+software.source_name = aa.source_package       -- advisories are keyed by SOURCE package
+aa.status IN ('fixed', 'unfixed')
+dpkg_cmp(software.source_version, aa.introduced) >= 0   (or introduced is NULL/'0')
+AND (aa.fixed_version IS NULL OR dpkg_cmp(software.source_version, aa.fixed_version) < 0)
+```
+
+**Source vs binary.**
+
+- The agent must send `source` and `source_version` from the dpkg `Source:`
+  field. Its three forms are:
+  - absent: source name = binary name, source version = binary version
+  - `Source: openssl`: same version as the binary
+  - `Source: openssl (3.0.2-0ubuntu1.15)`: explicit source version, used by
+    binNMUs (`+b1`) and some multi-version sources
+- Compare the **source version** against the fixed version, because
+  advisories give source versions.
+- This is an additive field, so no `schema_version` bump is needed. For
+  pushes from older agents without `source`, fall back to name = source,
+  mark the row `source_inferred = true`, and show "matching may be
+  incomplete, update the agent" on the host.
+- Kernels are the known hard case. On Ubuntu, `linux-image-*` binaries come
+  from `linux-signed-*` or `linux-meta-*` sources, while advisories cite
+  `linux`, `linux-hwe-6.8`, `linux-aws` and so on. It needs a small mapping
+  (strip the `-signed`/`-meta` infix) plus tests. Open question Q7 covers
+  whether to match against *installed* kernels, the *running* one, or both.
+
+**Debian version comparison.** Postgres can't do this natively. Plain text
+ordering gets `1.10 < 1.9`, `1.0~rc1 > 1.0` and epochs (`1:2.0` vs `3.0`)
+wrong. Recommendation:
+
+- Implement `dpkg --compare-versions` semantics in Go as
+  `server/internal/debversion`. It is a port of dpkg's `verrevcmp`:
+  - epoch compared numerically
+  - upstream version and debian revision compared by alternating
+    non-digit and digit runs
+  - in non-digit runs, `~` sorts before everything, including end of string;
+    letters sort before non-letters
+  - digit runs compared numerically
+
+  Use dpkg's own test vectors plus real backport cases (`+deb12u1`,
+  `~deb11u1`, `ubuntu0.22.04.1`, `+esm1`).
+- **All comparisons happen in Go, and the results are materialized**
+  (§2.6). Postgres never compares versions, so no custom extension is
+  needed. The official `postgres:18-alpine` image doesn't ship the
+  `debversion` extension. We could build a custom image, but that adds
+  operational weight to a self-hosted product.
+- For later SQL-side needs such as "hosts below version X" in the fleet
+  view, a Go-computed **sort key** can be stored on `software_versions`
+  (`version_sort_key bytea`): an order-preserving byte encoding of the dpkg
+  ordering, compared with `C` collation semantics. It is not needed for
+  Phase 1 (open question Q8).
+
+**Ubuntu Pro / ESM.** Hosts attached to Ubuntu Pro receive `+esm` versions
+whose fixes are listed in the `Ubuntu:Pro:*` ecosystems. Hosts not
+attached should see "fix available only with Ubuntu Pro" rather than a
+normal "fix available". This needs one more agent fact: attachment status
+from `/var/lib/ubuntu-advantage/status.json` (open question Q9).
+
+### 2.6 Materialized or computed on read?
+
+**Recommendation: materialize matches per `software_versions` row. Compute
+host exposure on read. Materialize per-host findings for lifecycle and
+alerting.**
+
+```sql
+-- Interned, immutable package versions (fleet-wide). §2.2.
+CREATE TABLE software_versions (
+    id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ecosystem         text NOT NULL,            -- 'deb' now; later 'rpm','apk','homebrew','macos-app','macos-pkg','windows-program'
+    distro            text NOT NULL DEFAULT '', -- 'debian' | 'ubuntu' | '' for non-distro ecosystems
+    release           text NOT NULL DEFAULT '', -- codename
+    name              text NOT NULL,            -- binary package / app / program name
+    version           text NOT NULL,
+    arch              text NOT NULL DEFAULT '',
+    source_name       text,                     -- deb only
+    source_version    text,                     -- deb only
+    source_inferred   boolean NOT NULL DEFAULT false,
+    attrs             jsonb NOT NULL DEFAULT '{}', -- ecosystem extras (Windows publisher, macOS bundle id, ...)
+    -- matching bookkeeping
+    matcher_version   int,                      -- NULL = never evaluated
+    evaluated_at      timestamptz,
+    max_fixed_version text,                     -- highest fixed_version across open matches (Go-computed), for "upgrade to" hints
+    UNIQUE (ecosystem, distro, release, name, version, arch)
+);
+CREATE INDEX software_versions_source_idx ON software_versions (distro, release, source_name);
+CREATE INDEX software_versions_name_idx ON software_versions (name text_pattern_ops);
+
+-- Host inventory history as validity ranges. §2.2.
+CREATE TABLE host_software (
+    host_id                 uuid NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    software_id             bigint NOT NULL REFERENCES software_versions(id),
+    first_seen_at           timestamptz NOT NULL,
+    first_seen_snapshot_id  uuid REFERENCES snapshots(id) ON DELETE SET NULL,
+    removed_at              timestamptz,        -- NULL = currently installed
+    removed_snapshot_id     uuid REFERENCES snapshots(id) ON DELETE SET NULL,
+    PRIMARY KEY (host_id, software_id, first_seen_at)
+);
+CREATE UNIQUE INDEX host_software_current_uq ON host_software (host_id, software_id) WHERE removed_at IS NULL;
+CREATE INDEX host_software_by_software_idx ON host_software (software_id) WHERE removed_at IS NULL;
+CREATE INDEX host_software_changes_idx ON host_software (host_id, first_seen_at DESC);
+CREATE INDEX host_software_removals_idx ON host_software (host_id, removed_at DESC) WHERE removed_at IS NOT NULL;
+
+-- Positive matches only: no row means not known vulnerable.
+CREATE TABLE software_vulnerabilities (
+    software_id      bigint NOT NULL REFERENCES software_versions(id) ON DELETE CASCADE,
+    vuln_key         text NOT NULL,             -- CVE id or advisory id
+    advisory_ids     text[] NOT NULL,           -- all sources citing it: {'DSA-5532-1','DEBIAN-CVE-2023-5678'}
+    fixed_version    text,                      -- NULL = no fix available
+    fix_channel      text,                      -- NULL | 'ubuntu-pro'
+    distro_severity  text,
+    matcher_version  int NOT NULL,
+    matched_at       timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (software_id, vuln_key)
+);
+CREATE INDEX software_vulnerabilities_vuln_idx ON software_vulnerabilities (vuln_key);
+```
+
+Why this split:
+
+- **Per-version materialization is small and stable.** It changes only when
+  a new version appears or advisories change. It does not change when a host
+  pushes. Evaluating "openssl 3.0.2-0ubuntu1.15 on jammy" once serves every
+  host that has it.
+- **Host exposure is a plain indexed join**:
+  `host_software (current) ⋈ software_vulnerabilities ⋈ cves`. There is
+  nothing to keep in sync per push, and old inventories are re-evaluated
+  automatically. "Was host X vulnerable to CVE-Y on date D?" uses the same
+  join with a range predicate, against *today's* advisory knowledge. That is
+  exactly the retroactive property the user asked for.
+- **`findings` stays materialized** because it carries lifecycle
+  (`first_seen_at`, `resolved_at`, open or resolved) and drives alerts.
+  Findings are one per `(host, source package, vuln_key)`, not per binary,
+  so one openssl CVE doesn't raise separate alerts for `libssl3`, `openssl`
+  and `libssl-dev`.
+  `dedup_key = 'pkg:' || source_name || ':' || vuln_key`.
+  Change `findings.vulnerability_id` to reference `cves(id)`, or make it
+  plain `vuln_key text`, since not every vuln_key is a CVE.
+
+**When matches are recomputed** (a Postgres-backed job queue, see Q10):
+
+| Trigger | Scope |
+|---|---|
+| A new `software_versions` row is interned at ingest | That one version |
+| Advisory sync inserts, updates or withdraws `advisory_affected` rows | All versions with the same `(distro, release, source_package)` |
+| KEV/EPSS refresh | No re-match; only `severity_rank` on open findings, which is a cheap UPDATE |
+| `matcher_version` bumped (comparator or normalization fix) | All versions with `matcher_version < current`, in batches |
+| A new release is marked `supported` in `distro_releases` | All versions in that release |
+
+After re-matching a version, **reconcile findings** for every host that
+currently has it. Open new `(host, source, vuln_key)` findings. Resolve
+findings whose vuln no longer matches any installed version, because the
+host upgraded or the advisory was withdrawn or marked `not_affected`. The
+ingest diff (§2.2) also triggers reconciliation for the host when its
+package set changed. Findings reconciliation is the only per-host write, and
+it happens only on change.
+
+**Severity ranking** (`findings.severity_rank`), keeping the existing
+"KEV and EPSS first" principle, extended with distro severity:
+
+1. KEV listed
+2. EPSS percentile
+3. distro severity (Ubuntu priority / Debian urgency; `negligible` and
+   `unimportant` sink to the bottom)
+4. CVSS as a tiebreaker
+5. "no fix available" shown separately, not hidden
+
+The exact formula is a later task. Put it in one Go function that is
+unit-tested.
+
+---
+
+## 3. Packages in the dashboard
+
+This follows the existing pattern in DECISIONS.md: **Next.js Server
+Components read Postgres directly** through `web/src/lib/queries*.ts`.
+None of the views below needs a new Go HTTP endpoint. The Go side writes
+`host_software`, `software_vulnerabilities` and `findings`, and Next.js
+reads them. Every query is scoped by `hosts.user_id = session.user.id`.
+
+Filters, sorting, paging and search live in **URL search params**, so views
+are shareable, work with the back button, and render on the server. The
+existing shell has `Table`, `Badge`, `Sheet`, `Input`, `Command` and
+`Tooltip`. It still needs shadcn `tabs`, `select` (or a popover faceted
+filter) and a small pagination component. `@tanstack/react-table` isn't
+installed. Tables are server-driven, so it isn't needed (open question Q11).
+
+### 3.1 Navigation (sidebar `navGroups` in `web/src/components/layout/app-sidebar.tsx`)
+
+```
+General
+  Overview          /dashboard
+  Hosts             /dashboard/hosts            (today's "Agents" list, renamed; see §4)
+  Vulnerabilities   /dashboard/vulnerabilities
+  Packages          /dashboard/packages
+Settings
+  Agents            /dashboard/agents           (deployed collectors, after the split in §4)
+```
+
+Until the agent/host split lands, `/dashboard/agents` can stay as is, and
+host detail pages hang off `/dashboard/hosts/[hostId]`.
+
+### 3.2 Host detail shell: `/dashboard/hosts/[hostId]/layout.tsx`
+
+- **Header**:
+  - hostname and label
+  - OS badge (for example `Ubuntu 22.04 (jammy)`; later a Windows or macOS
+    icon)
+  - last seen
+  - reporting agent
+  - pills for reboot pending, open vulns and KEV count
+- **Tabs, as links**: Overview · Packages · Vulnerabilities · History ·
+  Ports (later Services)
+- **Query**: `getHost(userId, hostId)` returns host, latest snapshot
+  scalars and finding counts. It returns 404 if the host is not owned by the
+  user.
+
+### 3.3 Per-host packages: `/dashboard/hosts/[hostId]/packages`
+
+Search params:
+
+- `q` (name or source prefix)
+- `status` = `all` | `vulnerable` | `no-fix` | `ok`
+- `severity` = `kev` | `critical` | `high` | …
+- `sort` = `name` | `severity` | `installed`
+- `page`
+- `at` = ISO date for point-in-time view (optional)
+
+| Column | Source |
+|---|---|
+| Package: binary name, with source name in muted text when different | `software_versions.name`, `.source_name` |
+| Installed version (mono) | `.version` |
+| Arch | `.arch` |
+| Status: `Up to date` / `Vulnerable (n)` / `No fix yet (n)` / `Pro fix` | count of `software_vulnerabilities`, split by `fixed_version IS NULL` and `fix_channel` |
+| Top severity: KEV badge, EPSS %, distro priority | max over the package's matches ⋈ `cves` |
+| Fixed in ("upgrade to") | `software_versions.max_fixed_version` |
+| Installed since | `host_software.first_seen_at` |
+
+- **Row click** opens a `Sheet` listing that package's vulnerabilities:
+  - CVE id, linked to `/dashboard/vulnerabilities/[vulnKey]`
+  - summary
+  - KEV, EPSS, CVSS, distro severity
+  - fixed version
+  - advisory links (DSA/DLA to `security-tracker.debian.org`, USN to
+    `ubuntu.com/security/notices`)
+- **Default sort** is vulnerable-first by severity rank, then name.
+- **Point-in-time**: `?at=2026-06-01` swaps the "current" predicate for the
+  range predicate and shows a banner ("Inventory as of 1 Jun 2026, matched
+  against today's advisories").
+
+```sql
+-- getHostPackages(userId, hostId, filters)
+SELECT sv.name, sv.source_name, sv.version, sv.arch, hs.first_seen_at, sv.max_fixed_version,
+       count(m.vuln_key)                                   AS vuln_count,
+       count(m.vuln_key) FILTER (WHERE m.fixed_version IS NULL) AS nofix_count,
+       bool_or(c.is_kev)                                   AS any_kev,
+       max(c.epss_percentile)                              AS max_epss
+FROM hosts h
+JOIN host_software hs      ON hs.host_id = h.id AND hs.removed_at IS NULL   -- or range predicate for ?at=
+JOIN software_versions sv  ON sv.id = hs.software_id
+LEFT JOIN software_vulnerabilities m ON m.software_id = sv.id
+LEFT JOIN cves c           ON c.id = m.vuln_key
+WHERE h.id = $2 AND h.user_id = $1
+  AND ($3::text IS NULL OR sv.name LIKE $3 || '%' OR sv.source_name LIKE $3 || '%')
+GROUP BY sv.id, hs.first_seen_at
+ORDER BY any_kev DESC NULLS LAST, max_epss DESC NULLS LAST, sv.name
+LIMIT 100 OFFSET $4;
+```
+
+### 3.4 Per-host change history: `/dashboard/hosts/[hostId]/history`
+
+Search params: `from`, `to` (default: last 30 days), `q`, `type` =
+`installed` | `upgraded` | `downgraded` | `removed`.
+
+Grouped by day, then by snapshot time. This is the "what did last night's
+unattended-upgrades do" view.
+
+| Column | Notes |
+|---|---|
+| Time | the snapshot's `collected_at` (first_seen / removed) |
+| Change | Installed / Upgraded / Downgraded / Removed. Upgrade vs downgrade uses `dpkg_cmp`, done in Go at write time and stored (see below) or computed in the Server Component with a TS port. |
+| Package | binary name (source name muted) |
+| From → To | versions |
+| Security effect | "Fixed 3 CVEs (1 KEV)" / "Introduced 1 CVE": set difference of `software_vulnerabilities` between old and new versions |
+
+Query: two sides unioned. `host_software` rows with `first_seen_at` in the
+window (adds) and rows with `removed_at` in the window (removes). They are
+paired on `(name, arch, snapshot id)` into upgrades and downgrades.
+
+Recommendation **(judgment call)**: have the Go ingest diff also write a
+thin `host_software_changes` row
+`(host_id, snapshot_id, at, name, arch, from_software_id, to_software_id, kind)`.
+The pairing and the dpkg comparison then happen once, in Go, and the page is
+a simple indexed range scan. It is derived data, rebuildable from
+`host_software` at any time, so it doesn't compete with the ranges as a
+source of truth.
+
+A small "packages changed" sparkline on the host Overview tab can use the
+same table.
+
+### 3.5 Per-host vulnerabilities: `/dashboard/hosts/[hostId]/vulnerabilities`
+
+This is the existing TASKS item "findings list/detail page", now scoped per
+host. There is one row per open finding, `(source package, vuln_key)`:
+
+| Column | Source |
+|---|---|
+| Vulnerability (CVE id + summary) | `findings.vuln_key` ⋈ `advisories` / `cves` |
+| Severity: rank badge, KEV, EPSS %, distro priority, CVSS | `cves`, `software_vulnerabilities.distro_severity` |
+| Package (source), affected binaries | `findings.details` or live join |
+| Installed → Fixed | installed source version, `fixed_version` or "no fix yet" |
+| Detected | `findings.first_seen_at` |
+
+There is a toggle for `status=resolved` (history: "fixed on 12 Sep by
+upgrading openssl").
+
+### 3.6 Fleet-wide views
+
+**`/dashboard/packages`**. Search box first (`?q=openssl`), no giant
+unfiltered list. Results are grouped by package name:
+
+| Package | Versions in fleet | Hosts | Vulnerable hosts |
+|---|---|---|---|
+
+Drill down to **`/dashboard/packages/[name]`**. It has a versions table
+(version, release, host count, vuln count, "fixed in") and a hosts table:
+
+| Host | Release | Installed version | Since | Status |
+|---|---|---|---|---|
+
+Query: `software_versions WHERE name = $1` ⋈ `host_software (current)` ⋈
+`hosts WHERE user_id = $1`, grouped by version.
+
+**`/dashboard/vulnerabilities`**. Fleet CVE list. Filters: `kev`,
+`severity`, `fix` = `available` | `none`, `q` (CVE id or package).
+
+| Vulnerability | Severity (KEV/EPSS/priority) | Affected hosts | Packages | Fix available | First seen in fleet |
+|---|---|---|---|---|---|
+
+Query: open `findings` for the user's hosts, grouped by `vuln_key`, joined
+to `cves`.
+
+**`/dashboard/vulnerabilities/[vulnKey]`**. The CVE detail page:
+
+- description, KEV/EPSS/CVSS
+- all advisories with links
+- per-release fixed versions (from `advisory_affected`)
+- **affected hosts** table: host, package, installed, fixed in, since
+- a "previously affected" toggle: hosts that had a vulnerable version at
+  some point and have since upgraded. This is answered from
+  `host_software` ranges, so it covers hosts that were vulnerable *before*
+  the CVE was even published. This is the payoff of keeping history
+  server-side.
+
+**Overview (`/dashboard`)**. It is currently a placeholder. Stat cards:
+
+- hosts reporting / stale
+- hosts with KEV vulns
+- open vulns (fix available vs none)
+- reboots pending
+
+Plus a "top 5 vulnerabilities by rank across fleet" table and "recent
+package changes across fleet".
+
+### 3.7 Query and index notes
+
+- All host-scoped queries go through `hosts.user_id`. Add
+  `CREATE INDEX hosts_user_id_idx ON hosts(user_id)`, which doesn't exist
+  today.
+- The fleet package search uses
+  `software_versions_name_idx (text_pattern_ops)` for prefix search. Add
+  `pg_trgm` only if substring search is wanted.
+- Nothing here needs caching at MVP scale. The existing DECISIONS.md
+  guidance applies if it ever does.
+
+---
+
+## 4. Domain model: agents, hosts, OS families
+
+### 4.1 Target concepts
+
+| Concept | Meaning |
+|---|---|
+| **Agent** | One deployed collector process with its own credential. It belongs to a user (later an org). It reports its own version and platform. |
+| **Host** | One monitored machine, with an OS family (`linux` / `windows` / `macos`) and an identity that survives agent reinstalls. This is what vulns, packages and findings hang off. |
+| **Assignment (`agent_hosts`)** | "This agent collects this host, in this mode." It is many-to-many in the schema. The normal case is one agent with one `local` host. A subnet agent has one local host plus N `remote` hosts. |
+| **Snapshot** | One collection of one host by one agent at one time. It records *both* `host_id` and `agent_id`. |
+
+### 4.2 Collection modes
+
+- **`local`** (all that exists today). The agent runs on the host and reads
+  its facts directly: Linux files under `/host`, the Windows
+  registry/SCM/WMI, macOS plists. It preserves the current principle:
+  **no command execution, no inbound ports**.
+- **`remote`** (proposed, later). The agent reaches another machine over
+  the network with credentials, using `ssh` for Linux/macOS or `winrm` for
+  Windows, and runs a **fixed, compiled-in, read-only** set of reads. On
+  Linux those are `cat /var/lib/dpkg/status`, `cat /etc/os-release`,
+  `ss -Htln` and similar.
+  - This **changes the security story**. The agent now holds credentials to
+    other machines and executes commands on them. The principle has to
+    become "the *server* can never cause code execution anywhere; the agent
+    only runs its own hard-coded read-only probes". That is a product
+    decision, open question Q3.
+  - Credentials should stay **on the agent**, in a local config or secrets
+    file keyed by target name, and never be uploaded. The dashboard
+    stores only the target list (name, address, mode). The agent pulls that
+    list over the existing outbound connection. **(judgment call, Q4)**
+  - The external port scanner's safety check is "only scan an IP that
+    connected to us as an agent" (`snapshots.source_ip`). That doesn't hold
+    for remote hosts, whose traffic comes from the agent's IP. Remote hosts
+    are **not eligible** for external scanning unless verified some other
+    way (Q5).
+
+Recommendation: ship the **schema and protocol for many hosts per agent now**
+(it is cheap and avoids a second migration). **Implement only `local` mode**
+until there is a concrete remote use case and the Q3 security decision is
+made.
+
+### 4.3 Enrollment and identity
+
+- **Enrollment creates an agent, not a host.** The token → `agents` row +
+  `agent_credentials(agent_id)`. The response keeps the same field names
+  (`agent_id`, `agent_secret`), so the agent binary needs no change for
+  enrollment.
+- **Hosts are created or attached on first data.** Each snapshot carries
+  a `host` block with identity keys:
+  - Linux: `/etc/machine-id` (read via `/host/etc/machine-id`)
+  - Windows: `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`, SMBIOS UUID
+  - macOS: `IOPlatformUUID`
+
+  The server upserts the host by `(user_id, identity kind, value)` and
+  creates the `local` assignment. Reinstalling the agent on the same
+  machine (lost `credentials.json`, rebuilt container volume) **reattaches
+  to the existing host and keeps its history**, where today it creates a
+  duplicate host.
+- **Cloned VMs share `machine-id`.** It is common on templated VPS images.
+  Mitigation: if a second *agent* claims an identity that already has an
+  active local agent, create a new host and flag "possible duplicate
+  identity" instead of merging silently. Provide merge and split actions in
+  host management later (Q12).
+- **Remote hosts** are created up front in the dashboard (name, address,
+  mode, assigned agent). Their identity keys are filled from their first
+  successful collection.
+- **Credential rotation and revocation** move to the agent level
+  (`agents.revoked_at`, `agent_credentials.rotated_at`). This lines up with
+  the existing TASKS items.
+
+### 4.4 Wire protocol changes (additive where possible)
+
+```jsonc
+// POST /v1/snapshots, schema_version 2 (one request per host collected)
+{
+  "schema_version": 2,
+  "agent": { "version": "0.3.0", "platform": "linux/amd64" },
+  "host": {
+    "ref": "local",                            // or the remote target name assigned in the dashboard
+    "identity": { "machine_id": "…" },         // Linux; Windows: machine_guid, smbios_uuid; macOS: platform_uuid
+    "hostname": "web-1",                       // refreshed every push (today only sent at enrollment)
+    "os_family": "linux"
+  },
+  "collected_at": "…",
+  "os": { "id": "ubuntu", "version_id": "22.04", "codename": "jammy", "kernel": "6.8.0-45-generic", "build": null },
+  "uptime_seconds": 123456,
+  "collectors": {                               // per-collector status, so a failed collector is "unknown", not "empty"
+    "deb_packages":   { "status": "ok" },
+    "tcp_listeners":  { "status": "ok" },
+    "systemd_units":  { "status": "error", "error": "…" }
+  },
+  "packages": [ { "name": "libssl3", "version": "3.0.2-0ubuntu1.15", "arch": "amd64",
+                  "source": "openssl", "source_version": "3.0.2-0ubuntu1.15" } ],
+  "listening_sockets": [ … ],
+  "reboot_required": false,
+  "public_ipv4": "…", "public_ipv6": "…"
+  // plus OS-specific sections, present only when that collector ran: "services", "windows_updates", ...
+}
+```
+
+- `source` / `source_version` on packages are **additive and can ship in
+  v1 now**. They are the only change Phase 1 matching needs.
+- v2 is required only for `host` and `collectors`. A v1 payload is treated
+  as `host.ref = "local"` of the authenticating agent. Existing agents keep
+  working unchanged after the server-side split (§4.7).
+- One request per host, rather than a batched multi-host body, keeps
+  request size bounded and failure isolated. **(judgment call)**
+- New: `GET /v1/agent/config`. It returns the agent's assigned remote
+  targets and the desired interval. The connection is still outbound only.
+  It is needed only once remote mode exists.
+
+### 4.5 Schema shape for per-OS data
+
+Options:
+
+| Option | Shape | Pros | Cons |
+|---|---|---|---|
+| A. One wide table | `snapshots` with every OS's columns, nullable | trivial queries | dozens of mostly-NULL columns; every new fact is a migration; no place for lists |
+| B. Per-OS tables | `linux_snapshots`, `windows_snapshots`, `macos_snapshots`, and per-OS lists | precise types | cross-OS views (all services, all software) need UNIONs; triples the code paths even where concepts are shared |
+| C. Generic typed inventory | `inventory_items(host_id, kind, key, attrs jsonb, first_seen, removed)` | zero migrations for new facts | weak typing; vuln matching needs indexed typed columns; jsonb query sprawl in the UI |
+| **D. Hybrid: common core + per-concept tables + jsonb extras** | see below | shared concepts queried uniformly; strong types where we join/filter; OS-specific long tail doesn't need migrations | still requires deciding which facts are "first-class" |
+
+**Recommendation: D.**
+
+- **Core**:
+  - `hosts` has `os_family` plus a normalized current OS summary (`os_id`,
+    `os_version`, `os_codename`, `os_build`, `kernel`, `arch`). It is
+    updated by ingest from the latest snapshot, so host lists never need a
+    LATERAL join. Today's `getHostsForUser` does that join for public IPs.
+  - `snapshots` keeps cross-cutting scalars: `collected_at`, `source_ip`,
+    public IPs, `uptime_seconds`, `reboot_required`, `package_set_hash`,
+    `collector_status jsonb`, `agent_id`.
+- **Per-concept tables, shared across OSes where the concept is shared**,
+  all using the same **validity-range pattern** as `host_software`:
+  - `software_versions` / `host_software` (§2.6). The `ecosystem` column
+    covers dpkg, Windows programs, macOS apps and pkg receipts, and
+    Homebrew.
+  - `host_services`: one table for systemd units, Windows services and
+    launchd jobs. Columns: `manager` (`systemd` | `scm` | `launchd`),
+    `name`, `display_name`, `start_mode` (`auto` | `manual` | `disabled`),
+    `state` (`running` | `stopped` | …), `run_as`, `binary_path`, and
+    `attrs jsonb` for manager-specific extras.
+  - `host_listeners`: listening sockets, moved from per-snapshot rows to
+    ranges. "Port 5432 just became public" then becomes a range opening,
+    which the alerting phase needs anyway.
+  - `host_os_patches`: Windows KBs/hotfixes (and later macOS rapid security
+    responses). Columns: `kind`, `patch_id`, `installed_on`, plus ranges.
+  - `host_users`: local accounts, later.
+- **Long-tail per-OS scalars go into `snapshots.facts jsonb`.** Examples:
+  Windows Defender signature age, BitLocker state, macOS SIP, Gatekeeper,
+  FileVault, XProtect version, unattended-upgrades config. Promote a fact to
+  a real column or table only when a finding, filter or alert needs it.
+  `facts` is validated against a Go struct per OS on ingest, so it isn't a
+  free-form dump.
+
+Trade-off accepted: a fact moves between jsonb and a column when it becomes
+important. That costs one migration and a backfill from `facts`, which is
+cheaper than designing all three OSes' schemas up front.
+
+### 4.6 Target schema sketch (identity and topology)
+
+```sql
+CREATE TABLE agents (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            text NOT NULL,             -- defaults to the local hostname
+    agent_version   text,
+    platform        text,                      -- 'linux/amd64', 'windows/amd64', 'darwin/arm64'
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    last_seen_at    timestamptz,
+    revoked_at      timestamptz
+);
+
+-- Re-keyed from host_id to agent_id.
+CREATE TABLE agent_credentials (
+    agent_id        uuid PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+    secret_hash     text NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    rotated_at      timestamptz
+);
+
+ALTER TABLE hosts
+    ADD COLUMN os_family      text CHECK (os_family IN ('linux','windows','macos')),  -- NULL until first snapshot
+    ADD COLUMN os_id          text,        -- 'ubuntu', 'debian', 'windows', 'macos'
+    ADD COLUMN os_version     text,        -- '22.04', '11 24H2', '15.1'
+    ADD COLUMN os_codename    text,        -- 'jammy'; NULL elsewhere
+    ADD COLUMN os_build       text,        -- Windows '26100.2033' (build.UBR); macOS '24B83'
+    ADD COLUMN kernel         text,
+    ADD COLUMN arch           text,
+    ADD COLUMN current_package_set_hash bytea,
+    ADD COLUMN inventory_confirmed_at   timestamptz,
+    ADD COLUMN archived_at    timestamptz;
+
+CREATE TABLE host_identities (
+    user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind            text NOT NULL,             -- 'linux-machine-id' | 'windows-machine-guid' | 'smbios-uuid' | 'macos-platform-uuid'
+    value           text NOT NULL,
+    host_id         uuid NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, kind, value)
+);
+
+CREATE TABLE agent_hosts (
+    agent_id          uuid NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    host_id           uuid NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    mode              text NOT NULL CHECK (mode IN ('local','ssh','winrm')),
+    target_ref        text NOT NULL DEFAULT 'local', -- name the agent uses in host.ref; matches its local credential entry
+    address           text,                          -- remote only
+    enabled           boolean NOT NULL DEFAULT true,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    last_collected_at timestamptz,
+    last_error        text,
+    PRIMARY KEY (agent_id, host_id),
+    UNIQUE (agent_id, target_ref)
+);
+CREATE UNIQUE INDEX agent_hosts_one_local_idx ON agent_hosts (agent_id) WHERE mode = 'local';
+
+ALTER TABLE snapshots
+    ADD COLUMN agent_id          uuid REFERENCES agents(id) ON DELETE SET NULL,
+    ADD COLUMN uptime_seconds    bigint,
+    ADD COLUMN package_set_hash  bytea,
+    ADD COLUMN collector_status  jsonb NOT NULL DEFAULT '{}',
+    ADD COLUMN facts             jsonb NOT NULL DEFAULT '{}';
+-- snapshots keeps its os_* columns as the per-push record; hosts.os_* is the current summary.
+
+CREATE TABLE host_services (
+    host_id         uuid NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    manager         text NOT NULL,             -- 'systemd' | 'scm' | 'launchd'
+    name            text NOT NULL,
+    display_name    text,
+    start_mode      text,                      -- 'auto' | 'manual' | 'disabled' | 'static' | ...
+    state           text,                      -- 'running' | 'stopped' | ...
+    run_as          text,
+    binary_path     text,
+    attrs           jsonb NOT NULL DEFAULT '{}',
+    first_seen_at   timestamptz NOT NULL,
+    removed_at      timestamptz,               -- a change in start_mode/state closes and reopens the range
+    PRIMARY KEY (host_id, manager, name, first_seen_at)
+);
+
+CREATE INDEX hosts_user_id_idx ON hosts (user_id);
+```
+
+Also on the `enrollment_tokens` side: add an optional `agent_name text`, so
+the dashboard can pre-name the agent. The token stays one-time and
+1-hour, same as today.
+
+### 4.7 Migration from today's model
+
+Existing rows can be migrated with **no agent-side change**:
+
+1. For every `hosts` row, insert `agents (id = hosts.id, user_id, name = hostname)`.
+   **Reusing the id** means every deployed agent's `credentials.json`
+   `agent_id` stays valid.
+2. Move `agent_credentials.host_id` → `agent_id` (same values).
+3. Insert `agent_hosts (agent_id = id, host_id = id, mode = 'local')`.
+4. Backfill `snapshots.agent_id = host_id`.
+5. Server: `X-Agent-ID` now means `agents.id`. A v1 payload resolves to that
+   agent's `local` host.
+
+Old agents keep pushing. The new agent's v2 payload adds `host.identity`,
+which fills `host_identities` on the next push.
+
+### 4.8 Per-OS collectors: what's worth sampling
+
+"No exec" means pure file, registry, API or `/proc` reads. That is the
+preference for `local` mode, in line with the current agent's principle.
+
+**Linux: Debian/Ubuntu first, other distros later (Phase 2 RHEL/Alpine)**
+
+| Fact | Local source (no exec) |
+|---|---|
+| Packages | `/var/lib/dpkg/status`, adding `Source:`. RPM needs `rpmdb.sqlite`; Alpine reads `/lib/apk/db/installed` (Phase 2). |
+| OS, kernel, uptime | `/etc/os-release`; `/proc/sys/kernel/osrelease` (the running kernel; host and container share it); `/proc/uptime` |
+| Identity, hostname | `/etc/machine-id`, `/etc/hostname` (instead of `os.Hostname()`) |
+| systemd services | Enabled state from unit files and `*.wants/` symlinks under `/etc/systemd/system`, `/lib/systemd/system` and `/usr/lib/systemd/system`. Running state from `/proc/*/cgroup`: `…/system.slice/<unit>.service`. This avoids needing D-Bus / `systemctl`, which would mean mounting the system bus into the container. It is less complete than `systemctl` (no "failed" state), which is acceptable for v1. |
+| Pending reboot | Already collected (`/var/run/reboot-required{,.pkgs}`). Add "running kernel ≠ newest installed `linux-image-*`" as a server-side check. |
+| Stale processes after upgrade | `/proc/*/maps` entries marked `(deleted)` for `.so` files, which is what needrestart does. README goal 3, "patched but not fixed". |
+| Unattended-upgrades | Enabled: `/etc/apt/apt.conf.d/20auto-upgrades` (`APT::Periodic::Unattended-Upgrade "1"`). Last apt update: mtime of `/var/lib/apt/periodic/update-success-stamp`. Last run: tail of `/var/log/unattended-upgrades/unattended-upgrades.log`. |
+| Security updates available | **Server-computed** from matches (`fixed_version` exists and is newer than installed). No agent work is needed. Non-security pending upgrades need `/var/lib/apt/lists/*_Packages` parsing, which is heavy (Q13). |
+| Listening sockets | Already collected (TCP/TCP6). UDP (`/proc/net/udp{,6}`) is cheap to add. |
+| Users | `/etc/passwd` (uid ≥ 1000 plus uid 0, and login shell); `/etc/group` for sudo/admin membership. Never `/etc/shadow`. |
+| Ubuntu Pro attachment | `/var/lib/ubuntu-advantage/status.json` |
+
+**Windows (requires a native Windows agent: a Windows service, not Docker)**
+
+| Fact | Source |
+|---|---|
+| OS version and patch level | Registry `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`: `ProductName`, `DisplayVersion`, `CurrentBuild`, **`UBR`**. `CurrentBuild.UBR` is the real cumulative-update level and the best key for vuln matching. |
+| Identity | `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`; SMBIOS UUID via WMI `Win32_ComputerSystemProduct` |
+| Installed programs | Uninstall keys: `HKLM\…\CurrentVersion\Uninstall`, `HKLM\…\WOW6432Node\…\Uninstall`, and per-user `HKU\<sid>\…\Uninstall`. `DisplayName`, `DisplayVersion`, `Publisher`, `InstallDate`. Plus Appx/MSIX packages later. |
+| Hotfixes / KBs | WMI `Win32_QuickFixEngineering`. This is incomplete for modern cumulative updates, so treat the build and UBR as primary. |
+| Windows Update state | Windows Update Agent COM API (`IUpdateSearcher`) for pending updates. It can be slow, so run it on a longer cadence. Last successful install/scan comes from the WU registry and event log. Policy (auto-update, WSUS) comes from `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate`. |
+| Pending reboot | Registry keys: `…\Component Based Servicing\RebootPending`, `…\WindowsUpdate\Auto Update\RebootRequired`, `Session Manager\PendingFileRenameOperations` |
+| Services | Service Control Manager via `golang.org/x/sys/windows/svc/mgr`: name, display name, start type, state, account, image path (`services.msc` equivalent) |
+| Listening sockets | `GetExtendedTcpTable` / `GetExtendedUdpTable` (iphlpapi), with owning PID |
+| Security posture | Defender (`MSFT_MpComputerStatus`: real-time protection on, signature age), firewall profiles enabled, BitLocker status (`Win32_EncryptableVolume`) |
+| Users | Local accounts and members of the Administrators group (NetUserEnum / NetLocalGroupGetMembers) |
+| Vuln data | Separate problem: MSRC CVRF API (CVE → product → KB/build). Third-party programs have no good free feed (NVD CPE matching is noisy). Q14. |
+
+**macOS (requires a native agent: a launchd daemon, signed and notarized
+pkg, not Docker, since Docker on macOS runs in a Linux VM and can't see
+the host)**
+
+| Fact | Source |
+|---|---|
+| OS version | `/System/Library/CoreServices/SystemVersion.plist` (`ProductVersion`, `ProductBuildVersion`). Rapid Security Response suffix via `ProductVersionExtra`. |
+| Identity | `IOPlatformUUID` (IOKit `IOPlatformExpertDevice`) |
+| Installed apps | `Info.plist` of `/Applications/*.app` and `/Applications/Utilities/*.app` (`CFBundleIdentifier`, `CFBundleShortVersionString`). This is fast. `system_profiler SPApplicationsDataType` is complete but slow and an exec. |
+| Installer receipts | `/var/db/receipts/*.plist` (what `pkgutil --pkgs` reads): package id, version, install date |
+| Homebrew | Directory listing of `/opt/homebrew/Cellar/*/*` (Apple Silicon) and `/usr/local/Cellar/*/*` (Intel), plus `INSTALL_RECEIPT.json`. This avoids running `brew` as the owning user. Casks are under `Caskroom/`. |
+| Services | launchd plists in `/Library/LaunchDaemons`, `/Library/LaunchAgents` and `/System/Library/LaunchDaemons` (label, program, `RunAtLoad`, `KeepAlive`, disabled overrides). Running state needs `launchctl print`, an exec, or process-list correlation. |
+| Pending updates | `/Library/Preferences/com.apple.SoftwareUpdate.plist` (`RecommendedUpdates`, `LastSuccessfulDate`, `LastRecommendedUpdatesAvailable`). `softwareupdate --list` is authoritative but slow and hits the network. |
+| Auto-update settings | Same plist (`AutomaticCheckEnabled`, `AutomaticDownload`, `CriticalUpdateInstall`, `ConfigDataInstall`), plus `/Library/Preferences/com.apple.commerce.plist` (`AutoUpdate`) |
+| Built-in protection | XProtect version (`/Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info.plist`); SIP (`csrutil status`, exec) and Gatekeeper (`spctl --status`, exec); FileVault (`fdesetup status`, exec); Application Firewall (`/Library/Preferences/com.apple.alf.plist` `globalstate`, or `socketfilterfw --getglobalstate` on newer releases) |
+| Listening sockets | No `/proc`. Use `sysctl net.inet.tcp.pcblist_n` (what `netstat` uses), or `lsof -iTCP -sTCP:LISTEN -nP` (exec). |
+| Uptime | `sysctl kern.boottime` |
+| Users | `/var/db/dslocal/nodes/Default/users/*.plist` (needs root) or `dscl . list /Users` (exec) |
+| Vuln data | Apple security releases map macOS version → CVEs, which lets us flag "OS below latest security release". Homebrew packages can be matched loosely via upstream versions; OSV has no Homebrew ecosystem. Q14. |
+
+Several useful macOS facts are only reachable by exec (`csrutil`, `spctl`,
+`fdesetup`, `launchctl`). For a native local agent those are fixed,
+compiled-in, read-only commands. That is the same carve-out remote mode
+needs (Q3).
+
+---
+
+## 5. Support matrix
+
+Legend:
+
+- ✅ **supported now**, verified in code at `agent/internal/collector/*`
+  and stored by `server/internal/store/snapshots.go`
+- 🛠 planned, with phase
+- ❌ not planned
+- ❓ TBD, see open questions
+
+Phase labels, as used in [TASKS.md](TASKS.md):
+
+- **P1**: Phase 1 remainder (inventory history, matching, packages UI)
+- **P1.5**: agent/host split + Linux collector breadth
+- **P2**: existing Phase 2+ (containers, RHEL/Alpine)
+- **P3**: Windows agent
+- **P4**: macOS agent
+
+Windows and macOS are **currently non-goals** in README/TASKS. Their 🛠
+cells assume Q1 is answered yes.
+
+| Data point / collector | Windows | Ubuntu / Debian | macOS |
+|---|---|---|---|
+| **Agent runtime** (native binary on that OS) | 🛠 P3 (Windows service) | ✅ Docker (`agent/Dockerfile`); plain systemd unit is documented but not shipped | 🛠 P4 (launchd daemon, signed pkg) |
+| OS name / version | 🛠 P3 (registry) | ✅ `/etc/os-release`: id, version_id, codename | 🛠 P4 (SystemVersion.plist) |
+| OS build / patch level | 🛠 P3 (build.UBR) | ❌ n/a (packages carry it) | 🛠 P4 (build, RSR) |
+| Running kernel | ❌ n/a | 🛠 P1.5 (`/proc/sys/kernel/osrelease`) | 🛠 P4 (Darwin version) |
+| Hostname | 🛠 P3 | ✅ at enrollment only; 🛠 P1.5 every push | 🛠 P4 |
+| Stable machine identity | 🛠 P3 (MachineGuid) | 🛠 P1.5 (`/etc/machine-id`) | 🛠 P4 (IOPlatformUUID) |
+| Uptime / boot time | 🛠 P3 | 🛠 P1.5 (`/proc/uptime`) | 🛠 P4 |
+| Listening TCP sockets + owning process | 🛠 P3 (iphlpapi) | ✅ `/proc/net/tcp{,6}` + pid/comm | 🛠 P4 |
+| Listening UDP sockets | 🛠 P3 | 🛠 P1.5 | 🛠 P4 |
+| Agent-reported public IPv4/IPv6 | 🛠 P3 (collector code is portable) | ✅ ipify | 🛠 P4 |
+| Server-observed source IP | 🛠 P3 (free once an agent exists) | ✅ `snapshots.source_ip` | 🛠 P4 |
+| External port-exposure scan | ❓ Q5 | 🛠 P1 (exposure phase; `local` hosts only) | ❓ Q5 |
+| Installed OS packages | 🛠 P3 (Uninstall registry programs) | ✅ dpkg name/version/arch | 🛠 P4 (.app bundles + pkgutil receipts) |
+| Source package name/version | ❌ n/a | 🛠 P1 (dpkg `Source:`) | ❌ n/a |
+| Third-party package managers | ❓ (winget/Chocolatey/Scoop) | ❌ (snap/flatpak ❓ later) | 🛠 P4 (Homebrew Cellar/Caskroom) |
+| OS patches / hotfixes | 🛠 P3 (KBs via QFE) | ❌ n/a (packages) | 🛠 P4 (RSR via version) |
+| Package inventory history | 🛠 P3 (same `host_software` model) | 🛠 P1 (ranges; today: full copy per snapshot) | 🛠 P4 |
+| Vulnerability matching | ❓ Q14 (MSRC CVRF by build) | 🛠 P1 (OSV Debian/Ubuntu + KEV/EPSS) | ❓ Q14 (Apple security releases by OS version) |
+| Security updates available | 🛠 P3 (WU Agent API) | 🛠 P1 (server-computed from matches) | 🛠 P4 (SoftwareUpdate plist) |
+| All pending updates (non-security) | 🛠 P3 (same API) | ❓ Q13 (apt lists parsing) | 🛠 P4 (same plist) |
+| Auto-update configured / last run | 🛠 P3 (WU policy + last success) | 🛠 P1.5 (unattended-upgrades config, apt stamps) | 🛠 P4 (SoftwareUpdate prefs) |
+| Pending reboot | 🛠 P3 (CBS/WU/PendingFileRename keys) | ✅ `/var/run/reboot-required{,.pkgs}` | ❓ (no clean equivalent) |
+| Processes using deleted libraries | ❌ | 🛠 P1.5 (`/proc/*/maps`) | ❌ |
+| Services inventory + state | 🛠 P3 (SCM) | 🛠 P1.5 (systemd unit files + `/proc` cgroups) | 🛠 P4 (launchd plists) |
+| Local users / admins | 🛠 P3 | 🛠 P1.5 (`/etc/passwd`, `/etc/group`) | 🛠 P4 |
+| Firewall enabled | 🛠 P3 (profiles) | ❓ (ufw/nftables state is hard without exec) | 🛠 P4 (ALF) |
+| Built-in AV / malware protection | 🛠 P3 (Defender status) | ❌ | 🛠 P4 (XProtect version) |
+| Disk encryption | 🛠 P3 (BitLocker) | ❓ (LUKS detection) | 🛠 P4 (FileVault, exec) |
+| Platform integrity (SIP/Gatekeeper) | ❌ n/a | ❌ n/a | 🛠 P4 (exec, Q3) |
+| Container image vulns | ❌ | 🛠 P2 | ❌ |
+| Remote (agentless-from-target) collection | ❓ Q3 (WinRM) | ❓ Q3 (SSH) | ❓ Q3 (SSH) |
+
+Verified "✅ now" set, exactly: dpkg packages (name, version, arch), OS
+release (id, version_id, codename), TCP/TCP6 listeners with pid and process
+name, reboot-required flag and packages, agent-reported public IPv4/IPv6,
+server-observed source IP, hostname (enrollment only). All of these are
+Linux/Debian-family only. Nothing else is collected today.
+
+---
+
+## 6. Open questions
+
+1. **Windows/macOS scope.** README and TASKS list "Windows/macOS support" as
+   an explicit non-goal. This design treats them as future P3/P4. Confirm
+   the scope change, and which OS comes first. The recommendation is
+   Windows before macOS: more servers, a clearer vuln story via MSRC. Or
+   keep both deferred and do only the schema groundwork?
+2. **Advisory source.** OSV bulk (recommended: one parser, both distros,
+   includes unfixed CVEs via DEBIAN-CVE and UBUNTU-CVE records) vs the raw
+   Debian Security Tracker JSON plus Ubuntu OVAL (more authoritative and
+   finer statuses, two parsers). The normalized schema allows switching
+   later either way.
+3. **Remote collection and exec.** Remote mode (SSH/WinRM) and several
+   macOS facts need running fixed, read-only commands. Is the principle
+   "the agent never executes commands" negotiable, restated as "the server
+   can never cause execution; the agent runs only compiled-in read-only
+   probes"? If not, remote mode is out, and macOS loses
+   SIP/Gatekeeper/FileVault.
+4. **Where remote-target credentials live.** Recommended: only on the agent
+   (local config), with the dashboard holding just the target list.
+   Alternative: encrypted in Postgres and pushed to the agent. That is more
+   convenient, but the platform then holds SSH keys to customer machines.
+5. **External port scanning for remote hosts.** Today's safety check
+   (`source_ip` equals the agent's connection) can't verify a remote host's
+   address. Should remote hosts simply be ineligible, or verified another
+   way, for example the user proving control with a DNS TXT record?
+6. **Retire `snapshot_packages` entirely**, or keep raw per-snapshot package
+   rows for N days (for example 7) as a debugging and audit aid?
+7. **Kernel matching.** Flag CVEs against *every installed* `linux-image-*`
+   (noisy: old kernels linger), only the *running* kernel (accurate risk,
+   but misses "you'll boot into a vulnerable one"), or running with a
+   separate "old kernels installed" note? Recommended: running kernel for
+   findings, installed kernels shown as info.
+8. **SQL-side version ordering.** Is a Go-computed `version_sort_key` worth
+   adding in P1 for fleet "below version X" filters, or is it deferred until
+   a page needs it? The alternative, a custom Postgres image with the
+   `debversion` extension, is not recommended.
+9. **Ubuntu Pro/ESM.** Should the agent report Pro attachment so fixes that
+   are only in ESM are labelled "fix requires Ubuntu Pro"? Should ESM
+   advisories be imported at all?
+10. **Job queue.** Use a hand-rolled Postgres `jobs` table
+    (`FOR UPDATE SKIP LOCKED`, no new infra) or a library such as River,
+    which is also Postgres-backed? Both avoid adding Redis. Recommended:
+    River if its dependency weight is acceptable, otherwise hand-rolled.
+11. **Table library.** Keep server-driven tables (URL params + existing
+    shadcn `Table`, recommended), or add `@tanstack/react-table` to match
+    shadcn-admin's data-table pattern with client-side faceting?
+12. **Host identity collisions** (cloned VMs with the same `machine-id`).
+    Recommended: never auto-merge on a conflicting active agent; create a
+    separate host and flag it. Acceptable, or also combine `machine-id` with
+    hostname?
+13. **Non-security pending upgrades on Debian/Ubuntu.** Is it worth parsing
+    `/var/lib/apt/lists` (large) to show "N updates pending", or is
+    "security fixes available" (server-computed, free) enough?
+14. **Vuln matching on Windows/macOS.** Do we match OS-level only (MSRC by
+    build.UBR, Apple security releases by version), which is feasible and
+    fairly accurate, or also attempt third-party apps (NVD CPE, noisy)?
+15. **Agent naming in the UI.** After the split, "Agents" is the collector
+    list and "Hosts" is the machine list. Should the existing "Register
+    agent" button live on Hosts ("Add host" → enroll an agent on it) or on
+    Agents? Recommended: both entry points, one dialog.
+16. **Multiple agents per host.** The schema allows it (for redundancy or
+    migration). Should the UI allow it, or enforce one active collector per
+    host?
+
+---
+
+## 7. Suggested sequencing
+
+1. **P1a, inventory foundation.**
+   - Agent: add `source` / `source_version`, and fix the `installed` status
+     check. Both are additive, v1.
+   - Server: `software_versions` + `host_software` ranges + set-hash
+     short-circuit, and backfill from `snapshot_packages`.
+2. **P1b, advisories and matching.**
+   - `debversion` package with tests
+   - OSV Debian/Ubuntu sync into `advisories` / `advisory_affected`
+   - KEV/EPSS into `cves`
+   - matcher → `software_vulnerabilities`, then findings reconciliation, all
+     on a Postgres job queue
+3. **P1c, packages UI.**
+   - host detail shell; Packages, Vulnerabilities and History tabs
+   - fleet `/dashboard/vulnerabilities` and `/dashboard/packages`
+   - Overview cards
+4. **P1.5, agent/host split.**
+   - migration §4.7, v2 payload with `host` + `collectors`
+   - identity-based host upsert, nav rename (Hosts vs Agents)
+   - Linux breadth: kernel, uptime, machine-id, systemd services, users,
+     deleted libraries, unattended-upgrades
+5. **P3/P4, Windows then macOS agents**, if Q1 is yes.
+
+P1a–c do not depend on P1.5. The split can land before or after them,
+because the new tables key on `host_id`, which survives the split
+unchanged.

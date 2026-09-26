@@ -57,23 +57,95 @@ memory or a stale conversation summary.
 
 Roughly in the order they unblock each other. See root `README.md` for
 the original phased roadmap; this list is the actionable breakdown.
+[DOMAIN_MODEL.md](DOMAIN_MODEL.md) holds the design behind the P1a–c and
+Phase 1.5 items below, including open questions (Q1–Q16) to settle
+before or while building them.
 
-### Phase 1 remainder — vulnerability pipeline (the core value prop)
-- [ ] OSV sync worker: pull Debian + Ubuntu ecosystem advisories into
-      `vulnerabilities`.
-- [ ] dpkg-version-comparison matching (real `dpkg --compare-versions`
-      semantics — backport suffixes like `~`, `+deb12u1` must not be
-      compared as semver/strings) — see the risk callout in
-      DECISIONS.md/README.
-- [ ] CISA KEV + FIRST EPSS enrichment, and a severity-ranking function
-      that leads with KEV/EPSS, not raw CVSS.
-- [ ] Wire matching into the ingest path: the `TODO(phase 1)` in
-      `server/internal/ingest/handler.go` currently does nothing after
-      insert — enqueue matching per snapshot instead of doing it inline.
-- [ ] Findings generation from match results → `findings` table
-      (dedup via `dedup_key`, open/resolved lifecycle).
-- [ ] Dashboard: findings list/detail page (currently only a count on
-      the host list).
+### Phase 1 remainder — package inventory history (P1a)
+Design: [DOMAIN_MODEL.md §2.2](DOMAIN_MODEL.md#22-storage-model-for-inventory-history).
+The agent already sends the full dpkg inventory every push; what's missing
+is a history model that doesn't copy ~1,500 rows per snapshot.
+- [ ] Agent: send `source` / `source_version` per package from dpkg's
+      `Source:` field (`Source: foo` and `Source: foo (1.2-3)` forms;
+      absent → same as binary). Additive, stays `schema_version: 1`.
+- [ ] Agent: fix the installed-state check in `parseDpkgStatus` —
+      `strings.Contains(status, "installed")` also matches
+      `half-installed` / `not-installed`; test the third word of
+      `Status:` instead.
+- [ ] Migration: `software_versions` (fleet-wide interned package
+      versions) + `host_software` (per-host `first_seen_at`/`removed_at`
+      validity ranges), `hosts.current_package_set_hash`,
+      `snapshots.package_set_hash`, `hosts(user_id)` index.
+- [ ] Ingest: diff reported packages against the host's open ranges
+      (skip entirely when the set hash is unchanged); never close ranges
+      when the package collector failed or the section is missing.
+- [ ] Backfill `host_software` by replaying existing `snapshot_packages`
+      in order, then stop writing `snapshot_packages` (drop in a later
+      migration — see DOMAIN_MODEL.md open question Q6).
+- [ ] Fix `store.InsertSnapshot` hardcoding `schema_version = 1` instead
+      of using the payload's value.
+
+### Phase 1 remainder — vulnerability pipeline (P1b, the core value prop)
+Design: [DOMAIN_MODEL.md §2.3–2.6](DOMAIN_MODEL.md#23-advisory-source).
+Matching is server-side against the stored inventory (not per snapshot),
+so new advisories apply retroactively to current *and* historical
+inventories.
+- [ ] `server/internal/debversion`: real `dpkg --compare-versions`
+      semantics in Go (epochs, `~` sorts before end-of-string, digit/
+      non-digit runs) — backport suffixes like `~deb11u1`, `+deb12u1`,
+      `ubuntu0.22.04.1`, `+esm1` must not be compared as semver/strings.
+      Test against dpkg's own vectors. Postgres never compares versions.
+- [ ] Migration: replace `vulnerabilities` (its `id` PK can only hold one
+      package/release per CVE) with `distro_releases`, `advisories`,
+      `advisory_affected` (per source package + release codename, fixed
+      version or NULL = no fix), `cves` (KEV/EPSS/CVSS per CVE),
+      `feed_sync_state`, and `software_vulnerabilities` (positive matches
+      per interned package version). Repoint `findings.vulnerability_id`.
+- [ ] OSV sync worker: Debian + Ubuntu ecosystems (DSA/DLA/DEBIAN-CVE,
+      USN/UBUNTU-CVE — includes unfixed CVEs) → normalized advisory
+      tables, supported releases only; incremental hourly, full weekly.
+- [ ] CISA KEV + FIRST EPSS daily sync into `cves`.
+- [ ] Postgres-backed job queue (`SKIP LOCKED` or River — open question
+      Q10) for match/reconcile jobs.
+- [ ] Matcher: evaluate each `software_versions` row once (by source
+      package + release + source version) → `software_vulnerabilities`.
+      Triggers: new version interned at ingest; advisory change for a
+      (distro, release, source package); `matcher_version` bump.
+- [ ] Replace the `TODO(phase 1)` in `server/internal/ingest/handler.go`:
+      enqueue diff/match/reconcile jobs, don't match inline.
+- [ ] Findings reconciliation → `findings` per (host, source package,
+      vuln), `dedup_key = pkg:<source>:<vuln_key>`, open/resolved
+      lifecycle; runs only when a host's inventory or a version's matches
+      change.
+- [ ] Severity-ranking function (single tested Go func): KEV, then EPSS,
+      then distro priority/urgency, CVSS only as tiebreaker; "no fix yet"
+      kept visible, not hidden.
+- [ ] Kernel source-name mapping (Ubuntu `linux-signed-*`/`linux-meta-*`
+      → advisory `linux*` sources) + running-vs-installed kernel policy
+      (open question Q7).
+
+### Phase 1 remainder — packages & vulnerabilities UI (P1c)
+Design: [DOMAIN_MODEL.md §3](DOMAIN_MODEL.md#3-packages-in-the-dashboard).
+Direct Postgres reads from Server Components, filters in URL search
+params, no new Go endpoints.
+- [ ] Host detail shell `/dashboard/hosts/[hostId]` (header: OS, last
+      seen, reboot/vuln/KEV pills; link tabs).
+- [ ] Packages tab: searchable/filterable per-host inventory — installed
+      vs fixed version, status, top severity, installed-since; row sheet
+      with the package's CVEs; `?at=<date>` point-in-time view.
+- [ ] Vulnerabilities tab (replaces the old "findings list/detail page"
+      item — currently only a count on the host list), with resolved
+      history toggle.
+- [ ] History tab: installed/upgraded/downgraded/removed per snapshot,
+      with "fixed N CVEs" per change (backed by a derived
+      `host_software_changes` table written by ingest).
+- [ ] Fleet `/dashboard/vulnerabilities` + `/dashboard/vulnerabilities/[vulnKey]`
+      (affected hosts, "previously affected" from inventory history).
+- [ ] Fleet `/dashboard/packages` + `/dashboard/packages/[name]` ("which
+      hosts have package X, at which versions").
+- [ ] Overview page stat cards (currently a placeholder).
+- [ ] shadcn components needed: `tabs`, `select`/faceted filter,
+      pagination.
 
 ### Phase 1 remainder — exposure + alerting
 - [ ] External port-exposure scanner: scan only an IP verified as an
@@ -88,14 +160,52 @@ the original phased roadmap; this list is the actionable breakdown.
 - [ ] Dashboard: alert rule + notification channel CRUD (currently no
       UI at all — schema exists, nothing writes to it yet).
 
+### Phase 1.5 — agent/host split + Linux collector breadth
+Design: [DOMAIN_MODEL.md §4](DOMAIN_MODEL.md#4-domain-model-agents-hosts-os-families).
+Today agent == host: enrollment creates a `hosts` row and the returned
+`agent_id` *is* `hosts.id`. Independent of P1a–c (new tables key on
+`host_id`, which survives the split).
+- [ ] Migration: `agents`, re-key `agent_credentials` to `agent_id`,
+      `agent_hosts` (mode `local`/`ssh`/`winrm`, one local per agent),
+      `host_identities`, `hosts.os_family` + current OS summary columns,
+      `snapshots.agent_id`/`collector_status`/`facts`/`uptime_seconds`.
+      Backfill with `agents.id = hosts.id` so deployed agents'
+      `credentials.json` keeps working unchanged.
+- [ ] Enrollment creates an agent, not a host; host upserted on first push
+      by identity (`/etc/machine-id`), so an agent reinstall reattaches to
+      the existing host instead of duplicating it. Duplicate-identity
+      flagging (open question Q12).
+- [ ] Payload `schema_version: 2`: `agent` + `host` blocks (ref,
+      identity, hostname refreshed every push, `os_family`) and
+      per-collector status; v1 payloads keep mapping to the agent's local
+      host.
+- [ ] Dashboard: rename the current "Agents" host list to **Hosts**; new
+      **Agents** page lists collectors (version, platform, last seen,
+      hosts collected, revoke).
+- [ ] Linux collectors: running kernel, uptime, hostname + machine-id,
+      UDP listeners, systemd services (unit files + `/proc/*/cgroup`, no
+      D-Bus), local users (`/etc/passwd`/`/etc/group`), processes on
+      deleted libraries (`/proc/*/maps`), unattended-upgrades config +
+      last apt update.
+- [ ] `host_services` / `host_listeners` on the same validity-range
+      pattern as `host_software`.
+- [ ] Remote collection (SSH/WinRM from a subnet agent) — **blocked on
+      open questions Q3–Q5** (command execution principle, credential
+      storage, port-scan eligibility). Schema supports it; don't build
+      until decided.
+
 ### Cross-cutting gaps worth closing before real users
 - [ ] No automated tests anywhere yet. Highest-value first tests: dpkg
-      status parsing, dpkg version comparison (once written), `/proc/net/tcp`
-      parsing, and the ingest handler's auth path.
+      status parsing (incl. `Source:` forms and `half-installed`/
+      `not-installed`), dpkg version comparison (once written), the
+      inventory range diff, `/proc/net/tcp` parsing, and the ingest
+      handler's auth path.
 - [ ] No CI pipeline (build/test/lint on push) configured.
 - [ ] No agent credential rotation endpoint — only initial enrollment.
 - [ ] No host management UI beyond "add" — can't rename, delete, or
-      revoke/rotate a host's credentials from the dashboard.
+      revoke/rotate a host's credentials from the dashboard. (After the
+      Phase 1.5 split, credentials belong to agents: revoke/rotate lives
+      on the Agents page, rename/archive/merge on Hosts.)
 - [ ] `agent/docker-compose.example.yml` references
       `ghcr.io/icondesk/security-whatnot-agent:latest`, which doesn't
       exist yet — needs a build/publish pipeline before that snippet is
@@ -116,8 +226,29 @@ the original phased roadmap; this list is the actionable breakdown.
 - [ ] Cache layer + revalidation webhook for dashboard reads (only
       needed if a specific page is actually slow — see DECISIONS.md).
 
+### Phase 3/4 — Windows and macOS agents (pending scope decision)
+**Not started, and currently contradicts the non-goals below** — see
+DOMAIN_MODEL.md open question Q1. Per-OS collector lists are in
+[DOMAIN_MODEL.md §4.8](DOMAIN_MODEL.md#48-per-os-collectors-whats-worth-sampling)
+and the support matrix in §5.
+- [ ] Decide Q1 (in scope? which first?) and update the non-goals below,
+      README, and ARCHITECTURE.md accordingly.
+- [ ] Windows agent (native service): OS build/UBR, installed programs,
+      KBs, Windows Update state, pending reboot, SCM services, listeners,
+      Defender/firewall/BitLocker. Vuln matching approach: Q14.
+- [ ] macOS agent (launchd daemon, signed pkg): SystemVersion, apps +
+      pkgutil receipts, Homebrew, launchd services, SoftwareUpdate state,
+      XProtect/ALF/FileVault. Vuln matching approach: Q14.
+
 ## Non-goals (don't build these for MVP)
 
 Auto-patching, remote command execution, compliance reporting
 (SOC2/CIS), Windows/macOS support, log analysis/SIEM features. These are
 explicit product-scope exclusions, not just "later."
+
+> Note (2026-09-26): Windows/macOS support and agent-initiated remote
+> collection are under reconsideration in
+> [DOMAIN_MODEL.md](DOMAIN_MODEL.md) (open questions Q1, Q3). Until those
+> are decided, this list stands. "Remote command execution" here means
+> the *server* causing execution on a host, and stays excluded either
+> way.
