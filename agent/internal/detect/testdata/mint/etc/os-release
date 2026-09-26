@@ -1,0 +1,7 @@
+NAME="Linux Mint"
+VERSION="21.3 (Virginia)"
+ID=linuxmint
+ID_LIKE="ubuntu debian"
+VERSION_ID="21.3"
+VERSION_CODENAME=virginia
+UBUNTU_CODENAME=jammy

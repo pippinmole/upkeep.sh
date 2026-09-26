@@ -65,10 +65,10 @@ before or while building them.
 Design: [DOMAIN_MODEL.md §2.2](DOMAIN_MODEL.md#22-storage-model-for-inventory-history).
 The agent already sends the full dpkg inventory every push; what's missing
 is a history model that doesn't copy ~1,500 rows per snapshot.
-- [ ] Agent: send `source` / `source_version` per package from dpkg's
+- [x] Agent: send `source` / `source_version` per package from dpkg's
       `Source:` field (`Source: foo` and `Source: foo (1.2-3)` forms;
       absent → same as binary). Additive, stays `schema_version: 1`.
-- [ ] Agent: fix the installed-state check in `parseDpkgStatus` —
+- [x] Agent: fix the installed-state check in `parseDpkgStatus` —
       `strings.Contains(status, "installed")` also matches
       `half-installed` / `not-installed`; test the third word of
       `Status:` instead.

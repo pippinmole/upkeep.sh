@@ -8,9 +8,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/pippinmole/upkeep.sh/agent/internal/collector"
+	"github.com/pippinmole/upkeep.sh/agent/internal/snapshot"
+	"github.com/pippinmole/upkeep.sh/agent/internal/target"
 	"github.com/pippinmole/upkeep.sh/agent/internal/transport"
 )
 
@@ -42,51 +45,41 @@ func main() {
 		log.Fatalf("enrollment failed: %v", err)
 	}
 
+	// One target today: the host the agent runs on, visible read-only under
+	// SW_HOST_ROOT (the /:/host bind mount in Docker; "/" for a bare-metal
+	// install). Remote targets would be added to this list once remote
+	// collection is designed (see internal/target).
+	hostRoot := envOr("SW_HOST_ROOT", "/host")
+	targets := []target.Target{target.NewLocal(hostRoot, "/proc")}
+	collect := snapshot.New()
+
 	for {
-		snap, err := collectSnapshot()
-		if err != nil {
-			log.Printf("collect failed: %v", err)
-		} else if err := client.PushSnapshot(agentID, agentSecret, snap); err != nil {
-			log.Printf("push failed: %v", err)
-		} else {
-			log.Printf("pushed snapshot: %d packages, %d listening sockets", len(snap.Packages), len(snap.ListeningSockets))
+		for _, t := range targets {
+			snap := collect.Collect(context.Background(), t)
+			logCollectorErrors(t, snap)
+			if err := client.PushSnapshot(agentID, agentSecret, snap); err != nil {
+				log.Printf("[%s] push failed: %v", t.Ref(), err)
+			} else {
+				log.Printf("[%s] pushed snapshot: os=%s/%s, %d packages, %d listening sockets",
+					t.Ref(), snap.Host.OSFamily, snap.OS.ID, len(snap.Packages), len(snap.ListeningSockets))
+			}
 		}
 		time.Sleep(interval)
 	}
 }
 
-func collectSnapshot() (collector.Snapshot, error) {
-	pkgs, err := collector.CollectPackages(collector.DefaultDpkgStatusPath)
-	if err != nil {
-		return collector.Snapshot{}, err
+// logCollectorErrors surfaces failed collectors locally. They are also in
+// the pushed snapshot, but an operator tailing the container log should not
+// have to query the server to see that, say, the dpkg database is unreadable.
+func logCollectorErrors(t target.Target, snap collector.Snapshot) {
+	names := make([]string, 0, len(snap.Collectors))
+	for name := range snap.Collectors {
+		names = append(names, name)
 	}
-	osRelease, err := collector.CollectOSRelease(collector.DefaultOSReleasePath)
-	if err != nil {
-		return collector.Snapshot{}, err
+	sort.Strings(names)
+	for _, name := range names {
+		if st := snap.Collectors[name]; st.Status == collector.StatusError {
+			log.Printf("[%s] collector %s failed: %s", t.Ref(), name, st.Error)
+		}
 	}
-	sockets, err := collector.CollectListeningSockets("/proc")
-	if err != nil {
-		return collector.Snapshot{}, err
-	}
-	rebootRequired, rebootPkgs := collector.CollectRebootRequired(
-		collector.DefaultRebootRequiredPath, collector.DefaultRebootRequiredPkgsPath)
-
-	// Best-effort only: CollectPublicIPs cannot fail/error by design, so it
-	// can never short-circuit the rest of collection the way the collectors
-	// above do on their first error.
-	pubIPCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	publicIPv4, publicIPv6 := collector.CollectPublicIPs(pubIPCtx)
-
-	return collector.Snapshot{
-		SchemaVersion:    collector.SchemaVersion,
-		CollectedAt:      time.Now().UTC().Format(time.RFC3339),
-		OS:               osRelease,
-		Packages:         pkgs,
-		ListeningSockets: sockets,
-		RebootRequired:   rebootRequired,
-		RebootPackages:   rebootPkgs,
-		PublicIPv4:       publicIPv4,
-		PublicIPv6:       publicIPv6,
-	}, nil
 }

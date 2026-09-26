@@ -43,9 +43,25 @@ Content-Type: application/json
 {
   "schema_version": 1,
   "collected_at": "2026-09-26T12:00:00Z",
+  "host": {
+    "ref": "local",
+    "os_family": "linux",
+    "hostname": "web-1",
+    "identity": { "machine_id": "0123456789abcdef0123456789abcdef" }
+  },
   "os": { "id": "ubuntu", "version_id": "22.04", "codename": "jammy" },
+  "collectors": {
+    "os":              { "status": "ok" },
+    "host_identity":   { "status": "ok" },
+    "deb_packages":    { "status": "ok" },
+    "tcp_listeners":   { "status": "ok" },
+    "reboot_required": { "status": "ok" },
+    "public_ip":       { "status": "ok" }
+  },
   "packages": [
-    { "name": "openssl", "version": "3.0.2-0ubuntu1.15", "arch": "amd64" }
+    { "name": "libssl3", "version": "3.0.2-0ubuntu1.15", "arch": "amd64",
+      "source": "openssl", "source_version": "3.0.2-0ubuntu1.15",
+      "ecosystem": "deb" }
   ],
   "listening_sockets": [
     { "proto": "tcp", "local_addr": "0.0.0.0", "port": 5432,
@@ -57,6 +73,88 @@ Content-Type: application/json
   "public_ipv6": "2001:db8::1"
 }
 ```
+
+### `host`
+
+Which host the snapshot describes, and what it is. The agent works this
+out itself by reading the host's filesystem (`agent/internal/detect`);
+it is never told.
+
+- `ref`: the target within this agent. Always `"local"` today (the machine
+  the agent runs on). Reserved for remote target names later
+  (DOMAIN_MODEL.md §4.2), which are not implemented.
+- `os_family`: `"linux"`, `"windows"`, `"macos"`, or `""` if detection
+  failed (see `collectors.os`). Linux is detected from
+  `/etc/os-release` (falling back to `/usr/lib/os-release`); Windows and
+  macOS from marker files, family only.
+- `hostname`: from the host's `/etc/hostname`, refreshed every push
+  (enrollment's `hostname` is only the initial value). Omitted if the file
+  is missing.
+- `identity.machine_id`: the host's `/etc/machine-id`. This is the key the
+  server should upsert hosts on (DOMAIN_MODEL.md §4.3), so a reinstalled
+  agent reattaches to its host. Omitted when unreadable, empty or
+  `uninitialized`; `collectors.host_identity` is then `error`.
+
+Snapshots from agents that predate the host block omit it entirely. Treat
+those as the authenticating agent's local host.
+
+### `collectors`
+
+One entry per collector the agent build knows, every push:
+
+| `status` | Meaning | Section |
+|---|---|---|
+| `ok` | Collected. | Authoritative, even if empty. |
+| `error` | Applicable to this host, but failed. `error` holds the message. | **Unknown.** Must not be treated as empty. |
+| `skipped` | Not applicable to this host (OS family/distro), or the target can't provide it. `reason` says why. | Absent / meaningless. |
+
+Collector names and the sections they own:
+
+| Collector | Owns | Applies to |
+|---|---|---|
+| `os` | `os`, `host.os_family` | always |
+| `host_identity` | `host.hostname`, `host.identity` | Linux |
+| `deb_packages` | `packages` entries with `ecosystem: "deb"` | Debian-like Linux (`ID` or `ID_LIKE` contains `debian`/`ubuntu`) |
+| `tcp_listeners` | `listening_sockets` | Linux with live procfs (local target) |
+| `reboot_required` | `reboot_required`, `reboot_required_packages` | Debian-like Linux |
+| `public_ip` | `public_ipv4`, `public_ipv6` | local target (best-effort: `ok` with no IPs is normal) |
+
+Future package sources (rpm, apk, Windows programs, Homebrew…) each add
+their own `<ecosystem>_packages`-style collector and their own
+`ecosystem` value. A host may have several; each succeeds or fails on its
+own.
+
+**Rule for the server: a failed collector is never a removal.** Package
+inventory is diffed **per ecosystem**, and only for ecosystems whose
+collector is `ok`. When `deb_packages` is `error`, the host's open
+`deb` ranges stay exactly as they are. `packages` is `null` when no
+package collector succeeded, and `[]` only when one succeeded and found
+nothing. Payloads without `collectors` come from older agents, which
+never pushed on a collector failure, so their sections are all
+authoritative.
+
+A collector failure no longer aborts the push. Before the collectors
+block existed, a dpkg error meant no snapshot at all.
+
+### `packages`
+
+| Field | Meaning |
+|---|---|
+| `name`, `version`, `arch` | The binary package as installed. |
+| `source`, `source_version` | The source package it was built from. Debian/Ubuntu advisories are keyed by source package and version (DOMAIN_MODEL.md §2.5). From dpkg's `Source:` field: absent means the same as the binary; `Source: foo` means source `foo` at the binary's version; `Source: foo (1.2-3)` gives an explicit source version (binNMUs). Always set by this agent; older agents omit both. |
+| `ecosystem` | Which package source reported it: `"deb"` (dpkg). Keys `software_versions.ecosystem`. Older agents omit it; treat as `"deb"`. |
+
+Only packages whose dpkg `Status:` state (third word) is exactly
+`installed` are sent. `half-installed`, `not-installed`, `config-files`,
+`unpacked` and `half-configured` are excluded.
+
+### Other fields
+
+`reboot_required` / `reboot_required_packages` come from the host's
+`/run/reboot-required{,.pkgs}`. The agent reads `/run` directly, not
+`/var/run`: on modern hosts `/var/run` is an absolute symlink to `/run`,
+which under the `/:/host` bind mount would resolve inside the agent's own
+container.
 
 `public_ipv4` / `public_ipv6` are the agent's own best-effort belief about
 its public address(es) (looked up via an outbound-only call to ipify, the
@@ -102,6 +200,15 @@ manually; a mismatch should only ever be an additive field.
 - Additive fields never require a bump. Only bump on a breaking shape
   change, and document the migration path for already-deployed agents
   before doing so (they can't be force-upgraded — it's push-only).
+- `host`, `collectors` and the package `source` / `source_version` /
+  `ecosystem` fields were added **within `schema_version: 1`**. The
+  server's decoder ignores unknown fields, so servers that predate them
+  keep accepting these pushes. A newer server detects them by presence:
+  no `collectors` means a pre-collectors agent (all sections
+  authoritative), no `host` means the agent's local host, no `source`
+  means source = binary. DOMAIN_MODEL.md §4.4 sketched these under a v2;
+  v2 remains reserved for a genuinely breaking change, such as one
+  request carrying several hosts.
 
 ## Not yet implemented
 

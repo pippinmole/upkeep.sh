@@ -1,0 +1,69 @@
+Package: openssl
+Status: install ok installed
+Priority: optional
+Section: utils
+Installed-Size: 2090
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Version: 3.0.2-0ubuntu1.15
+Depends: libc6 (>= 2.34), libssl3 (>= 3.0.2-0ubuntu1.2)
+Conffiles:
+ /etc/ssl/openssl.cnf 7df26c55291b33344dc15e3935dabaf3
+Description: Secure Sockets Layer toolkit - cryptographic utility
+ This package is part of the OpenSSL project's implementation of the SSL
+ and TLS cryptographic protocols for secure communication over the
+ Internet.
+ Version: 9.9 (a continuation line that must not be read as a field)
+
+Package: libssl3
+Status: install ok installed
+Priority: optional
+Section: libs
+Installed-Size: 5823
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Multi-Arch: same
+Source: openssl
+Version: 3.0.2-0ubuntu1.15
+Depends: libc6 (>= 2.34)
+Description: Secure Sockets Layer toolkit - shared libraries
+
+Package: libfoo1
+Status: hold ok installed
+Architecture: arm64
+Source: foo (1.2-3)
+Version: 1.2-3+b1
+Description: binNMU'd library whose source version differs
+
+Package: half
+Status: install reinstreq half-installed
+Architecture: amd64
+Version: 1.0-1
+Description: interrupted install, must be excluded
+
+Package: gone
+Status: purge ok not-installed
+Architecture: amd64
+Description: removed and purged, must be excluded
+
+Package: removed-conf
+Status: deinstall ok config-files
+Architecture: all
+Version: 2.0-1
+Description: removed but config left behind, must be excluded
+
+Package: unpacked
+Status: install ok unpacked
+Architecture: amd64
+Version: 0.1-1
+Description: unpacked but not configured, must be excluded
+
+Package: tzdata
+Status: install ok installed
+Priority: required
+Section: localization
+Architecture: all
+Multi-Arch: foreign
+Version: 2024a-0ubuntu0.22.04
+Description: time zone and daylight-saving time data
+ Last record, deliberately with no trailing blank line.
