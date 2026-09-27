@@ -41,7 +41,7 @@ export default async function NotificationSettingsPage() {
           <div>
             <h2 className="font-semibold">No channels yet</h2>
             <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-              Add a webhook to receive signed JSON notifications, then create an{" "}
+              Add a webhook or ntfy channel to receive notifications, then create an{" "}
               <Link
                 href={ALERTS_URL}
                 className="text-foreground font-medium underline underline-offset-4"

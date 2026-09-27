@@ -242,10 +242,11 @@ params, no new Go endpoints.
       `internal/netguard` (https, ports 443/8443, public IPs checked at dial
       time, same-origin redirects; dev escape hatch
       `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS`).
-- [x] Dashboard `/dashboard/notifications`: rules, channels (form rendered
-      from the type's schema, secret shown once + rotate, "Send test"),
-      delivery log with attempts; all on `DataTable`, server actions
-      scoped by `user_id`.
+- [x] Dashboard: rules and delivery log with attempts under
+      `/dashboard/alerts`; channels (form rendered from the type's schema,
+      secret shown once + rotate, "Send test") under
+      `/dashboard/settings/notifications`; all on `DataTable`, server
+      actions scoped by `user_id`.
 - [x] **ntfy** notifier (`internal/notify/ntfy`): JSON publish to ntfy.sh
       or a self-hosted server (topic validated against ntfy's charset,
       optional Bearer access token, automatic or fixed priority);
