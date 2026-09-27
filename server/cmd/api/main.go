@@ -68,6 +68,8 @@ func main() {
 	mux.HandleFunc("POST /v1/enroll", h.Enroll)
 	mux.HandleFunc("POST /v1/snapshots", h.Snapshot)
 	mux.HandleFunc("POST /v1/agent/rotate", h.Rotate)
+	mux.HandleFunc("GET /v1/agent/config", h.Config)
+	mux.HandleFunc("POST /v1/agent/status", h.Status)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

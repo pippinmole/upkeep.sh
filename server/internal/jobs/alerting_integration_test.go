@@ -595,7 +595,7 @@ func TestArchivedHostsDontAlert(t *testing.T) {
 	`, f.userID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
 		t.Fatal(err)
 	}
-	f.exec(`INSERT INTO agent_hosts (agent_id, host_id, mode, target_ref) VALUES ($1, $2, 'local', 'local'), ($1, $3, 'ssh', 'ssh:old')`,
+	f.exec(`INSERT INTO agent_hosts (agent_id, host_id, mode, target_ref, address, port, username) VALUES ($1, $2, 'local', 'local', NULL, NULL, NULL), ($1, $3, 'ssh', 'ssh:old', '10.0.0.9', 22, 'upkeep')`,
 		agentID, f.hostID, archived)
 	for _, at := range []time.Time{now, now.Add(4 * time.Minute)} { // first observation, then stale
 		if _, err := f.s.CheckAgentHealth(ctx, at); err != nil {
