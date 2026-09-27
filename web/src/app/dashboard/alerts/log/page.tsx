@@ -2,6 +2,7 @@ import { ScrollText } from "lucide-react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import { NotificationSettingsLink } from "@/components/notifications/links";
 import { auth } from "@/lib/auth";
 import { getDeliveries } from "@/lib/queries-notifications";
 
@@ -29,8 +30,8 @@ export default async function DeliveryLogPage() {
           <div>
             <h2 className="font-semibold">Nothing sent yet</h2>
             <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-              Deliveries show up here once a rule matches, or when you send a test from the Channels
-              tab.
+              Deliveries show up here once a rule matches, or when you send a test from{" "}
+              <NotificationSettingsLink />.
             </p>
           </div>
         </div>

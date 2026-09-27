@@ -14,7 +14,11 @@ import type { DeliveryRow } from "@/lib/queries-notifications";
 import { formatDateTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-import { channelTypeIcon, DELIVERY_STATUS_OPTIONS, DeliveryStatusBadge } from "../shared";
+import {
+  channelTypeIcon,
+  DELIVERY_STATUS_OPTIONS,
+  DeliveryStatusBadge,
+} from "@/components/notifications/shared";
 
 const KIND_OPTIONS = [
   { value: "alert", label: "Alert" },

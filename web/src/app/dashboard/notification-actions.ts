@@ -14,9 +14,10 @@ import {
 } from "@/lib/notifiers";
 import { enqueueAlertDelivery } from "@/lib/river";
 
-// Notifications settings: notification_channels, alert_rules and
-// alert_rule_channels are Next.js-owned tables (docs/ARCHITECTURE.md "Who
-// owns what"). Every action re-checks the session and scopes every
+// Alert rules (/dashboard/alerts) and notification channels
+// (/dashboard/settings/notifications): notification_channels, alert_rules
+// and alert_rule_channels are Next.js-owned tables (docs/ARCHITECTURE.md
+// "Who owns what"). Every action re-checks the session and scopes every
 // statement by user_id; ids from the client are never trusted on their own.
 
 export type ActionResult<T = object> =
@@ -47,8 +48,11 @@ function generateSecret(): string {
   return `whsec_${randomBytes(32).toString("base64url")}`;
 }
 
+// Rules list their channels and tests land in the delivery log, so both
+// areas are refreshed after any change.
 function refresh() {
-  revalidatePath("/dashboard/notifications", "layout");
+  revalidatePath("/dashboard/alerts", "layout");
+  revalidatePath("/dashboard/settings", "layout");
 }
 
 // ---- Channels ----

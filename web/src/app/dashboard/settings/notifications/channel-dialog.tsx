@@ -18,7 +18,11 @@ import { Label } from "@/components/ui/label";
 import { channelType } from "@/lib/notifiers";
 import type { ChannelRow } from "@/lib/queries-notifications";
 
-import { createChannel, rotateChannelSecret, updateChannel } from "./actions";
+import {
+  createChannel,
+  rotateChannelSecret,
+  updateChannel,
+} from "@/app/dashboard/notification-actions";
 import { ChannelFields } from "./channel-forms";
 import { SecretOnce } from "./secret-once";
 

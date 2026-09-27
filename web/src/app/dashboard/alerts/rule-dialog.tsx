@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { NotificationSettingsLink } from "@/components/notifications/links";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -34,7 +35,7 @@ import {
 } from "@/lib/notifiers";
 import type { ChannelRow, RuleRow, ScopeHost } from "@/lib/queries-notifications";
 
-import { createRule, type RuleInput, updateRule } from "./actions";
+import { createRule, type RuleInput, updateRule } from "@/app/dashboard/notification-actions";
 
 function Err({ msg }: { msg?: string }) {
   return msg ? <p className="text-destructive text-xs">{msg}</p> : null;
@@ -238,7 +239,7 @@ export function RuleDialog({
             <Label>Send to</Label>
             {channels.length === 0 ? (
               <p className="text-muted-foreground text-sm">
-                No channels yet: add one on the Channels tab first.
+                No channels yet: add one in <NotificationSettingsLink /> first.
               </p>
             ) : (
               <CheckList
@@ -258,6 +259,11 @@ export function RuleDialog({
               />
             )}
             <Err msg={errors.channelIds} />
+            {channels.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                Add or edit channels in <NotificationSettingsLink />.
+              </p>
+            )}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">

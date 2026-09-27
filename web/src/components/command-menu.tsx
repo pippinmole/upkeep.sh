@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import * as React from "react";
 
 import { navGroups } from "@/components/layout/app-sidebar";
+import { settingsNavGroup } from "@/components/layout/settings-sections";
 import {
   CommandDialog,
   CommandEmpty,
@@ -38,7 +39,7 @@ export function CommandMenu() {
       <CommandList>
         <ScrollArea type="hover" className="h-72 pr-1">
           <CommandEmpty>No results found.</CommandEmpty>
-          {navGroups.map((group) => (
+          {[...navGroups, settingsNavGroup].map((group) => (
             <CommandGroup key={group.title} heading={group.title}>
               {group.items.map((navItem, i) => {
                 if (navItem.url)

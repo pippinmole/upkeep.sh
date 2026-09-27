@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Bell,
+  BellRing,
   LayoutDashboard,
   Monitor,
   Package,
@@ -12,6 +12,7 @@ import {
 import * as React from "react";
 
 import { NavGroup } from "@/components/layout/nav-group";
+import { NavSettings } from "@/components/layout/nav-settings";
 import { NavUser } from "@/components/layout/nav-user";
 import {
   Sidebar,
@@ -34,7 +35,7 @@ export const navGroups: NavGroupType[] = [
       { title: "Agents", url: "/dashboard/agents", icon: Server },
       { title: "Vulnerabilities", url: "/dashboard/vulnerabilities", icon: ShieldAlert },
       { title: "Packages", url: "/dashboard/packages", icon: Package },
-      { title: "Notifications", url: "/dashboard/notifications", icon: Bell },
+      { title: "Alerts", url: "/dashboard/alerts", icon: BellRing },
     ],
   },
 ];
@@ -63,6 +64,7 @@ export function AppSidebar({ user, ...props }: Props) {
         ))}
       </SidebarContent>
       <SidebarFooter>
+        <NavSettings />
         <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />

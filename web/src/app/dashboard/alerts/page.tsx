@@ -2,6 +2,7 @@ import { BellRing } from "lucide-react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import { NotificationSettingsLink } from "@/components/notifications/links";
 import { auth } from "@/lib/auth";
 import { getChannels, getRules, getScopeHosts } from "@/lib/queries-notifications";
 
@@ -23,7 +24,8 @@ export default async function RulesPage() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
-          Findings opened, reopened or resolved, and agents going stale or coming back.
+          Findings opened, reopened or resolved, and agents going stale or coming back. Channels are
+          set up in <NotificationSettingsLink />.
         </p>
         <AddRuleButton channels={channels} hosts={hosts} />
       </div>
@@ -33,9 +35,14 @@ export default async function RulesPage() {
           <div>
             <h2 className="font-semibold">No alert rules yet</h2>
             <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-              {channels.length === 0
-                ? "Add a channel first (Channels tab), then create a rule that sends to it."
-                : "Create a rule to get notified, for example about new critical or KEV findings."}
+              {channels.length === 0 ? (
+                <>
+                  Add a channel first in <NotificationSettingsLink />, then create a rule that sends
+                  to it.
+                </>
+              ) : (
+                "Create a rule to get notified, for example about new critical or KEV findings."
+              )}
             </p>
           </div>
         </div>
