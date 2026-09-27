@@ -7,7 +7,7 @@
 // jobs/alerting.go) only ever talk to a Notifier through this package, so
 // adding a channel type touches nothing there.
 //
-// # How to add a notifier (email, Discord, Slack, ntfy, ...)
+// # How to add a notifier (webhook and ntfy exist; e.g. email, Slack)
 //
 //  1. Create internal/notify/<type> with a type implementing Notifier:
 //     - Spec(): the type key (e.g. "slack"), label, description and its

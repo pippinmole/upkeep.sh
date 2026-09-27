@@ -9,6 +9,72 @@
   ],
   "types": [
     {
+      "type": "ntfy",
+      "label": "ntfy",
+      "description": "Push notifications to your phone or desktop via an ntfy topic (ntfy.sh or self-hosted).",
+      "fields": [
+        {
+          "key": "server",
+          "label": "Server URL",
+          "type": "url",
+          "help": "Leave blank for ntfy.sh. A self-hosted server must be reachable over public https on port 443 or 8443; private and internal addresses are refused.",
+          "placeholder": "https://ntfy.sh",
+          "maxLength": 2048
+        },
+        {
+          "key": "topic",
+          "label": "Topic",
+          "type": "text",
+          "help": "Letters, digits, - and _ only. Topics on ntfy.sh are public to anyone who knows the name, so pick a hard-to-guess one or use an access token.",
+          "placeholder": "upkeep-alerts-7f3k9q",
+          "required": true,
+          "maxLength": 64
+        },
+        {
+          "key": "token",
+          "label": "Access token",
+          "type": "secret",
+          "help": "Optional. For protected topics: sent as a Bearer token.",
+          "placeholder": "tk_…",
+          "secret": true,
+          "maxLength": 256
+        },
+        {
+          "key": "priority",
+          "label": "Priority",
+          "type": "select",
+          "help": "Automatic: urgent for KEV or critical findings, low for resolved ones and recoveries.",
+          "placeholder": "Automatic (by severity)",
+          "options": [
+            {
+              "value": "auto",
+              "label": "Automatic (by severity)"
+            },
+            {
+              "value": "5",
+              "label": "Urgent (5)"
+            },
+            {
+              "value": "4",
+              "label": "High (4)"
+            },
+            {
+              "value": "3",
+              "label": "Default (3)"
+            },
+            {
+              "value": "2",
+              "label": "Low (2)"
+            },
+            {
+              "value": "1",
+              "label": "Min (1)"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "type": "webhook",
       "label": "Webhook",
       "description": "HTTPS POST of a JSON payload, signed with HMAC-SHA256.",
