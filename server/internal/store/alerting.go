@@ -630,7 +630,7 @@ func (s *Store) LoadDelivery(ctx context.Context, id string) (Delivery, error) {
 		}
 	} else {
 		d.Notification = notify.Notification{
-			Version: notify.PayloadVersion, ID: d.NotificationID, Kind: d.Kind, CreatedAt: createdAt,
+			Version: notify.PayloadVersion, ID: d.NotificationID, Kind: d.Kind, CreatedAt: createdAt.UTC(),
 			Summary: alerting.Summary(d.Kind, nil), Events: []notify.Event{},
 		}
 	}
