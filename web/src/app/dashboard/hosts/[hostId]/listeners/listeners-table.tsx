@@ -22,7 +22,11 @@ const BINDINGS: { value: Binding; label: string }[] = [
 ];
 const binding = (l: HostListenerRow): Binding =>
   l.wildcard ? "all" : l.loopback ? "loopback" : "address";
-const BINDING_RANK: Record<Binding, number> = { all: 0, address: 1, loopback: 2 };
+const BINDING_RANK: Record<Binding, number> = {
+  all: 0,
+  address: 1,
+  loopback: 2,
+};
 
 const col = dataTableColumnHelper<HostListenerRow>();
 

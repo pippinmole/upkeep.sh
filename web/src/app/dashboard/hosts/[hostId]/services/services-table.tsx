@@ -18,10 +18,22 @@ const STATE_OPTIONS = [
 // PROTOCOL.md services.start_mode.
 const START_MODES: { value: string; label: string; hint: string }[] = [
   { value: "auto", label: "Auto", hint: "Enabled: started at boot" },
-  { value: "manual", label: "On demand", hint: "Started by a socket, timer or path unit" },
-  { value: "static", label: "Static", hint: "No [Install] section: runs only as a dependency" },
+  {
+    value: "manual",
+    label: "On demand",
+    hint: "Started by a socket, timer or path unit",
+  },
+  {
+    value: "static",
+    label: "Static",
+    hint: "No [Install] section: runs only as a dependency",
+  },
   { value: "disabled", label: "Disabled", hint: "Can be enabled, but isn't" },
-  { value: "masked", label: "Masked", hint: "Linked to /dev/null: can't be started" },
+  {
+    value: "masked",
+    label: "Masked",
+    hint: "Linked to /dev/null: can't be started",
+  },
 ];
 const MODE_RANK = Object.fromEntries(START_MODES.map((m, i) => [m.value, i]));
 

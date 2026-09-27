@@ -35,7 +35,11 @@ type Change =
   // dpkg ordering port in lib/debversion.ts (checked against the Go
   // debversion package's dpkg vectors); other ecosystems, and versions
   // dpkg rejects, stay "changed".
-  | { kind: "upgraded" | "downgraded" | "changed"; from: RangeEvent; to: RangeEvent };
+  | {
+      kind: "upgraded" | "downgraded" | "changed";
+      from: RangeEvent;
+      to: RangeEvent;
+    };
 
 type PairKind = "upgraded" | "downgraded" | "changed";
 
@@ -196,7 +200,13 @@ export default async function HostHistoryPage({
         data, not what was known at the time.
       </p>
       {perBoundary.map(({ b, baselineCount, changes }, i) => {
-        const counts = { installed: 0, removed: 0, upgraded: 0, downgraded: 0, changed: 0 };
+        const counts = {
+          installed: 0,
+          removed: 0,
+          upgraded: 0,
+          downgraded: 0,
+          changed: 0,
+        };
         for (const c of changes) counts[c.kind]++;
         const day = days[i];
         const showDay = i === 0 || day !== days[i - 1];

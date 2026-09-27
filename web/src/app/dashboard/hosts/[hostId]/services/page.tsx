@@ -1,9 +1,10 @@
+import { Cog } from "lucide-react";
 import type { Metadata } from "next";
 
 import { hostTitle, requireHost } from "@/lib/host-page";
 import { getHostServices } from "@/lib/queries-host-facts";
 
-import { FactFreshnessNote } from "../fact-freshness";
+import { FactEmptyState, FactFreshnessNote } from "../fact-freshness";
 import { ServicesTable } from "./services-table";
 
 type Params = Promise<{ hostId: string }>;
@@ -34,7 +35,19 @@ export default async function HostServicesPage({ params }: { params: Params }) {
         </h2>
         <FactFreshnessNote label="services" freshness={freshness} />
       </div>
-      {rows.length > 0 && <ServicesTable rows={rows} />}
+      {rows.length > 0 ? (
+        <ServicesTable rows={rows} />
+      ) : (
+        freshness && (
+          <FactEmptyState
+            icon={Cog}
+            title="No services"
+            description="The agent found no systemd services on this host."
+            collectors={["systemd_services"]}
+            collectorStatus={host.latestSnapshot?.collectorStatus}
+          />
+        )
+      )}
     </div>
   );
 }

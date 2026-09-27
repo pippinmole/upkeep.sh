@@ -19,7 +19,12 @@ const ACCESS: { value: Access; label: string }[] = [
 ];
 const access = (u: HostUserRow): Access =>
   u.uid === 0 ? "root" : u.admin ? "admin" : u.loginShell ? "login" : "nologin";
-const ACCESS_RANK: Record<Access, number> = { root: 0, admin: 1, login: 2, nologin: 3 };
+const ACCESS_RANK: Record<Access, number> = {
+  root: 0,
+  admin: 1,
+  login: 2,
+  nologin: 3,
+};
 
 const ADMIN_GROUPS = new Set(["sudo", "wheel", "adm", "admin"]);
 

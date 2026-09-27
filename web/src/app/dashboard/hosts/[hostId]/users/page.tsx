@@ -1,9 +1,10 @@
+import { Users } from "lucide-react";
 import type { Metadata } from "next";
 
 import { hostTitle, requireHost } from "@/lib/host-page";
 import { getHostUsers } from "@/lib/queries-host-facts";
 
-import { FactFreshnessNote } from "../fact-freshness";
+import { FactEmptyState, FactFreshnessNote } from "../fact-freshness";
 import { UsersTable } from "./users-table";
 
 type Params = Promise<{ hostId: string }>;
@@ -34,7 +35,19 @@ export default async function HostUsersPage({ params }: { params: Params }) {
         </h2>
         <FactFreshnessNote label="users" freshness={freshness} />
       </div>
-      {rows.length > 0 && <UsersTable rows={rows} />}
+      {rows.length > 0 ? (
+        <UsersTable rows={rows} />
+      ) : (
+        freshness && (
+          <FactEmptyState
+            icon={Users}
+            title="No local users"
+            description="The agent found no accounts in /etc/passwd on this host."
+            collectors={["local_users"]}
+            collectorStatus={host.latestSnapshot?.collectorStatus}
+          />
+        )
+      )}
     </div>
   );
 }

@@ -1,9 +1,10 @@
+import { Network } from "lucide-react";
 import type { Metadata } from "next";
 
 import { hostTitle, requireHost } from "@/lib/host-page";
 import { getHostListeners } from "@/lib/queries-host-facts";
 
-import { FactFreshnessNote } from "../fact-freshness";
+import { FactEmptyState, FactFreshnessNote } from "../fact-freshness";
 import { ListenersTable } from "./listeners-table";
 
 type Params = Promise<{ hostId: string }>;
@@ -46,7 +47,19 @@ export default async function HostListenersPage({ params }: { params: Params }) 
           </p>
         )}
       </div>
-      {rows.length > 0 && <ListenersTable rows={rows} />}
+      {rows.length > 0 ? (
+        <ListenersTable rows={rows} />
+      ) : (
+        latest && (
+          <FactEmptyState
+            icon={Network}
+            title="No listening ports"
+            description="The agent found no TCP sockets in LISTEN state and no bound UDP sockets on this host."
+            collectors={["tcp_listeners", "udp_listeners"]}
+            collectorStatus={host.latestSnapshot?.collectorStatus}
+          />
+        )
+      )}
     </div>
   );
 }
