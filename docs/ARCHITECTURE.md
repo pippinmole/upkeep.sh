@@ -24,8 +24,9 @@
   collects facts only — no command execution, no inbound ports. CVE
   matching happens server-side so the agent stays small and auditable.
   Planned (TASKS.md Phase 1.6): Docker containers, images and Swarm
-  services over an opt-in Docker socket mount, through a hand-written
-  client that can only make a fixed list of read calls (DECISIONS.md
+  services over an opt-in Docker socket mount, through Docker's Go SDK
+  behind an interface that only exposes a fixed list of read calls, on
+  hosts with their own agent only, not remote (SSH) ones (DECISIONS.md
   "Docker collection").
 
 - **`server/`** — Go, two binaries from one image:

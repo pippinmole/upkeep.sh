@@ -372,22 +372,20 @@ and workers), rootless Docker and Podman's Docker-compatible API; no
 per-platform special-casing (Dokploy, Coolify…). Planned wire shape:
 PROTOCOL.md "Docker sections (planned)". Order: the collector, then
 storage/UI, then firewall + exposure on top.
-- [ ] Agent: hand-written Docker Engine API client over the socket
-      mounted into the agent container (`SW_DOCKER_SOCKET`, default
-      `/var/run/docker.sock`). **This client is the security boundary**
-      (no sidecar proxy, DECISIONS.md "Docker collection"): no Docker
-      SDK, no code path that sends anything but these GETs: `/_ping`,
-      `/version`, `/info`, `/containers/json`, `/containers/{id}/json`,
-      `/images/json`, `/images/{id}/json`, `/networks`, and on managers
-      `/services`, `/tasks`, `/nodes` (API-version path prefix, pinned
-      minimum version). Never the dangerous GETs
-      (`/containers/{id}/archive`, `/export`, `/logs`, `…/attach/ws`,
-      `/images/{id}/get`, `/secrets`, `/configs`). A test asserts the
-      client's full set of methods + paths, so adding one is a visible,
-      reviewed change.
-- [ ] Agent: Docker collectors via that client (`skipped` with a reason
+- [ ] Agent: Docker Engine API access through Docker's official Go SDK
+      (`github.com/docker/docker/client`; decided 2026-09-28,
+      DECISIONS.md "Docker collection") over the socket mounted into the
+      agent container (`SW_DOCKER_SOCKET`, default
+      `/var/run/docker.sock`), with API version negotiation and a pinned
+      minimum. Collectors use it only through a small internal interface
+      holding the reads they need: ping, version, info, container
+      list/inspect, image list/inspect, network list, and on managers
+      service/task/node list. Never logs, archive/export, image save,
+      attach/exec, secrets or configs.
+- [ ] Agent: Docker collectors via that interface (`skipped` with a reason
       when the socket isn't mounted, so "no Docker" and "Docker not
-      enabled" are normal states, distinct from `error`):
+      enabled" are normal states, distinct from `error`; `skipped` with
+      a distinct reason on remote (SSH) targets, see below):
       `docker_engine` (version, API version, storage driver / image
       store, rootless, Swarm node id / cluster id / role),
       `docker_containers`, `docker_images`, `docker_networks`, and
@@ -397,12 +395,32 @@ storage/UI, then firewall + exposure on top.
       only under allowlisted prefixes (`com.docker.compose.*`,
       `com.docker.stack.*`, `com.docker.swarm.*`,
       `org.opencontainers.image.*`), because labels routinely carry
-      secrets (e.g. reverse-proxy basic-auth hashes). Caps + `truncated`
+      secrets (e.g. reverse-proxy basic-auth hashes). SDK structs are
+      mapped onto these wire types, never sent as-is. Caps + `truncated`
       like the other collectors.
+- [ ] Docker is collected **only on hosts with their own agent**
+      (DECISIONS.md "Docker collection"): remote (SSH) targets report the
+      Docker collectors `skipped` with reason "remote host" (their key is
+      read-only SFTP, which can't reach the socket). The dashboard must
+      make this obvious rather than showing an empty list, with three
+      distinct states on the Containers / Images tabs and anywhere else
+      Docker data appears (fleet images page, exposure):
+      - **Remote host**: "Docker data needs an agent on this host. This
+        host is collected over SSH by <agent>, which can only read
+        files." Link to installing the agent on it.
+      - **Local agent, socket not mounted**: "Docker collection isn't
+        enabled on this agent", with the socket mount line and what it
+        grants.
+      - **Enabled, nothing running**: a normal empty state.
+      Also: the "Reach it from an existing agent" option in the Add host
+      dialog lists what remote collection doesn't cover (Docker,
+      listeners, port exposure), so it's clear before the choice; and the
+      host header shows a "Remote (SSH)" badge next to the collecting
+      agent.
 - [ ] Compose example + dashboard `docker run` line: Docker collection
       is **opt-in**, one socket mount with a comment saying plainly what
       it grants (full Docker API access, i.e. root-equivalent; the agent
-      only makes the reads above). Docs for rootless Docker
+      only makes the reads listed above). Docs for rootless Docker
       (`$XDG_RUNTIME_DIR/docker.sock`) and Podman (`podman.socket`).
 - [ ] Make opting out real: `/:/host:ro` is a recursive bind, so the
       host's `/run/docker.sock` is already reachable at

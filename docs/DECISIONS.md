@@ -148,8 +148,8 @@ limit that were rejected:
   agent gets compromised is a malicious release (stolen publish token,
   CI or dependency compromise), and the proxy ships from the same
   pipeline, so it falls with the agent. Against a compromised platform
-  server steering agents, a client that has no code path for anything
-  but fixed GETs protects just as well, since the server can only
+  server steering agents, agent code that only ever calls a fixed list
+  of read endpoints protects just as well, since the server can only
   trigger what the agent's code does. What remains is arbitrary code
   execution inside a Go binary, the least likely case. Not worth the
   extra moving part.
@@ -161,12 +161,11 @@ limit that were rejected:
   `docker` group for Docker data.
 
 So: **the socket is mounted into the agent container, opt-in**, and the
-boundary is the agent's own code: a hand-written client that can only
-send a fixed list of GETs (not "GET-only": `GET
-/containers/{id}/archive`, `/export`, `/images/{id}/get`, `/logs` and
-`/configs/{id}` all leak data), plus wire types that only carry declared
-fields and allowlisted label prefixes, because env and labels hold
-secrets. This is the same trust model as other monitoring agents that
+boundary is the agent's own code: the collectors only ever call a fixed
+list of read endpoints (not "GET-only": `GET /containers/{id}/archive`,
+`/export`, `/images/{id}/get`, `/logs` and `/configs/{id}` all leak
+data), and wire types only carry declared fields and allowlisted label
+prefixes, because env and labels hold secrets. This is the same trust model as other monitoring agents that
 mount the socket (Datadog, Netdata, cAdvisor), and we say so plainly:
 with Docker enabled the agent is root-equivalent and "read-only" means
 "only makes read calls, by design". The effort goes into release
@@ -179,6 +178,31 @@ so `/host/run/docker.sock` is already reachable, and was shown to allow
 `POST /containers/create` under the agent's exact hardening. The agent
 code never uses it, but it means opting out of Docker isn't real until
 that mount is fixed (TASKS.md Phase 1.6).
+
+**Client: Docker's official Go SDK** (`github.com/docker/docker/client`),
+decided 2026-09-28 by the user, replacing a hand-written GET-only
+client. A hand-written client only protects against someone running
+arbitrary code in the agent, and anyone who can do that can talk to the
+mounted socket directly anyway. Against a compromised server, what
+counts is which calls the agent's code makes, not which calls exist in
+the binary. So the SDK sits behind a small internal interface holding
+only the read calls the collectors need, and SDK structs are mapped onto
+our own wire types (the field and label allowlist), never serialized
+as-is.
+
+**Docker is collected only on hosts with their own agent.** Remote (SSH)
+hosts get `skipped`: their key is pinned to read-only SFTP, and SFTP
+can't connect to a unix socket. The alternatives were considered and
+not taken: `DOCKER_HOST=ssh://` needs exec on the remote host
+(`docker system dial-stdio`); SSH stream-local forwarding to the socket
+needs forwarding enabled on the key (OpenSSH has no per-key allowlist
+for unix sockets) and the SSH user in the remote `docker` group. Either
+would make one compromised agent root on every remote host it collects,
+where today it can only read files there. A host running Docker can run
+the agent container, so the fix for a remote host is "install the agent
+there", and the dashboard says so wherever Docker data would appear.
+On a Swarm manager, services, tasks and nodes cover the whole cluster,
+but per-node containers and images still need an agent on each node.
 
 ## Next.js deploys as a Docker standalone image, not on Vercel
 

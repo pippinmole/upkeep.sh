@@ -409,12 +409,14 @@ sketch to build against, not a contract yet. Additive within
 
 The agent reads the Docker Engine API over the socket mounted into its
 container (`SW_DOCKER_SOCKET`, default `/var/run/docker.sock`; opt-in),
-with a hand-written client that only makes a fixed list of GETs. New
-collectors, each with its own status:
+through Docker's Go SDK, calling only a fixed list of read endpoints.
+Local targets only: on remote (SSH) targets every Docker collector is
+`skipped` with reason "remote host", which the dashboard shows as
+"needs an agent on this host". New collectors, each with its own status:
 
 | Collector | Owns | Applies to |
 |---|---|---|
-| `docker_engine` | `docker.engine`, `docker.swarm` | socket mounted (else `skipped`: "docker socket not mounted"; engine unreachable is `error`) |
+| `docker_engine` | `docker.engine`, `docker.swarm` | local target with the socket mounted (else `skipped`: "docker socket not mounted" / "remote host"; engine unreachable is `error`) |
 | `docker_containers` | `docker.containers` | engine reachable |
 | `docker_images` | `docker.images` | engine reachable |
 | `docker_networks` | `docker.networks` | engine reachable |
@@ -661,7 +663,9 @@ the agent (`agent/cmd/agent/remote.go`, `agent/internal/target/ssh.go`):
   from single `/proc` files (`target.ProcFiles`). Listeners, process
   → unit mapping and deleted libraries need to walk live process state
   (`target.LiveProc`) and are reported `skipped`; so is the public IP
-  lookup, which would describe the agent's network.
+  lookup, which would describe the agent's network. The Docker
+  collectors (planned) are `skipped` too: SFTP can't reach the remote
+  Docker socket (DECISIONS.md "Docker collection").
 - **Scheduling.** Each target is collected every push interval. A failed
   attempt is retried after 1m, doubling up to the push interval, so a
   host being set up is retried quickly without an SSH login every minute

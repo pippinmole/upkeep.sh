@@ -1602,9 +1602,11 @@ Linux/Debian-family only. Nothing else is collected today.
     Docker.** Engine API, not Docker's on-disk files, because Swarm
     service specs and containerd-store image metadata aren't readable
     from disk and the API also covers rootless Docker and Podman. The
-    socket is mounted into the agent (opt-in); the boundary is its
-    hand-written client (a fixed list of GETs) and wire types that never
-    carry env / command lines. A proxy sidecar was rejected: it ships
+    socket is mounted into the agent (opt-in); the boundary is its code
+    (Docker's Go SDK behind an interface with a fixed list of reads,
+    since 2026-09-28) and wire types that never carry env / command
+    lines. Only hosts with their own agent; remote (SSH) hosts are
+    `skipped`. A proxy sidecar was rejected: it ships
     from the same release pipeline, so it doesn't stop the realistic
     threat (a malicious release). Images are collected from the start (image ID, repo
     digests, layer diff IDs) for Phase 2 image CVE matching. Docker and
