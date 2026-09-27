@@ -50,12 +50,15 @@ The URL is chosen by the user but fetched by the platform, so the worker
 - `HTTP(S)_PROXY` environment variables are ignored.
 
 A refused destination fails the delivery permanently with a
-"destination not allowed" error in the delivery log.
+"destination not allowed" error in the delivery log. (The email channel
+applies the same address rules to its SMTP server, on the mail ports 25,
+465, 587 and 2525 instead of https ports — see
+[ARCHITECTURE.md § Email (SMTP) channel](ARCHITECTURE.md#email-smtp-channel).)
 
 **Dev only:** `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` on the worker (and on
 the web app, for form validation) allows plain `http`, any port and private
-or loopback addresses, so you can point a channel at a receiver on your own
-machine. It is off by default, the worker logs a warning when it is on, and
+or loopback addresses (for SMTP too), so you can point a channel at a
+receiver on your own machine. It is off by default, the worker logs a warning when it is on, and
 it must never be set in production.
 
 ## Body

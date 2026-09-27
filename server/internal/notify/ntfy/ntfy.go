@@ -2,7 +2,7 @@
 // to a topic on an ntfy server (https://ntfy.sh or self-hosted), rendered
 // for humans: a title, a short plain-text body, a priority derived from
 // severity/KEV, emoji tags and a link to the dashboard. Format and priority
-// mapping: docs/WEBHOOKS.md "ntfy".
+// mapping: docs/ARCHITECTURE.md "ntfy channel".
 //
 // Publishing uses ntfy's JSON API (POST {"topic": ..., "title": ...} to the
 // server root) rather than POST /<topic> with X-Title/X-Priority/X-Tags

@@ -85,12 +85,13 @@ glance, the phases:
 2. ✅ OSV Debian/Ubuntu sync + dpkg-version-comparison matching + CISA KEV /
    FIRST EPSS enrichment → findings.
 3. ✅ Dashboard findings UI.
-4. External port-exposure scanning + webhook and ntfy alerting with dedup
-   and digest mode (email/chat integrations deferred).
+4. External port-exposure scanning + webhook, ntfy and email (SMTP)
+   alerting with dedup and digest mode (Slack/Discord integrations
+   deferred).
 5. Polish, tests, CI.
 
 **Phase 2+** (explicitly deferred): container image vulnerabilities,
-RHEL/Alpine collectors, email/Slack/Discord notifiers, SMS, billing,
+RHEL/Alpine collectors, Slack/Discord notifiers, SMS, billing,
 multi-tenant orgs.
 
 **Non-goals**: auto-patching, remote command execution, compliance

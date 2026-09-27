@@ -222,8 +222,9 @@ alerts queue:
   plaintext in Postgres (the worker needs them to sign) — see TASKS.md.
 - **Outbound requests** go through `server/internal/netguard` (SSRF guard:
   https, ports 443/8443, public addresses only, checked on the dialed IP,
-  same-origin redirects). `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` is a
-  dev-only escape hatch.
+  same-origin redirects; SMTP connections for the email channel have their
+  own port policy, same address checks). `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true`
+  is a dev-only escape hatch.
 
 ### ntfy channel
 
@@ -277,11 +278,81 @@ and a priority (Automatic, or a fixed 1–5 that overrides the mapping).
   `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` lifts this for local development
   only.
 
-### How to add a notifier (email, Slack, Discord, …)
+### Email (SMTP) channel
+
+`server/internal/notify/email` sends a plain-text email through the
+user's **own SMTP server**. SMTP settings are **per channel**; there is no
+platform-wide SMTP config (DECISIONS.md "Email notifier").
+
+- **Fields**: To (required; one or more addresses separated by commas,
+  at most 20, each a bare ASCII address), From address (required),
+  SMTP server host (required), Port (blank = 587, or 465 when security is
+  TLS), Security (select, below), Username (optional), Password (secret
+  field; required with a username) and **Allow insecure authentication**
+  (checkbox, default off).
+- **Security modes**:
+
+  | Mode | Behaviour |
+  |---|---|
+  | `starttls` (default) | connect in plain text, then STARTTLS; if the server doesn't offer it the delivery fails permanently (never falls back to plain text) |
+  | `tls` | implicit TLS from the first byte (usually port 465) |
+  | `none` | no TLS at all, for a relay on a trusted network |
+
+  Certificates are always verified (system roots, server name = the host);
+  there is no "skip verification" option.
+- **Insecure authentication rule**: with the setting off, credentials
+  (AUTH PLAIN or LOGIN) are only ever sent over a TLS-protected
+  connection. `none` + username + setting off is rejected by `Validate`
+  (so "Send test" shows the error) and, as defense in depth, the live
+  connection is checked for TLS right before AUTH; either way the delivery
+  fails permanently with an error saying to pick STARTTLS/TLS or turn the
+  setting on. With the setting on, `none` mode logs in over plain text.
+  In `starttls` and `tls` modes the connection is always TLS by the time
+  AUTH runs, so the setting makes no difference there. (The package uses
+  its own PLAIN/LOGIN implementations: stdlib `smtp.PlainAuth` would
+  refuse non-TLS, non-localhost servers on its own terms.)
+- **Network**: `netguard.Guard.DialSMTP` — the host must be a DNS name or
+  IP literal and the port one of **25, 465, 587, 2525**; every resolved
+  address must be public and is checked on the dialed IP, like HTTP. The
+  https rules (443/8443) are separate and unchanged. The stdlib `net/smtp`
+  client runs over the guarded connection with a 30 s deadline.
+  `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` allows any port and private
+  addresses (e.g. Mailpit on `localhost:1025`) for development only.
+- **Message**: headers `From: "upkeep.sh" <from>`, `To`, `Subject`,
+  `Date`, `Message-ID` (`<delivery id@from domain>`, stable across
+  retries), `MIME-Version`, `Content-Type: text/plain; charset=utf-8`,
+  `Content-Transfer-Encoding: quoted-printable`, `Auto-Submitted:
+  auto-generated`, `X-Upkeep-Kind`, `X-Upkeep-Delivery`. Subjects are
+  `[upkeep.sh] ` + the same titles as ntfy (`KEV CVE-2024-3094 opened on
+  web-1`, `Agent "edge" stopped reporting`, a digest's `Digest: …`
+  summary), RFC 2047 encoded when non-ASCII. The body reuses ntfy's text
+  (`internal/notify/render`): event detail lines, or a bulleted list of up
+  to 50 events, then `Open in upkeep.sh: <link>` (when `SW_DASHBOARD_URL`
+  is set) and `Rule: <name>`. "Send test" sends a fixed test message.
+- **Header injection**: addresses, host, username and password with CR/LF
+  (or other control characters, for addresses and host) are rejected by
+  validation; event text in the subject has control characters replaced;
+  and the header writer refuses any value containing CR/LF.
+- **Errors** (the reply text, on one line and cut to 300 bytes, goes into
+  the delivery log):
+
+  | Failure | Handling |
+  |---|---|
+  | 4xx reply (greylisting, 421 busy, 452 mailbox full, 454 temporary auth failure), connection refused/reset, timeout | retried with backoff |
+  | 5xx reply (550 unknown recipient, 535 bad credentials, 554 …) | permanent |
+  | STARTTLS required but not offered, no AUTH / no PLAIN or LOGIN offered, insecure-auth refusal | permanent |
+  | TLS certificate verification failure, server not speaking TLS in `tls` mode | permanent |
+  | destination refused by `netguard` | permanent |
+
+  A rejected recipient aborts the whole message (nobody gets a partial
+  send). The SMTP reply code is not stored as the attempt's status code
+  (that column is HTTP-only); it is in the error text.
+
+### How to add a notifier (Slack, Discord, …)
 
 1. `server/internal/notify/<type>`: implement `notify.Notifier` (make HTTP
-   calls with a `netguard.Guard` client; wrap unfixable errors in
-   `notify.Permanent`).
+   calls with a `netguard.Guard` client, other protocols through the
+   guard's dialers; wrap unfixable errors in `notify.Permanent`).
 2. Add it to `notify/notifiers.Registry`.
 3. `go test ./internal/notify/notifiers -update` to refresh the dashboard's
    schema file.
