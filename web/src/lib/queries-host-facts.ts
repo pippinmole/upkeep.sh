@@ -73,20 +73,18 @@ export async function getHostServices(userId: string, hostId: string) {
   );
   const f = await freshness(userId, hostId, ["services:systemd"]);
   return {
-    rows: rows.map(
-      (r): HostServiceRow => ({
-        key: r.row_key,
-        manager: r.manager,
-        name: r.name,
-        displayName: r.display_name,
-        startMode: r.start_mode,
-        state: r.state,
-        runAs: r.run_as,
-        binaryPath: r.binary_path,
-        activatedBy: r.activated_by,
-        since: r.first_seen_at.toISOString(),
-      }),
-    ),
+    rows: rows.map((r): HostServiceRow => ({
+      key: r.row_key,
+      manager: r.manager,
+      name: r.name,
+      displayName: r.display_name,
+      startMode: r.start_mode,
+      state: r.state,
+      runAs: r.run_as,
+      binaryPath: r.binary_path,
+      activatedBy: r.activated_by,
+      since: r.first_seen_at.toISOString(),
+    })),
     freshness: f["services:systemd"],
   };
 }
@@ -113,7 +111,8 @@ const isLoopback = (a: string) =>
   a.startsWith("127.") || a === "::1" || a.startsWith("::ffff:127.");
 
 export async function getHostListeners(userId: string, hostId: string) {
-  if (!isUuid(hostId)) return { rows: [] as HostListenerRow[], freshness: { tcp: null, udp: null } };
+  if (!isUuid(hostId))
+    return { rows: [] as HostListenerRow[], freshness: { tcp: null, udp: null } };
   const { rows } = await pool.query<{
     row_key: string;
     transport: "tcp" | "udp";
@@ -132,19 +131,17 @@ export async function getHostListeners(userId: string, hostId: string) {
   );
   const f = await freshness(userId, hostId, ["listeners:tcp", "listeners:udp"]);
   return {
-    rows: rows.map(
-      (r): HostListenerRow => ({
-        key: r.row_key,
-        transport: r.transport,
-        proto: r.proto,
-        localAddr: r.local_addr,
-        port: r.port,
-        processName: r.process_name,
-        wildcard: WILDCARDS.has(r.local_addr),
-        loopback: isLoopback(r.local_addr),
-        since: r.first_seen_at.toISOString(),
-      }),
-    ),
+    rows: rows.map((r): HostListenerRow => ({
+      key: r.row_key,
+      transport: r.transport,
+      proto: r.proto,
+      localAddr: r.local_addr,
+      port: r.port,
+      processName: r.process_name,
+      wildcard: WILDCARDS.has(r.local_addr),
+      loopback: isLoopback(r.local_addr),
+      since: r.first_seen_at.toISOString(),
+    })),
     freshness: { tcp: f["listeners:tcp"], udp: f["listeners:udp"] },
   };
 }
@@ -187,19 +184,17 @@ export async function getHostUsers(userId: string, hostId: string) {
   );
   const f = await freshness(userId, hostId, ["users:local"]);
   return {
-    rows: rows.map(
-      (r): HostUserRow => ({
-        name: r.name,
-        uid: Number(r.uid),
-        gid: Number(r.gid),
-        home: r.home,
-        shell: r.shell,
-        groups: r.groups,
-        loginShell: r.login_shell,
-        admin: r.admin,
-        since: r.first_seen_at.toISOString(),
-      }),
-    ),
+    rows: rows.map((r): HostUserRow => ({
+      name: r.name,
+      uid: Number(r.uid),
+      gid: Number(r.gid),
+      home: r.home,
+      shell: r.shell,
+      groups: r.groups,
+      loginShell: r.login_shell,
+      admin: r.admin,
+      since: r.first_seen_at.toISOString(),
+    })),
     freshness: f["users:local"],
   };
 }

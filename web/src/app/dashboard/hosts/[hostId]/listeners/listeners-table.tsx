@@ -35,9 +35,7 @@ const columns = col.columns([
   col.accessor("transport", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Protocol" />,
     filterFn: "arrHas",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs uppercase">{row.original.proto}</span>
-    ),
+    cell: ({ row }) => <span className="font-mono text-xs uppercase">{row.original.proto}</span>,
   }),
   col.accessor("localAddr", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Address" />,
@@ -84,7 +82,10 @@ const columns = col.columns([
     header: ({ column }) => <DataTableColumnHeader column={column} title="Listening since" />,
     sortFn: (a, b) => Date.parse(a.original.since) - Date.parse(b.original.since),
     cell: ({ row }) => (
-      <span className="text-muted-foreground whitespace-nowrap" title={formatDateTime(row.original.since)}>
+      <span
+        className="text-muted-foreground whitespace-nowrap"
+        title={formatDateTime(row.original.since)}
+      >
         {relativeTime(row.original.since)}
       </span>
     ),
@@ -98,9 +99,7 @@ const search: FilterFn<DataTableFeatures, HostListenerRow> = (row, _id, value) =
   if (!q) return true;
   const l = row.original;
   return (
-    String(l.port) === q ||
-    l.localAddr.includes(q) ||
-    !!l.processName?.toLowerCase().includes(q)
+    String(l.port) === q || l.localAddr.includes(q) || !!l.processName?.toLowerCase().includes(q)
   );
 };
 

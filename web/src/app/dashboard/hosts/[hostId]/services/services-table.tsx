@@ -89,9 +89,7 @@ const columns = col.columns([
   col.accessor((s) => s.runAs ?? "", {
     id: "runAs",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Runs as" />,
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.runAs ?? "—"}</span>
-    ),
+    cell: ({ row }) => <span className="font-mono text-xs">{row.original.runAs ?? "—"}</span>,
   }),
   col.accessor((s) => s.binaryPath ?? "", {
     id: "binaryPath",
@@ -109,7 +107,10 @@ const columns = col.columns([
     header: ({ column }) => <DataTableColumnHeader column={column} title="In this state since" />,
     sortFn: (a, b) => Date.parse(a.original.since) - Date.parse(b.original.since),
     cell: ({ row }) => (
-      <span className="text-muted-foreground whitespace-nowrap" title={formatDateTime(row.original.since)}>
+      <span
+        className="text-muted-foreground whitespace-nowrap"
+        title={formatDateTime(row.original.since)}
+      >
         {relativeTime(row.original.since)}
       </span>
     ),
