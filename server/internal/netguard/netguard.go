@@ -1,10 +1,14 @@
-// Package netguard makes outbound HTTP requests to user-supplied URLs
-// (webhooks and future notifiers) without letting them reach the
-// platform's own network: server-side request forgery protection.
+// Package netguard makes outbound connections to user-supplied
+// destinations (webhook and ntfy URLs, SMTP servers) without letting them
+// reach the platform's own network: server-side request forgery protection.
 //
 // Rules (Guard defaults):
-//   - https only; no userinfo in the URL; port 443 or 8443 only (so the
-//     platform can't be used to probe arbitrary services).
+//   - HTTP (CheckURL, Client): https only; no userinfo in the URL; port 443
+//     or 8443 only (so the platform can't be used to probe arbitrary
+//     services).
+//   - SMTP (CheckSMTP, DialSMTP): a plain host name or IP literal and one
+//     of the mail ports 25, 465, 587 or 2525 (SMTPPorts). TLS is the email
+//     notifier's business; the guard only decides where it may connect.
 //   - Every address the host name resolves to must be a public unicast
 //     address. Loopback, RFC 1918 private, CGNAT, link-local (incl. the
 //     169.254.169.254 cloud metadata service), unique-local IPv6 (incl.
@@ -23,8 +27,8 @@
 //     re-checked by the dialer. A redirect to another host is refused.
 //
 // Dev escape hatch: SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true (FromEnv) allows
-// private/loopback addresses, plain http and any port, for pointing a
-// webhook at a receiver on your own machine. Off by default; the worker
+// private/loopback addresses, plain http and any port (HTTP and SMTP), for
+// pointing a webhook or a mail channel at a receiver on your own machine. Off by default; the worker
 // logs a warning when it is on. Never set it in production.
 package netguard
 
@@ -38,6 +42,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -60,14 +65,14 @@ type Guard struct {
 	// AllowPrivate permits non-public addresses, plain http and any port.
 	// Dev/test only.
 	AllowPrivate bool
-	// AllowedPorts overrides the default {443, 8443} (ignored when
-	// AllowPrivate).
+	// AllowedPorts overrides the default HTTP ports {443, 8443} (ignored
+	// when AllowPrivate). It does not affect SMTPPorts.
 	AllowedPorts []int
 	// Lookup resolves a host name; nil = net.DefaultResolver. Tests inject
 	// one to simulate DNS answers (rebinding).
 	Lookup func(ctx context.Context, host string) ([]netip.Addr, error)
-	// TLSConfig is used for https (nil = system roots). Tests inject the
-	// httptest server's CA.
+	// TLSConfig is used for https and by the email notifier for SMTP TLS
+	// (nil = system roots). Tests inject the httptest server's CA.
 	TLSConfig *tls.Config
 }
 
@@ -125,6 +130,54 @@ func (g *Guard) CheckURL(raw string) (*url.URL, error) {
 		}
 	}
 	return u, nil
+}
+
+// SMTPPorts are the ports an SMTP destination may use: 25 (server to
+// server), 465 (submission over implicit TLS), 587 (submission, STARTTLS)
+// and 2525 (a common alternative submission port of hosted mail services).
+var SMTPPorts = []int{25, 465, 587, 2525}
+
+// hostnameRE is a DNS host name: dot-separated labels of letters, digits
+// and inner hyphens, optionally ending in a dot.
+var hostnameRE = regexp.MustCompile(`^(?i:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?)(?:\.(?i:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?))*\.?$`)
+
+// CheckSMTP validates an SMTP server's host and port without resolving the
+// host: host must be a DNS name or an IP literal (IPv6 optionally in
+// brackets), port one of SMTPPorts, and a literal address must be public.
+// With AllowPrivate any port and address is allowed. Use it to validate
+// configuration; DialSMTP applies it again, plus the dial-time address
+// checks.
+func (g *Guard) CheckSMTP(host string, port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port %d", port)
+	}
+	h := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	a, err := netip.ParseAddr(h)
+	isIP := err == nil
+	if !isIP && (len(host) > 253 || !hostnameRE.MatchString(host)) {
+		return fmt.Errorf("invalid host name %q", host)
+	}
+	if g.AllowPrivate {
+		return nil
+	}
+	if !slices.Contains(SMTPPorts, port) {
+		return blocked("SMTP port %d is not allowed (allowed: %v)", port, SMTPPorts)
+	}
+	if isIP {
+		return CheckAddr(a)
+	}
+	return nil
+}
+
+// DialSMTP checks host and port with CheckSMTP, then connects over TCP
+// through DialContext (every resolved address checked, the checked IP
+// dialed).
+func (g *Guard) DialSMTP(ctx context.Context, host string, port int) (net.Conn, error) {
+	if err := g.CheckSMTP(host, port); err != nil {
+		return nil, err
+	}
+	h := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	return g.DialContext(ctx, "tcp", net.JoinHostPort(h, strconv.Itoa(port)))
 }
 
 // Resolve resolves host and checks every address; it fails if any one is
