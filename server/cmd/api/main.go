@@ -24,6 +24,19 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+// envDuration parses a Go duration ("0" disables periodic rotation).
+func envDuration(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		log.Fatalf("%s: %v", key, err)
+	}
+	return d
+}
+
 func main() {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -45,10 +58,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("river client: %v", err)
 	}
-	h := &ingest.Handler{Store: db, Jobs: inserter}
+	h := &ingest.Handler{
+		Store:            db,
+		Jobs:             inserter,
+		RotationGrace:    envDuration("SW_CREDENTIAL_ROTATION_GRACE", ingest.DefaultRotationGrace),
+		CredentialMaxAge: envDuration("SW_CREDENTIAL_MAX_AGE", ingest.DefaultCredentialMaxAge),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/enroll", h.Enroll)
 	mux.HandleFunc("POST /v1/snapshots", h.Snapshot)
+	mux.HandleFunc("POST /v1/agent/rotate", h.Rotate)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

@@ -19,10 +19,14 @@ package store
 //       later push of A land on it, so hosts are never duplicated per push.
 //     - M unclaimed: a new host is created with identity M.
 //     - M belongs to host I, and no OTHER active agent has I as its local
-//       host: A re-attaches to I, keeping its history (agent reinstall).
+//       host: A re-attaches to I, keeping its history (agent reinstall),
+//       and I is unarchived if it was archived.
 //     - M belongs to host I that another active agent collects locally
 //       (cloned VM, or a second agent on the same machine): a new host is
-//       created, flagged duplicate_of I. Never merged automatically (Q12).
+//       created, flagged duplicate_of I. Never merged automatically (Q12);
+//       the dashboard merges or dismisses the flag (mgmt_merge_host /
+//       mgmt_dismiss_duplicate, migration 0011), and a dismissed flag is
+//       not raised again against the same host.
 //
 // "Active" (activeAgentSQL): not revoked, and seen within
 // ActiveIntervals push intervals (the agent's reported interval, else
@@ -115,23 +119,6 @@ func (s *Store) EnrollAgent(ctx context.Context, in EnrollInput) (agentID string
 		return "", err
 	}
 	return agentID, tx.Commit(ctx)
-}
-
-// AgentCredential is what push authentication needs.
-type AgentCredential struct {
-	UserID     string
-	SecretHash string
-	Revoked    bool
-}
-
-// AgentCredential returns the stored credential of an agent.
-func (s *Store) AgentCredential(ctx context.Context, agentID string) (c AgentCredential, err error) {
-	err = s.Pool.QueryRow(ctx, `
-		SELECT a.user_id, c.secret_hash, a.revoked_at IS NOT NULL
-		FROM agent_credentials c JOIN agents a ON a.id = c.agent_id
-		WHERE c.agent_id = $1
-	`, agentID).Scan(&c.UserID, &c.SecretHash, &c.Revoked)
-	return c, err
 }
 
 // AgentReport is the payload's agent block. Empty fields leave the stored
@@ -266,6 +253,12 @@ func resolveLocalHost(ctx context.Context, tx pgx.Tx, userID, agentID, agentName
 			if err := assignLocal(ctx, tx, agentID, owner); err != nil {
 				return res, err
 			}
+			// A new agent installed on an archived host's machine brings it
+			// back: someone deliberately monitors it again. (Merged hosts
+			// own no identities, so they are never re-attached.)
+			if _, err := tx.Exec(ctx, `UPDATE hosts SET archived_at = NULL WHERE id = $1 AND merged_into IS NULL`, owner); err != nil {
+				return res, err
+			}
 			res.HostID, res.Reattached = owner, true
 			return res, nil
 		}
@@ -350,9 +343,13 @@ func addIdentity(ctx context.Context, tx pgx.Tx, userID, kind, value, hostID str
 }
 
 // flagDuplicate marks hostID as a possible duplicate of other, unless it is
-// already flagged. Reports whether it changed anything.
+// already flagged, or the user dismissed that flag ("not a duplicate",
+// hosts.duplicate_dismissed_of). Reports whether it changed anything.
 func flagDuplicate(ctx context.Context, tx pgx.Tx, hostID, other string) (bool, error) {
-	tag, err := tx.Exec(ctx, `UPDATE hosts SET duplicate_of = $2 WHERE id = $1 AND duplicate_of IS NULL`, hostID, other)
+	tag, err := tx.Exec(ctx, `
+		UPDATE hosts SET duplicate_of = $2
+		WHERE id = $1 AND duplicate_of IS NULL AND duplicate_dismissed_of IS DISTINCT FROM $2
+	`, hostID, other)
 	return tag.RowsAffected() > 0, err
 }
 

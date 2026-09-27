@@ -12,6 +12,8 @@ import { SEVERITIES } from "@/lib/severity";
 import { formatDate, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
+import { AgentRowActions } from "./agent-row-actions";
+
 export const STATUS_OPTIONS: { value: AgentStatus; label: string }[] = [
   { value: "online", label: "Online" },
   { value: "stale", label: "Stale" },
@@ -76,9 +78,20 @@ export const agentColumns = col.columns([
     cell: ({ row }) => {
       const s = row.original.status;
       return (
-        <Badge variant="outline" className={cn("whitespace-nowrap", STATUS_CLASS[s])}>
-          {STATUS_OPTIONS.find((o) => o.value === s)?.label}
-        </Badge>
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <Badge variant="outline" className={cn("whitespace-nowrap", STATUS_CLASS[s])}>
+            {STATUS_OPTIONS.find((o) => o.value === s)?.label}
+          </Badge>
+          {row.original.rotateRequestedAt && s !== "revoked" && (
+            <Badge
+              variant="outline"
+              className="text-muted-foreground whitespace-nowrap"
+              title="Credential rotation requested; the agent rotates on its next push"
+            >
+              Rotation pending
+            </Badge>
+          )}
+        </span>
       );
     },
   }),
@@ -126,6 +139,15 @@ export const agentColumns = col.columns([
       <span className="text-muted-foreground whitespace-nowrap">
         {formatDate(row.original.createdAt)}
       </span>
+    ),
+  }),
+  col.display({
+    id: "actions",
+    enableHiding: false,
+    cell: ({ row }) => (
+      <div className="flex justify-end">
+        <AgentRowActions agent={row.original} />
+      </div>
     ),
   }),
 ]);

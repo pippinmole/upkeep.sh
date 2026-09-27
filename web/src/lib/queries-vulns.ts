@@ -18,7 +18,9 @@ import { emptySeverityCounts, isSeverity, type Severity, type SeverityCounts } f
 // software_versions are shared ACROSS USERS: they are only reached through
 // the user's own host_software or findings rows, never by an id taken from
 // the URL on its own. cves / advisories / advisory_affected are public
-// feed data and may be shown to anyone signed in.
+// feed data and may be shown to anyone signed in. Fleet-wide reads skip
+// archived hosts (`h.archived_at IS NULL`); their findings stay as they
+// were, visible on the host's own pages.
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 const iso = (d: Date | null): string | null => d?.toISOString() ?? null;
@@ -141,7 +143,7 @@ export async function getOverviewStats(userId: string): Promise<OverviewStats> {
               (SELECT count(DISTINCT f.vuln_key)
                FROM hosts h2
                JOIN findings f ON f.host_id = h2.id
-               WHERE h2.user_id = $1 AND f.kind = 'vulnerable_package'
+               WHERE h2.user_id = $1 AND h2.archived_at IS NULL AND f.kind = 'vulnerable_package'
                  AND f.status = 'open') AS distinct_vulns
        FROM hosts h
        LEFT JOIN LATERAL (
@@ -154,14 +156,14 @@ export async function getOverviewStats(userId: string): Promise<OverviewStats> {
          FROM findings f
          WHERE f.host_id = h.id AND f.status = 'open' AND f.kind = 'vulnerable_package'
        ) fc ON true
-       WHERE h.user_id = $1`,
+       WHERE h.user_id = $1 AND h.archived_at IS NULL`,
       [userId],
     ),
     pool.query<SummaryRow>(
       `SELECT ${SUMMARY_COLUMNS}
        FROM hosts h
        JOIN findings f ON f.host_id = h.id AND f.kind = 'vulnerable_package'
-       WHERE h.user_id = $1
+       WHERE h.user_id = $1 AND h.archived_at IS NULL
        GROUP BY f.severity`,
       [userId],
     ),
@@ -766,7 +768,7 @@ export async function getFleetVulns(
        SELECT f.*
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND f.kind = 'vulnerable_package'
+       WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package'
      ),
      g AS (
        SELECT uf.vuln_key,
@@ -888,7 +890,7 @@ export async function getFleetVulnDetail(
               h.id AS host_id, h.hostname, h.label
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND f.kind = 'vulnerable_package' AND f.vuln_key = $2
+       WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package' AND f.vuln_key = $2
        ORDER BY f.severity_key DESC, h.hostname, h.id, f.source_package`,
       [userId, vulnKey],
     ),
@@ -914,7 +916,7 @@ export async function getFleetVulnDetail(
        JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NULL
        JOIN software_vulnerabilities sw ON sw.software_id = hs.software_id AND sw.vuln_key = $2
        JOIN software_versions sv ON sv.id = hs.software_id
-       WHERE h.user_id = $1
+       WHERE h.user_id = $1 AND h.archived_at IS NULL
        GROUP BY sv.id, sw.fixed_version, sw.fix_channel
        ORDER BY hosts DESC, sv.release, sv.name, sv.arch`,
       [userId, vulnKey],

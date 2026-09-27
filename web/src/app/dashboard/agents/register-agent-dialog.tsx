@@ -29,7 +29,15 @@ function dockerRunCommand(serverUrl: string, token: string): string {
   ghcr.io/icondesk/security-whatnot-agent:latest`;
 }
 
-export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
+// Opened from "Register agent" (Agents) and "Add host" (Hosts): adding a
+// host means enrolling an agent on it (DOMAIN_MODEL.md Q15).
+export function RegisterAgentDialog({
+  serverUrl,
+  triggerLabel = "Register agent",
+}: {
+  serverUrl: string;
+  triggerLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("");
@@ -62,7 +70,7 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button>Register agent</Button>
+        <Button>{triggerLabel}</Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
@@ -145,8 +153,8 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
             </div>
 
             <p className="text-muted-foreground text-sm">
-              The agent appears in this list once it enrolls, and its host shows up under it after
-              the first push.
+              The agent appears on the Agents page once it enrolls, and its host shows up on the
+              Hosts page after the first push.
             </p>
           </div>
         )}

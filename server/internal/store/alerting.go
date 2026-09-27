@@ -37,12 +37,8 @@ func hasRuleForSQL(userCol, typeCol string) string {
 
 // insertFindingEvents writes finding.* events for the given transitions of
 // one host's findings, inside the reconcile transaction (the findings rows
-// are already written, so the payload is their new state).
-//
-// TODO(after PR #1 / migration 0011 merges): archived hosts must not
-// alert. Add `AND h.archived_at IS NULL` to the WHERE clause below (and
-// filter archived hosts out of the agent events' host_ids in
-// CheckAgentHealth).
+// are already written, so the payload is their new state). Archived hosts
+// (migration 0011, merged ones included) never alert.
 func insertFindingEvents(ctx context.Context, tx pgx.Tx, hostID string, keys, types []string, now time.Time) (int, error) {
 	if len(keys) == 0 {
 		return 0, nil
@@ -62,7 +58,7 @@ func insertFindingEvents(ctx context.Context, tx pgx.Tx, hostID string, keys, ty
 		FROM unnest($2::text[], $3::text[]) AS t(dedup_key, type)
 		JOIN findings f ON f.host_id = $1 AND f.dedup_key = t.dedup_key
 		JOIN hosts h ON h.id = f.host_id
-		WHERE `+hasRuleForSQL("h.user_id", "t.type"), hostID, keys, types, now)
+		WHERE h.archived_at IS NULL AND `+hasRuleForSQL("h.user_id", "t.type"), hostID, keys, types, now)
 	if err != nil {
 		return 0, fmt.Errorf("insert finding alert events: %w", err)
 	}
@@ -78,7 +74,9 @@ type AgentHealthResult struct {
 // staleness with the state last recorded in agent_health and, on a change,
 // writes agent.stale / agent.recovered events. Stale uses the dashboard's
 // rule: silent for more than greatest(3*coalesce(push_interval_seconds,
-// 900), 120) seconds. First observations are recorded silently.
+// 900), 120) seconds. First observations are recorded silently. Archived
+// hosts are left out of the events' host_ids and payload, so a
+// host-scoped rule doesn't match on them.
 func (s *Store) CheckAgentHealth(ctx context.Context, now time.Time) (AgentHealthResult, error) {
 	var res AgentHealthResult
 	tx, err := s.Pool.Begin(ctx)
@@ -127,11 +125,14 @@ func (s *Store) CheckAgentHealth(ctx context.Context, now time.Time) (AgentHealt
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO alert_events (user_id, type, subject, occurred_at, host_ids, payload)
 			SELECT c.user_id, e.type, 'agent:' || c.id, $2,
-			       COALESCE((SELECT array_agg(ah.host_id ORDER BY ah.host_id) FROM agent_hosts ah WHERE ah.agent_id = c.id), '{}'),
+			       COALESCE((SELECT array_agg(ah.host_id ORDER BY ah.host_id)
+			                 FROM agent_hosts ah JOIN hosts h ON h.id = ah.host_id
+			                 WHERE ah.agent_id = c.id AND h.archived_at IS NULL), '{}'),
 			       jsonb_build_object('agent', jsonb_build_object(
 			         'id', c.id, 'name', c.name, 'last_seen_at', c.last_seen_at,
 			         'hosts', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', h.id, 'hostname', h.hostname, 'label', h.label) ORDER BY h.hostname)
-			                            FROM agent_hosts ah JOIN hosts h ON h.id = ah.host_id WHERE ah.agent_id = c.id), '[]')))
+			                            FROM agent_hosts ah JOIN hosts h ON h.id = ah.host_id
+			                            WHERE ah.agent_id = c.id AND h.archived_at IS NULL), '[]')))
 			FROM agent_health_cur c
 			CROSS JOIN LATERAL (SELECT CASE c.state WHEN 'stale' THEN 'agent.stale' ELSE 'agent.recovered' END AS type) e
 			WHERE c.id = ANY ($1::uuid[]) AND `+hasRuleForSQL("c.user_id", "e.type"), changed, now)

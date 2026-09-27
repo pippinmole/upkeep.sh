@@ -86,7 +86,11 @@ function filtersText(r: RuleRow, hosts: ScopeHost[]): string {
     if (r.kevOnly) parts.push("KEV only");
   }
   if (r.hostIds) {
-    const names = r.hostIds.map((id) => hosts.find((h) => h.id === id)?.hostname ?? "deleted host");
+    const names = r.hostIds.map((id) => {
+      const h = hosts.find((h) => h.id === id);
+      if (!h) return "deleted host";
+      return h.archived ? `${h.hostname} (archived)` : h.hostname;
+    });
     parts.push(names.length <= 2 ? names.join(", ") : `${names.length} hosts`);
   } else {
     parts.push("All hosts");

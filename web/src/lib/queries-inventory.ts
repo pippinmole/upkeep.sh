@@ -10,6 +10,10 @@ import { pool } from "./db";
 // from `hosts h ... WHERE h.user_id = $1` and only ever reaches
 // software_versions through that user's host_software rows. Never select
 // from software_versions without that join.
+//
+// Archived hosts (hosts.archived_at, DOMAIN_MODEL.md §4.3) are left out of
+// every fleet-wide query (`AND h.archived_at IS NULL`); per-host pages
+// still show their full history.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -528,7 +532,7 @@ export async function getFleetPackages(
      FROM hosts h
      JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NULL
      JOIN software_versions sv ON sv.id = hs.software_id
-     WHERE h.user_id = $1
+     WHERE h.user_id = $1 AND h.archived_at IS NULL
        AND ($2::text IS NULL OR sv.ecosystem = $2)
        AND ($3::text IS NULL
             OR strpos(lower(sv.name), lower($3)) > 0
@@ -555,7 +559,7 @@ export async function getFleetEcosystems(userId: string): Promise<string[]> {
     `SELECT DISTINCT st.ecosystem
      FROM hosts h
      JOIN host_inventory_state st ON st.host_id = h.id
-     WHERE h.user_id = $1
+     WHERE h.user_id = $1 AND h.archived_at IS NULL
      ORDER BY st.ecosystem`,
     [userId],
   );
@@ -625,7 +629,7 @@ export async function getFleetPackage(
      FROM hosts h
      JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NULL
      JOIN software_versions sv ON sv.id = hs.software_id
-     WHERE h.user_id = $1 AND sv.name = $2
+     WHERE h.user_id = $1 AND h.archived_at IS NULL AND sv.name = $2
      ORDER BY h.hostname, h.id, sv.arch`,
     [userId, name],
   );
@@ -648,7 +652,7 @@ export async function getFleetPackage(
        FROM hosts h
        JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NOT NULL
        JOIN software_versions sv ON sv.id = hs.software_id
-       WHERE h.user_id = $1 AND sv.name = $2
+       WHERE h.user_id = $1 AND h.archived_at IS NULL AND sv.name = $2
          AND NOT EXISTS (
            SELECT 1
            FROM host_software hs2

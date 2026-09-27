@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 };
 
 // Agents, each with the hosts it collects underneath (DOMAIN_MODEL.md §4).
-// This is also the host list: /dashboard/hosts redirects here, and every
-// host is reachable through the agent(s) assigned to it.
+// The machine list is /dashboard/hosts; both pages open the same
+// enrollment dialog (Q15).
 export default async function AgentsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");

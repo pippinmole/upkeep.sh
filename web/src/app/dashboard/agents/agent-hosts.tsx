@@ -5,6 +5,8 @@ import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import type { AgentHostRow, AgentWithHosts } from "@/lib/queries";
 import { relativeTime } from "@/lib/time";
 
+import { DetachHostButton } from "./detach-host-button";
+
 const MODE_LABEL: Record<AgentHostRow["mode"], string> = {
   local: "Local",
   ssh: "SSH",
@@ -41,7 +43,10 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
             <th className="py-1.5 pr-4 font-medium">OS</th>
             <th className="py-1.5 pr-4 font-medium">Mode</th>
             <th className="py-1.5 pr-4 font-medium">Last collected</th>
-            <th className="py-1.5 font-medium">Open findings</th>
+            <th className="py-1.5 pr-4 font-medium">Open findings</th>
+            <th className="py-1.5 font-medium">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -70,6 +75,11 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
                     </Link>
                   )}
                   {!h.enabled && <Badge variant="outline">Disabled</Badge>}
+                  {h.archivedAt && (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      {h.mergedInto ? "Merged" : "Archived"}
+                    </Badge>
+                  )}
                 </div>
               </td>
               <td className="text-muted-foreground py-2 pr-4 whitespace-nowrap">{osLabel(h)}</td>
@@ -84,8 +94,15 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
               <td className="text-muted-foreground py-2 pr-4 whitespace-nowrap">
                 {h.lastCollectedAt ? relativeTime(h.lastCollectedAt) : "Not yet"}
               </td>
-              <td className="py-2">
+              <td className="py-2 pr-4">
                 <Findings host={h} />
+              </td>
+              <td className="py-2 text-right">
+                {/* Only an inactive agent's assignment can be detached; an
+                    active agent's next push would re-attach it. */}
+                {(agent.status === "revoked" || agent.status === "stale") && (
+                  <DetachHostButton agent={agent} host={h} />
+                )}
               </td>
             </tr>
           ))}

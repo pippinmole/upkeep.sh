@@ -72,7 +72,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Hosts" value={stats.hosts} href="/dashboard/agents">
+        <StatCard title="Hosts" value={stats.hosts} href="/dashboard/hosts">
           {stats.hosts === 0
             ? "Register an agent to get started"
             : stats.staleHosts > 0

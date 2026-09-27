@@ -117,11 +117,15 @@ export async function getRules(userId: string): Promise<RuleRow[]> {
   }));
 }
 
-export type ScopeHost = { id: string; hostname: string; label: string | null };
+export type ScopeHost = { id: string; hostname: string; label: string | null; archived: boolean };
 
+// Archived hosts never alert (store/alerting.go), so the rule dialog only
+// offers them when a rule already has them in scope; they're still listed
+// here so existing rules show their names.
 export async function getScopeHosts(userId: string): Promise<ScopeHost[]> {
   const { rows } = await pool.query<ScopeHost>(
-    `SELECT id, hostname, label FROM hosts WHERE user_id = $1 ORDER BY hostname, id`,
+    `SELECT id, hostname, label, archived_at IS NOT NULL AS archived
+     FROM hosts WHERE user_id = $1 ORDER BY hostname, id`,
     [userId],
   );
   return rows;

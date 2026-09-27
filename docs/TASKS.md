@@ -254,8 +254,8 @@ params, no new Go endpoints.
 - [ ] Encrypt channel secrets at rest (`notification_channels.secrets` is
       plaintext today; the worker needs the webhook secret to sign, so it
       would need a key shared by web + worker, e.g. `SW_SECRETS_KEY`).
-- [ ] Skip archived hosts in alerting once migration 0011 lands (TODO in
-      `store/alerting.go` `insertFindingEvents`).
+- [x] Archived hosts don't alert: no finding events for them, and they're
+      left out of agent events' `host_ids` / payload (`store/alerting.go`).
 - [ ] Alerting: per-user rate limit / circuit breaker for a channel that
       keeps failing (today each delivery retries independently for ~11 h).
 - [ ] Exposure events (e.g. `exposure.port_public`) once the scanner
@@ -286,11 +286,11 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       `schema_version: 1` (additive), so no v2 was needed. Ingest keeps
       `hosts.hostname` and the OS summary current from the newest
       snapshot.
-- [ ] Dashboard host management for the split: merge/split a flagged
-      duplicate (`hosts.duplicate_of`), revoke an agent
-      (`agents.revoked_at`; ingest already refuses revoked agents),
-      rotate its credential. (Pre-naming agents via
-      `enrollment_tokens.agent_name` in the Register dialog is done.)
+- [x] Dashboard host management for the split (migration 0011, `mgmt_*`
+      SQL functions + server actions): merge a flagged duplicate into its
+      original / "not a duplicate", revoke an agent, request a credential
+      rotation, rename / archive / delete a host, detach a host from an
+      inactive agent. Rules in DOMAIN_MODEL §4.3 "Management".
 - [ ] Agent/host reporting gaps: ~~`hosts.arch`~~ (done: agent `arch`
       collector → `os.arch`, `snapshots.arch`, `hosts.arch`);
       `hosts.os_build` is never written (only meaningful for the
@@ -301,8 +301,11 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       vuln pills, last seen) with their hosts as expandable sub-rows (OS,
       mode, last collected, findings, "Possible duplicate"), on the new
       shared `DataTable` (Q11). Optional agent name in the Register dialog.
-- [ ] A standalone **Hosts** list, if wanted (today `/dashboard/hosts`
-      redirects to Agents, where every host is listed under its agent(s)).
+- [x] Standalone **Hosts** list (`/dashboard/hosts`, DataTable: host /
+      label, OS, collecting agents, open findings + severity/KEV, last
+      seen, duplicate / archived / merged badges, State facet). Sidebar
+      has Hosts and Agents; "Add host" and "Register agent" share one
+      dialog (Q15).
 - [x] Linux collectors (file/procfs reads only, per-collector status,
       capped with a `truncated` flag): uptime, arch, UDP listeners,
       systemd services (unit files + `*.wants` + `/proc/*/cgroup`, no
@@ -337,18 +340,18 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       version comparison (once written), `/proc/net/tcp` parsing, and the
       ingest handler's auth path.
 - [ ] No CI pipeline (build/test/lint on push) configured.
-- [ ] No agent credential rotation endpoint — only initial enrollment.
-- [ ] No host management UI beyond "add" — can't rename, delete, or
-      revoke/rotate a host's credentials from the dashboard. (After the
-      Phase 1.5 split, credentials belong to agents: revoke/rotate lives
-      on the Agents page, rename/archive/merge on Hosts.)
+- [x] Agent credential rotation: `POST /v1/agent/rotate`, agent-initiated
+      on a push-response signal (dashboard request, 90-day age, or use of
+      the pre-rotation secret), 1h grace for the old secret, atomic
+      `credentials.json` (PROTOCOL.md §3).
+- [x] Host management UI: rename / archive / merge / delete on Hosts,
+      revoke / rotate on Agents.
 - [ ] `agent/docker-compose.example.yml` references
       `ghcr.io/icondesk/security-whatnot-agent:latest`, which doesn't
       exist yet — needs a build/publish pipeline before that snippet is
       actually usable end-to-end.
-- [ ] No expired-enrollment-token cleanup job (minor — they're just dead
-      rows, not a security issue since they're checked against
-      `expires_at`).
+- [x] Expired-enrollment-token cleanup: hourly River `credential_cleanup`
+      job in the worker (also clears expired post-rotation secrets).
 - [ ] `server/Dockerfile` runtime base (`alpine:3.20`) wasn't covered by
       the last version audit — check it.
 

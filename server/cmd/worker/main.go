@@ -1,11 +1,13 @@
 // Command worker runs upkeep.sh background jobs on River: the OSV
 // Debian/Ubuntu advisory sync (hourly incremental, weekly full), the CISA
 // KEV and FIRST EPSS syncs (daily), the vulnerability matcher and findings
-// reconciliation (see internal/jobs/matching.go), and alerting: rule
+// reconciliation (see internal/jobs/matching.go), alerting: rule
 // evaluation, digests, agent staleness and notification delivery (see
-// internal/jobs/alerting.go). Alerting env: SW_DASHBOARD_URL (links in
-// notifications), SW_ALERT_INTERVAL, SW_ALERT_JOB_WORKERS, and the dev-only
-// SW_NOTIFY_ALLOW_PRIVATE_NETWORKS (internal/netguard).
+// internal/jobs/alerting.go), and hourly credential cleanup (expired
+// enrollment tokens and post-rotation secrets). Alerting env:
+// SW_DASHBOARD_URL (links in notifications), SW_ALERT_INTERVAL,
+// SW_ALERT_JOB_WORKERS, and the dev-only SW_NOTIFY_ALLOW_PRIVATE_NETWORKS
+// (internal/netguard).
 //
 //	worker                         run the River client until SIGINT/SIGTERM
 //	worker sync osv Debian [-full] run one sync in the foreground and exit
@@ -157,8 +159,9 @@ func main() {
 			Notifiers:    notifiers.Registry(guard),
 			DashboardURL: os.Getenv("SW_DASHBOARD_URL"),
 		},
-		AlertInterval: envDuration("SW_ALERT_INTERVAL", time.Minute),
-		AlertWorkers:  envInt("SW_ALERT_JOB_WORKERS", 10),
+		AlertInterval:   envDuration("SW_ALERT_INTERVAL", time.Minute),
+		AlertWorkers:    envInt("SW_ALERT_JOB_WORKERS", 10),
+		CleanupInterval: envDuration("SW_CLEANUP_INTERVAL", jobs.DefaultCleanupInterval),
 	}
 	client, err := jobs.NewClient(db.Pool, db, syncer, jcfg)
 	if err != nil {

@@ -38,10 +38,22 @@ Before migration 0008 enrollment created a host and `agent_id` was its
 id, so existing `credentials.json` files keep working unchanged. `agent_secret` is generated with 32 bytes of `crypto/rand`
 (`server/internal/authn/secret.go`); only its SHA-256 hash is ever stored
 server-side. The agent persists both values to
-`SW_DATA_DIR/credentials.json` (mode `0600`) and re-enrolls only if that
-file is missing (`agent/cmd/agent/enroll.go`).
+`SW_DATA_DIR/credentials.json` (mode `0600`, written atomically: temp file,
+fsync, rename) and re-enrolls only if that file is missing
+(`agent/cmd/agent/enroll.go`, `credentials.go`). The secret can later be
+replaced by rotation (section 3).
 
 ## 2. Snapshot push
+
+Authentication: `X-Agent-ID` + `Authorization: Bearer <agent_secret>`,
+checked against the agent's current secret, or its previous one during a
+post-rotation grace window (section 3). Unknown agent, wrong secret or a
+revoked agent (`agents.revoked_at`, set by "Revoke" in the dashboard):
+`401`.
+
+A `202` may carry `X-Upkeep-Rotate-Credentials: 1`: the server asks the
+agent to rotate its credential now (section 3). Agents that predate
+rotation ignore the header.
 
 Repeats on `SW_INTERVAL` (default 15m).
 
@@ -421,6 +433,60 @@ itself** — it is later used to verify that an external port scan only
 ever targets an enrolled agent's own IP (not yet built), so trusting an
 unproxied value here would let anyone spoof their source IP.
 
+## 3. Credential rotation
+
+Agent-initiated; the server never pushes a secret or makes the agent run
+anything, it only asks through the push response header.
+
+```
+POST /v1/agent/rotate
+X-Agent-ID: <agent_id>
+Authorization: Bearer <agent_secret>
+```
+
+→ `200 OK`, same shape as enrollment:
+
+```
+{ "agent_id": "<uuid>", "agent_secret": "<new random>" }
+```
+
+`401` for a wrong or expired secret, an unknown agent, or a revoked agent.
+
+When the server asks (`X-Upkeep-Rotate-Credentials: 1` on a push):
+
+- the dashboard's "Rotate credentials" set
+  `agent_credentials.rotate_requested_at` (cleared by the rotation);
+- the secret is older than `SW_CREDENTIAL_MAX_AGE` (API env, default
+  `2160h` = 90 days, `0` disables): periodic rotation;
+- the push authenticated with the **previous** secret (the agent lost the
+  new one, see below).
+
+Server side (`ingest.Handler.Rotate`, `store.RotateAgentCredential`, row
+locked): if the caller used the current secret, it becomes the previous
+one, valid until `now + SW_CREDENTIAL_ROTATION_GRACE` (default `1h`); if
+the caller used the previous secret (still in its window), the previous
+secret and its original expiry are kept, so repeated rotations never
+extend it, and the lost secret is replaced. Only hashes are stored
+(`previous_secret_hash`, `previous_expires_at`). The first push
+authenticated with the new secret ends the window early
+(`ConfirmRotation`), so an old secret normally dies within one push
+interval. The worker's hourly `credential_cleanup` job clears expired
+previous hashes (and deletes expired enrollment tokens).
+
+Agent side (`agent/cmd/agent/credentials.go`): after a push cycle that
+got the header, call `/v1/agent/rotate`, write the new secret to
+`credentials.json` atomically, and only then use it. If writing fails,
+the new secret is discarded and the old one kept (disk and memory never
+disagree); the server keeps accepting the old one for the window and keeps
+asking, so the next cycle retries.
+
+Crash between receiving and persisting the new secret: the restarted agent
+pushes with the old secret, is accepted (grace window) and told to rotate
+again; it rotates with the old secret and persists the result. After the
+window the old secret is refused on every endpoint (`401`); the agent then
+needs a new enrollment, like a revoked one. Verified end to end with a
+real agent container (see the PR for the log).
+
 ## Types
 
 Canonical Go types live in `agent/internal/collector/types.go` (the
@@ -460,6 +526,4 @@ manually; a mismatch should only ever be an additive field.
   `TODO(phase 1)` in `handler.go`. Vulnerability matching and port-exposure evaluation
   are meant to be enqueued per snapshot once those workers exist, not run
   inline in the request handler.
-- No credential rotation endpoint yet (only initial enrollment).
-  Revocation is `agents.revoked_at`; no dashboard action sets it yet.
 - No agent self-update.

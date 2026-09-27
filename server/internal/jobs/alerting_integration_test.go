@@ -31,6 +31,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/feeds"
+	"github.com/pippinmole/upkeep.sh/server/internal/findings"
 	"github.com/pippinmole/upkeep.sh/server/internal/inventory"
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
@@ -549,6 +550,68 @@ func TestAgentHealthEvents(t *testing.T) {
 	check(now.Add(20 * time.Minute)) // stale, but nobody listens
 	if e := events(); len(e) != 2 {
 		t.Fatalf("event written without a rule: %v", e)
+	}
+}
+
+// Archived hosts (migration 0011) never alert: their finding transitions
+// write no events, and agent events leave them out of host_ids and the
+// payload, so a rule scoped to an archived host doesn't match.
+func TestArchivedHostsDontAlert(t *testing.T) {
+	f := newAlertFixture(t)
+	ctx := context.Background()
+	archived, err := f.s.CreateHost(ctx, f.userID, "archived-"+f.tag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`UPDATE hosts SET archived_at = now() WHERE id = $1`, archived)
+	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
+	f.rule("everything", ruleOpts{types: []string{notify.EventFindingResolved, notify.EventAgentStale}}, ch)
+
+	// An open finding on each host, and no inventory: reconcile resolves
+	// both, but only the active host's transition is written.
+	for _, h := range []string{f.hostID, archived} {
+		f.exec(`INSERT INTO findings (host_id, kind, dedup_key, vuln_key, source_package, status)
+		        VALUES ($1, $2, 'pkg:swlib:CVE-1902-1', 'CVE-1902-1', 'swlib', 'open')`, h, findings.KindVulnerablePackage)
+	}
+	for h, want := range map[string]int{f.hostID: 1, archived: 0} {
+		res, err := f.s.ReconcileHostFindings(ctx, h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Resolved != 1 || res.AlertEvents != want {
+			t.Fatalf("host %s: resolved %d, alert events %d, want 1, %d", h, res.Resolved, res.AlertEvents, want)
+		}
+		if n := f.count(`SELECT count(*) FROM alert_events WHERE $1::uuid = ANY (host_ids) AND type = $2`,
+			h, notify.EventFindingResolved); n != want {
+			t.Fatalf("host %s: %d finding events, want %d", h, n, want)
+		}
+	}
+
+	// An agent collecting both hosts goes stale.
+	now := time.Now().UTC().Truncate(time.Second)
+	var agentID string
+	if err := f.s.Pool.QueryRow(ctx, `
+		INSERT INTO agents (user_id, name, push_interval_seconds, last_seen_at) VALUES ($1, $2, 60, $3) RETURNING id
+	`, f.userID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`INSERT INTO agent_hosts (agent_id, host_id, mode, target_ref) VALUES ($1, $2, 'local', 'local'), ($1, $3, 'ssh', 'ssh:old')`,
+		agentID, f.hostID, archived)
+	for _, at := range []time.Time{now, now.Add(4 * time.Minute)} { // first observation, then stale
+		if _, err := f.s.CheckAgentHealth(ctx, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var hostIDs []string
+	var payload []byte
+	if err := f.s.Pool.QueryRow(ctx, `SELECT host_ids::text[], payload FROM alert_events WHERE subject = $1`,
+		"agent:"+agentID).Scan(&hostIDs, &payload); err != nil {
+		t.Fatal(err)
+	}
+	var ev notify.Event
+	_ = json.Unmarshal(payload, &ev)
+	if len(hostIDs) != 1 || hostIDs[0] != f.hostID || ev.Agent == nil || len(ev.Agent.Hosts) != 1 || ev.Agent.Hosts[0].ID != f.hostID {
+		t.Fatalf("agent event: hosts %v payload %s", hostIDs, payload)
 	}
 }
 

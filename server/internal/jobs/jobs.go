@@ -9,6 +9,7 @@
 //   - "findings": reconcile_host, findings_rerank.
 //   - "alerts":   alert_evaluate, alert_digest, alert_deliver, agent_health,
 //     alert_prune (see alerting.go).
+//   - "maintenance": credential_cleanup (maintenance.go).
 package jobs
 
 import (
@@ -177,6 +178,11 @@ type Config struct {
 	// AlertWorkers is the alerts queue's concurrency (deliveries are
 	// network-bound; default 10).
 	AlertWorkers int
+
+	// CleanupInterval is the credential_cleanup cadence (default 1h).
+	CleanupInterval time.Duration
+	// DisableMaintenanceSchedule turns credential_cleanup off (tests).
+	DisableMaintenanceSchedule bool
 }
 
 // NewClient builds a River client that works the feeds and matcher queues
@@ -193,6 +199,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	river.AddWorker(workers, &MatcherSweepWorker{Store: st})
 	river.AddWorker(workers, &ReconcileHostWorker{Store: st})
 	river.AddWorker(workers, &FindingsRerankWorker{Store: st})
+	river.AddWorker(workers, &CredentialCleanupWorker{Store: st})
 
 	acfg := cfg.Alerting
 	if acfg.Notifiers == nil {
@@ -243,6 +250,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 				&river.PeriodicJobOpts{ID: "alert_prune", RunOnStart: true}),
 		)
 	}
+	periodic = append(periodic, maintenanceJobs(cfg)...)
 	if cfg.PeriodicSyncs {
 		for _, eco := range cfg.OSVEcosystems {
 			periodic = append(periodic, river.NewPeriodicJob(
@@ -263,10 +271,11 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
-			QueueFeeds:    {MaxWorkers: max(1, cfg.FeedWorkers)},
-			QueueMatcher:  {MaxWorkers: 1}, // writes are serialized by an advisory lock anyway
-			QueueFindings: {MaxWorkers: max(1, cfg.FindingsWorkers)},
-			QueueAlerts:   {MaxWorkers: cmp.Or(cfg.AlertWorkers, 10)},
+			QueueFeeds:       {MaxWorkers: max(1, cfg.FeedWorkers)},
+			QueueMatcher:     {MaxWorkers: 1}, // writes are serialized by an advisory lock anyway
+			QueueFindings:    {MaxWorkers: max(1, cfg.FindingsWorkers)},
+			QueueAlerts:      {MaxWorkers: cmp.Or(cfg.AlertWorkers, 10)},
+			QueueMaintenance: {MaxWorkers: 1},
 		},
 		Workers:              workers,
 		PeriodicJobs:         periodic,
