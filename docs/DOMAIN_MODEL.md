@@ -1062,8 +1062,9 @@ functions, cross-tenant cases included.
   list (State facet), the overview and the fleet vulnerability/package
   views (`h.archived_at IS NULL` in every fleet query). Snapshots,
   inventory and findings are kept as they are: findings are not resolved
-  (they weren't fixed), they are just out of fleet views, and **alerting
-  should skip archived hosts** (for the alerting worker). Pushes from an
+  (they weren't fixed), they are just out of fleet views, and archived
+  hosts don't alert (no finding events; left out of agent events'
+  `host_ids`, `store/alerting.go`). Pushes from an
   agent that still collects an archived host are recorded but don't
   unarchive it (revoke the agent to stop them); a *new* agent that
   re-attaches to it by identity does unarchive it. The per-host pages stay
