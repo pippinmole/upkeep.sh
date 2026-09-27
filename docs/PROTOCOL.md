@@ -427,7 +427,8 @@ Local targets only: on remote (SSH) targets every Docker collector is
   "engine": { "version": "29.8.0", "api_version": "1.56",
               "storage_driver": "overlayfs", "image_store": "containerd",
               "rootless": false },
-  "swarm": { "node_id": "…", "cluster_id": "…", "role": "manager" },
+  "swarm": { "state": "active", "node_id": "…", "cluster_id": "…",
+             "role": "manager" },
   "containers": [
     { "id": "8e89…", "name": "myapp-db-1", "image": "postgres:18",
       "image_id": "sha256:…", "state": "running",
@@ -456,6 +457,7 @@ Local targets only: on remote (SSH) targets every Docker collector is
   "swarm_services": [
     { "id": "…", "name": "web_api", "image": "ghcr.io/me/api:1@sha256:…",
       "mode": "replicated", "replicas": 2,
+      "running_tasks": 2, "desired_tasks": 2,
       "labels": { "com.docker.stack.namespace": "web" },
       "ports": [ { "published": 443, "target": 8443, "proto": "tcp",
                    "publish_mode": "ingress" } ] }
@@ -480,12 +482,34 @@ Local targets only: on remote (SSH) targets every Docker collector is
   not mounted"` (all five; nothing at `SW_DOCKER_SOCKET`), and when
   something is there but unusable (refused, permission, API older than
   1.41) `docker_engine` is `error` and the other four are skipped `"docker
-  engine unavailable"`. `swarm_services` is skipped `"not in a swarm"` or
-  `"not a swarm manager"`. A Docker collector missing from `collectors`
-  means that agent build doesn't have it: not authoritative.
+  engine unavailable"`. `swarm_services` is skipped `"not in a swarm"`,
+  `"not a swarm manager"` or `"swarm locked"` (also when the node's role
+  changes between `/info` and the service list). A Docker collector
+  missing from `collectors` means that agent build doesn't have it: not
+  authoritative.
 - `engine.api_version` is the engine's highest supported API version
-  (`/version`), not the one the agent negotiated. `swarm` is sent only
-  for active Swarm members.
+  (`/version`), not the one the agent negotiated. `swarm` is sent for
+  active Swarm members (`state: "active"`, with `node_id` and `role`)
+  and for locked (autolock) managers as `{"state": "locked"}`: while
+  locked the engine reports no role or cluster and usually no node id.
+  Pending / error nodes send no `swarm` block.
+- `swarm_services[].running_tasks` / `desired_tasks` are current values
+  from the service status (absent when the engine doesn't return it,
+  e.g. older APIs / Podman), stored as current state, not history.
+  `ports` are the allocator-assigned endpoint ports, falling back to the
+  spec's before allocation; `published` is absent when none is assigned
+  yet or for a host-mode port without a fixed one. `image` is empty for
+  plugin services. **Gap:** job services (`replicated-job` /
+  `global-job`) send no `replicas` and no target (completions /
+  concurrency); revisit with the Swarm cluster view.
+- Containers: `ports` is what is published now (the live port map):
+  stopped containers have none, exposed-only ports have no `host_ip` /
+  `host_port`, identical entries appear once (0.0.0.0 and :: stay
+  separate). `image` is the configured reference (`Config.Image`).
+  `started_at` / image `created` are RFC3339 UTC; the engine's zero time
+  is omitted, 1970-01-01 is a real value. A container or image removed
+  during collection is simply absent; any other inspect failure makes
+  the collector `error`, never a partial `ok`.
 - `mounts[].source` is set only for `type: "bind"`, where it is a host
   path, so the dashboard can flag e.g. the Docker socket or `/`
   bind-mounted into a container.
@@ -493,8 +517,8 @@ Local targets only: on remote (SSH) targets every Docker collector is
   `storage_driver` is the snapshotter, e.g. `overlayfs`) or
   `"graphdriver"` (classic store; e.g. `overlay2`). `swarm.cluster_id` is
   absent on workers (the engine doesn't tell them), so the server takes
-  it from a manager's push. `swarm_services[].replicas` is absent for
-  global services. Caps: 2000 containers / images, 500 networks, 1000
+  it from a manager's push. `swarm_services[].replicas` is sent only for
+  `replicated` services (0 = scaled to zero). Caps: 2000 containers / images, 500 networks, 1000
   Swarm services, plus per-item caps (ports, mounts, layers…); hitting
   any of them, top-level or per-item, flags that collector `truncated`.
 - `image` is the reference as configured (a tag can move); `image_id` is

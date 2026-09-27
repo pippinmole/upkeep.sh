@@ -106,11 +106,20 @@ type DockerEngine struct {
 
 // DockerSwarm is this node's Swarm membership (Info.Swarm). The server
 // joins nodes' task containers to managers' services by ClusterID /
-// NodeID.
+// NodeID. Sent only for an active or locked node.
 type DockerSwarm struct {
-	NodeID    string `json:"node_id"`
+	// State is "active" or "locked". A locked node is a Swarm member whose
+	// engine was restarted with autolock on and is waiting for
+	// "docker swarm unlock": autolock only applies to managers, so it is in
+	// practice a manager that can't act as one until unlocked. While
+	// locked the Swarm node isn't running, so the engine reports no role
+	// or cluster id (both absent) and, on current engines, no node id
+	// (sent only if the engine gives one): the block then says only "this
+	// node is in a Swarm, and locked".
+	State     string `json:"state"`
+	NodeID    string `json:"node_id,omitempty"`    // always set when active
 	ClusterID string `json:"cluster_id,omitempty"` // only managers are told the cluster id
-	Role      string `json:"role"`                 // "manager" | "worker"
+	Role      string `json:"role,omitempty"`       // "manager" | "worker"; always set when active
 }
 
 // DockerContainer is one container, running or not (list all=true, plus
@@ -198,11 +207,24 @@ type SwarmService struct {
 	Image string `json:"image"` // "ghcr.io/me/api:1@sha256:…" as in the spec
 	// Mode is "replicated", "global", "replicated-job" or "global-job".
 	Mode string `json:"mode"`
-	// Replicas is the desired count for replicated services (0 = scaled to
-	// zero); omitted for global modes, where it doesn't apply.
-	Replicas *int              `json:"replicas,omitempty"`
-	Labels   map[string]string `json:"labels,omitempty"` // FilterDockerLabels
-	Ports    []SwarmPort       `json:"ports,omitempty"`  // capped at MaxSwarmPortsPerService
+	// Replicas is the configured replica count, sent only for mode
+	// "replicated" (0 = scaled to zero). It is omitted for "global" (one
+	// task per eligible node) and for both job modes: a job's target
+	// (TotalCompletions / MaxConcurrent) is not sent at all.
+	Replicas *int `json:"replicas,omitempty"`
+	// RunningTasks / DesiredTasks are the engine's current task counts
+	// (ServiceStatus): tasks in the running state, and tasks the
+	// orchestrator wants running (the replica count for replicated
+	// services, the eligible node count for global ones). They are the
+	// current state and change as tasks restart or reschedule; the server
+	// stores them as current values, not history. Both are absent when the
+	// engine returns no ServiceStatus (it is only sent on request, since
+	// API 1.41, so an engine that ignores the request), and present,
+	// including 0, otherwise.
+	RunningTasks *int              `json:"running_tasks,omitempty"`
+	DesiredTasks *int              `json:"desired_tasks,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"` // FilterDockerLabels
+	Ports        []SwarmPort       `json:"ports,omitempty"`  // capped at MaxSwarmPortsPerService
 }
 
 // SwarmPort is one port a service publishes (Endpoint.Ports).

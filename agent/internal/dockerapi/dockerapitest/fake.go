@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/network"
@@ -18,7 +19,8 @@ import (
 
 // Fake answers every call from its fields. A call returns its *Err field
 // when set, else the canned value. Inspect calls look the id up in the
-// map and return a not-found error when it's missing.
+// map and return a not-found error (dockerapi.IsNotFound, like the
+// engine's 404) when it's missing.
 type Fake struct {
 	PingResult client.PingResult
 	PingErr    error
@@ -73,7 +75,7 @@ func (f *Fake) ContainerInspect(_ context.Context, id string) (container.Inspect
 	}
 	r, ok := f.ContainerInspects[id]
 	if !ok {
-		return r, fmt.Errorf("no such container: %s", id)
+		return r, fmt.Errorf("no such container: %s: %w", id, cerrdefs.ErrNotFound)
 	}
 	return r, nil
 }
@@ -86,7 +88,7 @@ func (f *Fake) ImageInspect(_ context.Context, id string) (image.InspectResponse
 	}
 	r, ok := f.ImageInspects[id]
 	if !ok {
-		return r, fmt.Errorf("no such image: %s", id)
+		return r, fmt.Errorf("no such image: %s: %w", id, cerrdefs.ErrNotFound)
 	}
 	return r, nil
 }

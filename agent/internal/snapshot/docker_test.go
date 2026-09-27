@@ -164,13 +164,16 @@ func TestDockerEngineOK(t *testing.T) {
 		name      string
 		swarm     swarm.Info
 		wantSwarm *collector.DockerSwarm
-		// wantServices is swarm_services' status; nil means absent (the
-		// manager-side collector isn't built yet).
+		// wantServices is swarm_services' status; nil means absent.
 		wantServices *collector.CollectorStatus
 	}{
 		{"not in swarm", swarm.Info{LocalNodeState: swarm.LocalNodeStateInactive}, nil, ptr(collector.Skipped("not in a swarm"))},
-		{"worker", worker, &collector.DockerSwarm{NodeID: "n2", Role: "worker"}, ptr(collector.Skipped("not a swarm manager"))},
-		{"manager", manager, &collector.DockerSwarm{NodeID: "n1", ClusterID: "c1", Role: "manager"}, nil},
+		{"worker", worker, &collector.DockerSwarm{State: "active", NodeID: "n2", Role: "worker"}, ptr(collector.Skipped("not a swarm manager"))},
+		// Locked (autolock): in a Swarm, but no role and no service list
+		// until unlocked.
+		{"locked", swarm.Info{LocalNodeState: swarm.LocalNodeStateLocked}, &collector.DockerSwarm{State: "locked"}, ptr(collector.Skipped("swarm locked"))},
+		// A manager with no services: ok, and no swarm_services section.
+		{"manager", manager, &collector.DockerSwarm{State: "active", NodeID: "n1", ClusterID: "c1", Role: "manager"}, ptr(collector.OK())},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,7 +181,14 @@ func TestDockerEngineOK(t *testing.T) {
 			c, _ := dockerCollector(fake, nil)
 			snap := c.Collect(context.Background(), ubuntu())
 
-			want := map[string]collector.CollectorStatus{collector.CollectorDockerEngine: collector.OK()}
+			// An engine with no containers, images or networks: those
+			// collectors are ok with nothing to report.
+			want := map[string]collector.CollectorStatus{
+				collector.CollectorDockerEngine:     collector.OK(),
+				collector.CollectorDockerContainers: collector.OK(),
+				collector.CollectorDockerImages:     collector.OK(),
+				collector.CollectorDockerNetworks:   collector.OK(),
+			}
 			if tt.wantServices != nil {
 				want[collector.CollectorSwarmServices] = *tt.wantServices
 			}
@@ -214,11 +224,95 @@ func TestDockerEngineCollectFails(t *testing.T) {
 	if st := snap.Collectors[collector.CollectorSwarmServices]; st != collector.Skipped("docker engine unavailable") {
 		t.Errorf("swarm_services = %+v", st)
 	}
+	// The inventory collectors don't need /version or /info: they still
+	// run (here with nothing to report).
+	for _, name := range []string{collector.CollectorDockerContainers, collector.CollectorDockerImages, collector.CollectorDockerNetworks} {
+		if st := snap.Collectors[name]; st != collector.OK() {
+			t.Errorf("%s = %+v, want ok", name, st)
+		}
+	}
 	if snap.Docker != nil {
 		t.Errorf("docker = %+v, want nil", snap.Docker)
 	}
 	if !fake.Closed {
 		t.Error("docker client not closed")
+	}
+}
+
+// On a manager, swarm_services lists the services; a demotion (or leaving
+// the Swarm) between /info and the list is a skip with the node's actual
+// state, anything else an error.
+func TestDockerSwarmServices(t *testing.T) {
+	manager := swarm.Info{NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
+		Cluster: &swarm.ClusterInfo{ID: "c1"}}
+	three := uint64(3)
+	svc := swarm.Service{
+		ID: "s1",
+		Spec: swarm.ServiceSpec{
+			Annotations: swarm.Annotations{Name: "web_api", Labels: map[string]string{
+				"com.docker.stack.namespace": "web", "traefik.http.middlewares.a.basicauth.users": "admin:hash",
+			}},
+			TaskTemplate: swarm.TaskSpec{ContainerSpec: &swarm.ContainerSpec{Image: "api:1", Env: []string{"TOKEN=hunter2"}}},
+			Mode:         swarm.ServiceMode{Replicated: &swarm.ReplicatedService{Replicas: &three}},
+		},
+		Endpoint: swarm.Endpoint{Ports: []swarm.PortConfig{
+			{Protocol: "tcp", TargetPort: 8443, PublishedPort: 443, PublishMode: swarm.PortConfigPublishModeIngress},
+		}},
+		ServiceStatus: &swarm.ServiceStatus{RunningTasks: 2, DesiredTasks: 3},
+	}
+	many := make([]swarm.Service, collector.MaxSwarmServices+1)
+	for i := range many {
+		many[i].ID = fmt.Sprintf("s%05d", i)
+	}
+	tests := []struct {
+		name     string
+		services []swarm.Service
+		err      error
+		want     collector.CollectorStatus
+		wantLen  int
+	}{
+		{"services", []swarm.Service{svc}, nil, collector.OK(), 1},
+		{"truncated", many, nil, collector.OKTruncated(true), collector.MaxSwarmServices},
+		{"demoted", nil, errors.New("Error response from daemon: This node is not a swarm manager. Worker nodes can't be used to view or modify cluster state."), collector.Skipped("not a swarm manager"), 0},
+		{"left swarm", nil, errors.New("Error response from daemon: This node is not part of a swarm"), collector.Skipped("not in a swarm"), 0},
+		{"locked since info", nil, errors.New("Error response from daemon: Swarm is encrypted and needs to be unlocked before it can be used."), collector.Skipped("swarm locked"), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := engineFake(manager)
+			fake.Services, fake.ServicesErr = tt.services, tt.err
+			c, _ := dockerCollector(fake, nil)
+			snap := c.Collect(context.Background(), ubuntu())
+			if st := snap.Collectors[collector.CollectorSwarmServices]; st != tt.want {
+				t.Errorf("swarm_services = %+v, want %+v", st, tt.want)
+			}
+			if snap.Docker == nil || len(snap.Docker.SwarmServices) != tt.wantLen {
+				t.Fatalf("docker = %+v, want %d services", snap.Docker, tt.wantLen)
+			}
+		})
+	}
+
+	fake := engineFake(manager)
+	fake.Services = []swarm.Service{svc}
+	c, _ := dockerCollector(fake, nil)
+	b, _ := json.Marshal(c.Collect(context.Background(), ubuntu()))
+	if !strings.Contains(string(b), `"swarm_services":[{"id":"s1","name":"web_api","image":"api:1","mode":"replicated","replicas":3,"running_tasks":2,"desired_tasks":3,"labels":{"com.docker.stack.namespace":"web"},"ports":[{"published":443,"target":8443,"proto":"tcp","publish_mode":"ingress"}]}]`) {
+		t.Errorf("payload swarm_services: %s", b)
+	}
+	if strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "traefik") {
+		t.Errorf("payload leaks the service spec: %s", b)
+	}
+
+	// Any other failure (here a manager without quorum) is an error.
+	fake = engineFake(manager)
+	fake.ServicesErr = errors.New("rpc error: code = Unknown desc = The swarm does not have a leader.")
+	c, _ = dockerCollector(fake, nil)
+	snap := c.Collect(context.Background(), ubuntu())
+	if st := snap.Collectors[collector.CollectorSwarmServices]; st.Status != collector.StatusError || !strings.Contains(st.Error, "does not have a leader") {
+		t.Errorf("swarm_services = %+v, want error", st)
+	}
+	if snap.Docker == nil || snap.Docker.SwarmServices != nil {
+		t.Errorf("docker = %+v, want no swarm_services", snap.Docker)
 	}
 }
 

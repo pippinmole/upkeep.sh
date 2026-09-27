@@ -53,7 +53,7 @@ func TestCollectDockerEngine(t *testing.T) {
 				},
 			},
 			wantEng:   DockerEngine{Version: "29.8.0", APIVersion: "1.56", StorageDriver: "overlayfs", ImageStore: "containerd"},
-			wantSwarm: &DockerSwarm{NodeID: "node1", ClusterID: "cluster1", Role: SwarmRoleManager},
+			wantSwarm: &DockerSwarm{State: "active", NodeID: "node1", ClusterID: "cluster1", Role: SwarmRoleManager},
 		},
 		{
 			name:    "rootless swarm worker",
@@ -64,15 +64,41 @@ func TestCollectDockerEngine(t *testing.T) {
 				Swarm:           swarm.Info{NodeID: "node2", LocalNodeState: swarm.LocalNodeStateActive},
 			},
 			wantEng:   DockerEngine{Version: "28.0.0", APIVersion: "1.48", StorageDriver: "overlay2", ImageStore: "graphdriver", Rootless: true},
-			wantSwarm: &DockerSwarm{NodeID: "node2", Role: SwarmRoleWorker},
+			wantSwarm: &DockerSwarm{State: "active", NodeID: "node2", Role: SwarmRoleWorker},
 		},
 		{
-			// A locked (autolock) manager has no usable membership.
+			// A locked (autolock) manager as the engine reports it: its
+			// Swarm node isn't running, so no node id, role or cluster.
+			// Reported as locked, with no role (not "worker").
 			name:    "locked swarm",
 			version: dockerVersion("28.0.0", "1.48"),
 			info: system.Info{
 				Driver: "overlay2",
+				Swarm: swarm.Info{LocalNodeState: swarm.LocalNodeStateLocked, NodeAddr: "10.0.0.5",
+					Error: "Swarm is encrypted and needs to be unlocked before it can be used."},
+			},
+			wantEng:   DockerEngine{Version: "28.0.0", APIVersion: "1.48", StorageDriver: "overlay2", ImageStore: "graphdriver"},
+			wantSwarm: &DockerSwarm{State: "locked"},
+		},
+		{
+			// If an engine does report the node id while locked, it's kept;
+			// a role still isn't guessed.
+			name:    "locked swarm with node id",
+			version: dockerVersion("28.0.0", "1.48"),
+			info: system.Info{
+				Driver: "overlay2",
 				Swarm:  swarm.Info{NodeID: "node3", LocalNodeState: swarm.LocalNodeStateLocked, ControlAvailable: true},
+			},
+			wantEng:   DockerEngine{Version: "28.0.0", APIVersion: "1.48", StorageDriver: "overlay2", ImageStore: "graphdriver"},
+			wantSwarm: &DockerSwarm{State: "locked", NodeID: "node3"},
+		},
+		{
+			// Pending (joining) and error states have no membership.
+			name:    "pending swarm",
+			version: dockerVersion("28.0.0", "1.48"),
+			info: system.Info{
+				Driver: "overlay2",
+				Swarm:  swarm.Info{NodeID: "node4", LocalNodeState: swarm.LocalNodeStatePending},
 			},
 			wantEng: DockerEngine{Version: "28.0.0", APIVersion: "1.48", StorageDriver: "overlay2", ImageStore: "graphdriver"},
 		},

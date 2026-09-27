@@ -28,6 +28,9 @@ const (
 	// on Swarm managers.
 	ReasonNotInSwarm      = "not in a swarm"
 	ReasonNotSwarmManager = "not a swarm manager"
+	// ReasonSwarmLocked: the node's Swarm is locked (autolock, waiting for
+	// "docker swarm unlock"), so it can't list services until unlocked.
+	ReasonSwarmLocked = "swarm locked"
 )
 
 const (
@@ -106,11 +109,33 @@ func (c *Collector) collectDocker(ctx context.Context, t target.Target, isLinux 
 	// setting its own member of docker and its own status from cl (with
 	// collector.DockerCallTimeout per call). They run even if
 	// docker_engine failed: the engine answered Open's ping, and their
-	// calls don't depend on /version or /info.
-	//
-	// Not built yet, so absent from the status map (like a collector an
-	// older agent doesn't have): docker_containers, docker_images,
-	// docker_networks.
+	// calls don't depend on /version or /info. An ok collector with
+	// nothing to report leaves its member nil (omitted), like everywhere
+	// in the snapshot.
+	if containers, truncated, err := collector.CollectDockerContainers(ctx, cl); err != nil {
+		status[collector.CollectorDockerContainers] = collector.Failed(err)
+	} else {
+		if len(containers) > 0 {
+			docker.Containers = containers
+		}
+		status[collector.CollectorDockerContainers] = collector.OKTruncated(truncated)
+	}
+	if images, truncated, err := collector.CollectDockerImages(ctx, cl); err != nil {
+		status[collector.CollectorDockerImages] = collector.Failed(err)
+	} else {
+		if len(images) > 0 {
+			docker.Images = images
+		}
+		status[collector.CollectorDockerImages] = collector.OKTruncated(truncated)
+	}
+	if networks, truncated, err := collector.CollectDockerNetworks(ctx, cl); err != nil {
+		status[collector.CollectorDockerNetworks] = collector.Failed(err)
+	} else {
+		if len(networks) > 0 {
+			docker.Networks = networks
+		}
+		status[collector.CollectorDockerNetworks] = collector.OKTruncated(truncated)
+	}
 
 	// swarm_services needs the node's Swarm role from docker_engine.
 	switch {
@@ -118,11 +143,29 @@ func (c *Collector) collectDocker(ctx context.Context, t target.Target, isLinux 
 		status[collector.CollectorSwarmServices] = collector.Skipped(ReasonDockerEngineUnavailable)
 	case sw == nil:
 		status[collector.CollectorSwarmServices] = collector.Skipped(ReasonNotInSwarm)
+	case sw.State == collector.SwarmStateLocked:
+		status[collector.CollectorSwarmServices] = collector.Skipped(ReasonSwarmLocked)
 	case sw.Role != collector.SwarmRoleManager:
 		status[collector.CollectorSwarmServices] = collector.Skipped(ReasonNotSwarmManager)
 	default:
-		// Manager: the swarm_services collector plugs in here. Not built
-		// yet, so absent from the status map.
+		services, truncated, err := collector.CollectSwarmServices(ctx, cl)
+		switch {
+		// Demoted, or left the Swarm, since /info: the node's state, not a
+		// failure (see collector.ErrNotSwarmManager).
+		case errors.Is(err, collector.ErrNotSwarmManager):
+			status[collector.CollectorSwarmServices] = collector.Skipped(ReasonNotSwarmManager)
+		case errors.Is(err, collector.ErrNotInSwarm):
+			status[collector.CollectorSwarmServices] = collector.Skipped(ReasonNotInSwarm)
+		case errors.Is(err, collector.ErrSwarmLocked):
+			status[collector.CollectorSwarmServices] = collector.Skipped(ReasonSwarmLocked)
+		case err != nil:
+			status[collector.CollectorSwarmServices] = collector.Failed(err)
+		default:
+			if len(services) > 0 {
+				docker.SwarmServices = services
+			}
+			status[collector.CollectorSwarmServices] = collector.OKTruncated(truncated)
+		}
 	}
 
 	if docker.Engine == nil && docker.Swarm == nil && docker.Containers == nil &&

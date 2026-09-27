@@ -23,6 +23,12 @@ const (
 	SwarmRoleWorker  = "worker"
 )
 
+// Swarm node states (DockerSwarm.State).
+const (
+	SwarmStateActive = "active"
+	SwarmStateLocked = "locked"
+)
+
 // containerdSnapshotterType is the "driver-type" DriverStatus value an
 // engine using the containerd image store reports.
 const containerdSnapshotterType = "io.containerd.snapshotter.v1"
@@ -102,16 +108,29 @@ func dockerImageStore(ver client.ServerVersionResult, info system.Info) string {
 	return ""
 }
 
-// dockerSwarm maps Info.Swarm. Only an active node is reported: inactive
-// (not in a Swarm), pending (joining), locked (autolock, waiting for the
-// unlock key) and error states have no usable membership, and a locked
-// manager can't answer service lists either. An empty state (engines
-// without Swarm, e.g. Podman) is not active either.
+// dockerSwarm maps Info.Swarm. Active and locked nodes are reported;
+// inactive (not in a Swarm), pending (joining) and error states have no
+// usable membership, and an empty state (engines without Swarm, e.g.
+// Podman) is not a membership either.
+//
+// A locked node (autolock, waiting for the unlock key after an engine
+// restart) is in a Swarm but its Swarm node isn't running, so the engine
+// reports ControlAvailable false and no cluster whatever the node's real
+// role, and on current engines no node id. It is sent as State "locked"
+// with no role (false would read as "worker", and autolock only applies
+// to managers), and the node id only if the engine gave one.
 func dockerSwarm(s swarm.Info) *DockerSwarm {
-	if s.LocalNodeState != swarm.LocalNodeStateActive || s.NodeID == "" {
+	switch s.LocalNodeState {
+	case swarm.LocalNodeStateLocked:
+		return &DockerSwarm{State: SwarmStateLocked, NodeID: s.NodeID}
+	case swarm.LocalNodeStateActive:
+	default:
 		return nil
 	}
-	out := &DockerSwarm{NodeID: s.NodeID, Role: SwarmRoleWorker}
+	if s.NodeID == "" {
+		return nil
+	}
+	out := &DockerSwarm{State: SwarmStateActive, NodeID: s.NodeID, Role: SwarmRoleWorker}
 	if s.ControlAvailable {
 		out.Role = SwarmRoleManager
 	}

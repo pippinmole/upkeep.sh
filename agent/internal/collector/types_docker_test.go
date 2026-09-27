@@ -89,11 +89,11 @@ func TestFilterDockerLabelsCap(t *testing.T) {
 // TestDockerJSON pins the docker block's wire names to the PROTOCOL.md
 // sketch: a fully populated block serializes to exactly these keys.
 func TestDockerJSON(t *testing.T) {
-	two := 2
+	one, two := 1, 2
 	d := &Docker{
 		Engine: &DockerEngine{Version: "29.8.0", APIVersion: "1.56",
 			StorageDriver: "overlayfs", ImageStore: "containerd", Rootless: false},
-		Swarm: &DockerSwarm{NodeID: "n1", ClusterID: "c1", Role: "manager"},
+		Swarm: &DockerSwarm{State: "active", NodeID: "n1", ClusterID: "c1", Role: "manager"},
 		Containers: []DockerContainer{{
 			ID: "8e89", Name: "myapp-db-1", Image: "postgres:18", ImageID: "sha256:aa",
 			State: "running", StartedAt: "2026-09-27T10:00:00Z",
@@ -118,7 +118,7 @@ func TestDockerJSON(t *testing.T) {
 			Scope: "local", Internal: false, Subnets: []string{"172.18.0.0/16"}}},
 		SwarmServices: []SwarmService{{
 			ID: "s", Name: "web_api", Image: "ghcr.io/me/api:1@sha256:dd",
-			Mode: "replicated", Replicas: &two,
+			Mode: "replicated", Replicas: &two, RunningTasks: &one, DesiredTasks: &two,
 			Labels: map[string]string{"com.docker.stack.namespace": "web"},
 			Ports: []SwarmPort{{Published: 443, Target: 8443, Proto: "tcp",
 				PublishMode: "ingress"}},
@@ -130,7 +130,7 @@ func TestDockerJSON(t *testing.T) {
 	}
 	const want = `{` +
 		`"engine":{"version":"29.8.0","api_version":"1.56","storage_driver":"overlayfs","image_store":"containerd","rootless":false},` +
-		`"swarm":{"node_id":"n1","cluster_id":"c1","role":"manager"},` +
+		`"swarm":{"state":"active","node_id":"n1","cluster_id":"c1","role":"manager"},` +
 		`"containers":[{"id":"8e89","name":"myapp-db-1","image":"postgres:18","image_id":"sha256:aa","state":"running",` +
 		`"started_at":"2026-09-27T10:00:00Z","labels":{"com.docker.compose.project":"myapp"},` +
 		`"ports":[{"host_ip":"0.0.0.0","host_port":5432,"container_port":5432,"proto":"tcp"}],` +
@@ -141,7 +141,7 @@ func TestDockerJSON(t *testing.T) {
 		`"created":"2026-09-01T00:00:00Z","os":"linux","arch":"amd64","layers":["sha256:cc"],` +
 		`"labels":{"org.opencontainers.image.version":"18.0"}}],` +
 		`"networks":[{"id":"n","name":"myapp_default","driver":"bridge","scope":"local","internal":false,"subnets":["172.18.0.0/16"]}],` +
-		`"swarm_services":[{"id":"s","name":"web_api","image":"ghcr.io/me/api:1@sha256:dd","mode":"replicated","replicas":2,` +
+		`"swarm_services":[{"id":"s","name":"web_api","image":"ghcr.io/me/api:1@sha256:dd","mode":"replicated","replicas":2,"running_tasks":1,"desired_tasks":2,` +
 		`"labels":{"com.docker.stack.namespace":"web"},` +
 		`"ports":[{"published":443,"target":8443,"proto":"tcp","publish_mode":"ingress"}]}]` +
 		`}`
@@ -172,6 +172,8 @@ func TestDockerJSONOmissions(t *testing.T) {
 		"no docker":        {Snapshot{}, ""}, // checked below: no "docker" key
 		"scaled to zero":   {SwarmService{Replicas: &zero}, `{"id":"","name":"","image":"","mode":"","replicas":0}`},
 		"global service":   {SwarmService{Mode: "global"}, `{"id":"","name":"","image":"","mode":"global"}`},
+		"no running tasks": {SwarmService{RunningTasks: &zero, DesiredTasks: &zero}, `{"id":"","name":"","image":"","mode":"","running_tasks":0,"desired_tasks":0}`},
+		"locked swarm":     {DockerSwarm{State: "locked"}, `{"state":"locked"}`},
 		"unpublished port": {DockerPort{ContainerPort: 80, Proto: "tcp"}, `{"container_port":80,"proto":"tcp"}`},
 	} {
 		got, err := json.Marshal(tc.v)

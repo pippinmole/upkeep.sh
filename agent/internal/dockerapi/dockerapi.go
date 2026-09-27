@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/network"
@@ -52,6 +53,11 @@ const MinAPIVersion = "1.41"
 // (connection refused, permission denied, timeouts, too old an engine) is
 // an error.
 var ErrSocketNotMounted = errors.New("docker socket not mounted")
+
+// IsNotFound reports whether err is the engine's 404 for an object that
+// doesn't exist (any more): a container or image removed between a list
+// and the inspect that follows it.
+func IsNotFound(err error) bool { return cerrdefs.IsNotFound(err) }
 
 // Client is the complete set of Engine API calls the agent makes. Every
 // method is a read. List methods return every item (containers include
