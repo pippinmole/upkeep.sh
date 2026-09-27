@@ -54,6 +54,9 @@ export interface DataTableProps<TData extends object> {
   searchPlaceholder?: string;
   facets?: DataTableFacet[];
   initialSorting?: SortingState;
+  // Client mode only: column filters applied on first render (e.g. a
+  // facet that hides archived rows by default).
+  initialColumnFilters?: ColumnFiltersState;
   initialVisibility?: ColumnVisibilityState;
   pageSize?: number;
   emptyMessage?: ReactNode;
@@ -68,7 +71,9 @@ export function DataTable<TData extends object>(props: DataTableProps<TData>) {
   const { columns, data, server, renderSubRows } = props;
   const [sorting, setSorting] = useState<SortingState>(props.initialSorting ?? []);
   const [globalFilter, setGlobalFilter] = useState("");
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(EMPTY_FILTERS);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
+    props.initialColumnFilters ?? EMPTY_FILTERS,
+  );
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: props.pageSize ?? 20,

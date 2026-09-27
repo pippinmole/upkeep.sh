@@ -1,6 +1,14 @@
 "use client";
 
-import { Bell, LayoutDashboard, Package, Server, ShieldAlert, ShieldCheck } from "lucide-react";
+import {
+  Bell,
+  LayoutDashboard,
+  Monitor,
+  Package,
+  Server,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
 import * as React from "react";
 
 import { NavGroup } from "@/components/layout/nav-group";
@@ -20,8 +28,9 @@ export const navGroups: NavGroupType[] = [
     title: "General",
     items: [
       { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
-      // Host list; renamed to "Hosts" (/dashboard/hosts) with the
-      // agent/host split (DOMAIN_MODEL.md §3.1, §4).
+      // Hosts are the machines, Agents the collectors (DOMAIN_MODEL.md
+      // §3.1, §4, Q15); both can enroll an agent.
+      { title: "Hosts", url: "/dashboard/hosts", icon: Monitor },
       { title: "Agents", url: "/dashboard/agents", icon: Server },
       { title: "Vulnerabilities", url: "/dashboard/vulnerabilities", icon: ShieldAlert },
       { title: "Packages", url: "/dashboard/packages", icon: Package },
