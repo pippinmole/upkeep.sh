@@ -35,13 +35,20 @@ func TestCollectUbuntu(t *testing.T) {
 	snap := testCollector().Collect(context.Background(), target.NewLocal("testdata/ubuntu", "testdata/proc"))
 
 	wantStatus := map[string]string{
-		collector.CollectorOS:             collector.StatusOK,
-		collector.CollectorKernel:         collector.StatusOK,
-		collector.CollectorHostIdentity:   collector.StatusOK,
-		"deb_packages":                    collector.StatusOK,
-		collector.CollectorTCPListeners:   collector.StatusOK,
-		collector.CollectorRebootRequired: collector.StatusOK,
-		collector.CollectorPublicIP:       collector.StatusOK,
+		collector.CollectorOS:                 collector.StatusOK,
+		collector.CollectorKernel:             collector.StatusOK,
+		collector.CollectorHostIdentity:       collector.StatusOK,
+		"deb_packages":                        collector.StatusOK,
+		collector.CollectorTCPListeners:       collector.StatusOK,
+		collector.CollectorUDPListeners:       collector.StatusOK,
+		collector.CollectorRebootRequired:     collector.StatusOK,
+		collector.CollectorPublicIP:           collector.StatusOK,
+		collector.CollectorUptime:             collector.StatusOK,
+		collector.CollectorArch:               collector.StatusOK,
+		collector.CollectorSystemdServices:    collector.StatusOK,
+		collector.CollectorLocalUsers:         collector.StatusOK,
+		collector.CollectorDeletedLibs:        collector.StatusOK,
+		collector.CollectorUnattendedUpgrades: collector.StatusOK,
 	}
 	if got := statuses(snap); !reflect.DeepEqual(got, wantStatus) {
 		t.Errorf("collectors = %v, want %v (full: %+v)", got, wantStatus, snap.Collectors)
@@ -54,7 +61,7 @@ func TestCollectUbuntu(t *testing.T) {
 	if snap.Host != wantHost {
 		t.Errorf("host = %+v, want %+v", snap.Host, wantHost)
 	}
-	if want := (collector.OSRelease{ID: "ubuntu", VersionID: "22.04", Codename: "jammy", Kernel: "6.8.0-45-generic"}); snap.OS != want {
+	if want := (collector.OSRelease{ID: "ubuntu", VersionID: "22.04", Codename: "jammy", Kernel: "6.8.0-45-generic", Arch: "amd64"}); snap.OS != want {
 		t.Errorf("os = %+v, want %+v", snap.OS, want)
 	}
 	if snap.SchemaVersion != 1 || snap.CollectedAt != "2026-09-26T12:00:00Z" {
@@ -68,8 +75,31 @@ func TestCollectUbuntu(t *testing.T) {
 			t.Errorf("package missing ecosystem/source: %+v", p)
 		}
 	}
-	if len(snap.ListeningSockets) != 2 {
-		t.Errorf("got %d listening sockets, want 2 (only LISTEN rows): %+v", len(snap.ListeningSockets), snap.ListeningSockets)
+	if len(snap.ListeningSockets) != 3 || snap.ListeningSockets[2].Proto != "udp" {
+		t.Errorf("got %d listening sockets, want 2 TCP LISTEN + 1 UDP: %+v", len(snap.ListeningSockets), snap.ListeningSockets)
+	}
+	if snap.UptimeSeconds == nil || *snap.UptimeSeconds != 350735 {
+		t.Errorf("uptime = %v", snap.UptimeSeconds)
+	}
+	if len(snap.Services) != 2 || snap.Services[1].Name != "ssh.service" ||
+		snap.Services[1].StartMode != "auto" || snap.Services[1].State != "running" ||
+		snap.Services[0].StartMode != "disabled" || snap.Services[0].State != "stopped" {
+		t.Errorf("services = %+v", snap.Services)
+	}
+	if len(snap.Users) != 3 || snap.Users[2].Name != "ubuntu" || !snap.Users[2].Admin {
+		t.Errorf("users = %+v", snap.Users)
+	}
+	if snap.Facts == nil || snap.Facts.NeedsRestart == nil || snap.Facts.UnattendedUpgrades == nil {
+		t.Fatalf("facts = %+v", snap.Facts)
+	}
+	if nr := snap.Facts.NeedsRestart.Processes; len(nr) != 1 || nr[0].Unit != "ssh.service" ||
+		!reflect.DeepEqual(nr[0].Libraries, []string{"/usr/lib/x86_64-linux-gnu/libssl.so.3"}) {
+		t.Errorf("needs_restart = %+v", nr)
+	}
+	// Configured on, but the unattended-upgrades package isn't in the fixture inventory.
+	if uu := snap.Facts.UnattendedUpgrades; uu.UnattendedUpgrade != "1" || uu.Enabled ||
+		uu.PackageInstalled == nil || *uu.PackageInstalled {
+		t.Errorf("unattended_upgrades = %+v", uu)
 	}
 	if !snap.RebootRequired || !reflect.DeepEqual(snap.RebootPackages, []string{"linux-image-6.8.0-45-generic", "libc6"}) {
 		t.Errorf("reboot = %v %v", snap.RebootRequired, snap.RebootPackages)
@@ -105,6 +135,15 @@ func TestCollectPackageSourceFailure(t *testing.T) {
 	if st := snap.Collectors[collector.CollectorKernel]; st.Status != collector.StatusSkipped || snap.OS.Kernel != "" {
 		t.Errorf("kernel without procfs = %+v (%q), want skipped", st, snap.OS.Kernel)
 	}
+	for _, name := range []string{collector.CollectorUptime, collector.CollectorUDPListeners, collector.CollectorDeletedLibs} {
+		if st := snap.Collectors[name]; st.Status != collector.StatusSkipped {
+			t.Errorf("%s without procfs = %+v, want skipped", name, st)
+		}
+	}
+	// No dpkg inventory and no procfs: arch is unknown, reported as a failure.
+	if st := snap.Collectors[collector.CollectorArch]; st.Status != collector.StatusError || snap.OS.Arch != "" {
+		t.Errorf("arch = %+v (%q), want error", st, snap.OS.Arch)
+	}
 
 	b, err := json.Marshal(snap)
 	if err != nil {
@@ -136,7 +175,9 @@ func TestCollectNonLinuxAndUndetected(t *testing.T) {
 			}
 			// No Linux collector, and no dpkg, may run on a non-Linux host.
 			for _, name := range []string{"deb_packages", collector.CollectorHostIdentity, collector.CollectorKernel,
-				collector.CollectorTCPListeners, collector.CollectorRebootRequired} {
+				collector.CollectorTCPListeners, collector.CollectorUDPListeners, collector.CollectorRebootRequired,
+				collector.CollectorUptime, collector.CollectorArch, collector.CollectorSystemdServices,
+				collector.CollectorLocalUsers, collector.CollectorDeletedLibs, collector.CollectorUnattendedUpgrades} {
 				if st := snap.Collectors[name]; st.Status != collector.StatusSkipped {
 					t.Errorf("%s = %+v, want skipped", name, st)
 				}

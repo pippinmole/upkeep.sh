@@ -9,6 +9,7 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -98,15 +99,119 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 		status[collector.CollectorKernel] = result(err)
 	}
 
+	noProc := collector.Skipped("target has no readable procfs")
+
 	switch {
 	case !isLinux:
-		status[collector.CollectorTCPListeners] = notLinux
+		status[collector.CollectorUptime] = notLinux
 	case !hasProc:
-		status[collector.CollectorTCPListeners] = collector.Skipped("target has no readable procfs")
+		status[collector.CollectorUptime] = noProc
 	default:
-		socks, err := collector.CollectListeningSockets(procRoot)
-		snap.ListeningSockets = socks
-		status[collector.CollectorTCPListeners] = result(err)
+		up, err := collector.CollectUptime(procRoot)
+		if err == nil {
+			snap.UptimeSeconds = &up
+		}
+		status[collector.CollectorUptime] = result(err)
+	}
+
+	// Architecture prefers dpkg's native arch from the inventory just
+	// collected (see CollectArch), so pass packages only when dpkg's
+	// source succeeded.
+	var debPkgs []collector.Package
+	if pkgStatus["deb_packages"].Status == collector.StatusOK {
+		debPkgs = pkgs
+	}
+	if isLinux {
+		arch, err := collector.CollectArch(debPkgs, procRoot)
+		snap.OS.Arch = arch
+		status[collector.CollectorArch] = result(err)
+	} else {
+		status[collector.CollectorArch] = notLinux
+	}
+
+	listenerCollectors := map[collector.Transport]string{
+		collector.TransportTCP: collector.CollectorTCPListeners,
+		collector.TransportUDP: collector.CollectorUDPListeners,
+	}
+	switch {
+	case !isLinux:
+		for _, name := range listenerCollectors {
+			status[name] = notLinux
+		}
+	case !hasProc:
+		for _, name := range listenerCollectors {
+			status[name] = noProc
+		}
+	default:
+		results := collector.CollectListeners(procRoot)
+		for _, tr := range []collector.Transport{collector.TransportTCP, collector.TransportUDP} {
+			r := results[tr]
+			if r.Err != nil {
+				status[listenerCollectors[tr]] = collector.Failed(r.Err)
+				continue
+			}
+			snap.ListeningSockets = append(snap.ListeningSockets, r.Sockets...)
+			status[listenerCollectors[tr]] = collector.OKTruncated(r.Truncated)
+		}
+	}
+
+	// Which systemd service each process runs under: service running
+	// state, and the unit to restart for a process on deleted libraries.
+	var units map[int]string
+	if isLinux && hasProc {
+		units = collector.ProcessUnits(procRoot)
+	}
+
+	if isLinux {
+		svcs, truncated, err := collector.CollectSystemdServices(t.FS(), units)
+		switch {
+		case errors.Is(err, collector.ErrNoSystemd):
+			status[collector.CollectorSystemdServices] = collector.Skipped(err.Error())
+		case err != nil:
+			status[collector.CollectorSystemdServices] = collector.Failed(err)
+		default:
+			snap.Services = svcs
+			status[collector.CollectorSystemdServices] = collector.OKTruncated(truncated)
+		}
+
+		users, truncated, err := collector.CollectLocalUsers(t.FS())
+		if err != nil {
+			status[collector.CollectorLocalUsers] = collector.Failed(err)
+		} else {
+			snap.Users = users
+			status[collector.CollectorLocalUsers] = collector.OKTruncated(truncated)
+		}
+	} else {
+		status[collector.CollectorSystemdServices] = notLinux
+		status[collector.CollectorLocalUsers] = notLinux
+	}
+
+	facts := &collector.Facts{}
+	switch {
+	case !isLinux:
+		status[collector.CollectorDeletedLibs] = notLinux
+	case !hasProc:
+		status[collector.CollectorDeletedLibs] = noProc
+	default:
+		nr, err := collector.CollectDeletedLibs(procRoot, units)
+		if err == nil {
+			facts.NeedsRestart = &nr
+			status[collector.CollectorDeletedLibs] = collector.OKTruncated(nr.Truncated)
+		} else {
+			status[collector.CollectorDeletedLibs] = collector.Failed(err)
+		}
+	}
+	if isLinux && osInfo.Like("debian", "ubuntu") {
+		uu, err := collector.CollectUnattendedUpgrades(t.FS(), debPkgs)
+		if err == nil {
+			facts.UnattendedUpgrades = &uu
+		}
+		status[collector.CollectorUnattendedUpgrades] = result(err)
+	} else {
+		status[collector.CollectorUnattendedUpgrades] = collector.Skipped("apt is Debian/Ubuntu only")
+	}
+	if facts.NeedsRestart != nil || facts.UnattendedUpgrades != nil {
+		snap.Facts = facts
 	}
 
 	// The reboot-required flag file is a Debian/Ubuntu convention; its

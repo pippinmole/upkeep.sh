@@ -69,8 +69,8 @@ func main() {
 			if err := client.PushSnapshot(agentID, agentSecret, snap); err != nil {
 				log.Printf("[%s] push failed: %v", t.Ref(), err)
 			} else {
-				log.Printf("[%s] pushed snapshot: os=%s/%s, %d packages, %d listening sockets",
-					t.Ref(), snap.Host.OSFamily, snap.OS.ID, len(snap.Packages), len(snap.ListeningSockets))
+				log.Printf("[%s] pushed snapshot: os=%s/%s, %d packages, %d listening sockets, %d services, %d users",
+					t.Ref(), snap.Host.OSFamily, snap.OS.ID, len(snap.Packages), len(snap.ListeningSockets), len(snap.Services), len(snap.Users))
 			}
 		}
 		time.Sleep(interval)
