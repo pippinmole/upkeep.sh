@@ -98,6 +98,9 @@ export function RuleDialog({
     digest: rule?.digest ?? false,
     digestIntervalSeconds: rule?.digestIntervalSeconds ?? 3600,
   });
+  // Archived hosts never alert: offer only the ones this rule already
+  // scopes, so they can be removed.
+  const scopeHosts = hosts.filter((h) => !h.archived || rule?.hostIds?.includes(h.id));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -211,11 +214,11 @@ export function RuleDialog({
               ))}
             </div>
             {v.hostScope === "selected" &&
-              (hosts.length === 0 ? (
+              (scopeHosts.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No hosts yet.</p>
               ) : (
                 <CheckList
-                  items={hosts}
+                  items={scopeHosts}
                   selected={v.hostIds}
                   onToggle={(h) => set("hostIds", toggle(v.hostIds, h))}
                   id={(h) => h.id}
@@ -223,6 +226,7 @@ export function RuleDialog({
                     <span>
                       {h.hostname}
                       {h.label && <span className="text-muted-foreground"> {h.label}</span>}
+                      {h.archived && <span className="text-muted-foreground"> (archived)</span>}
                     </span>
                   )}
                 />

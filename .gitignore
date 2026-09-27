@@ -3,6 +3,8 @@
 /server/api
 *.exe
 *.test
+# Local test-agent build (start-dev skill)
+/.agent-test-binary
 
 # Env files (real secrets) — .env.example files are the templates, kept
 .env
