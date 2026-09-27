@@ -254,8 +254,8 @@ params, no new Go endpoints.
 - [ ] Encrypt channel secrets at rest (`notification_channels.secrets` is
       plaintext today; the worker needs the webhook secret to sign, so it
       would need a key shared by web + worker, e.g. `SW_SECRETS_KEY`).
-- [ ] Skip archived hosts in alerting once migration 0011 lands (TODO in
-      `store/alerting.go` `insertFindingEvents`).
+- [x] Archived hosts don't alert: no finding events for them, and they're
+      left out of agent events' `host_ids` / payload (`store/alerting.go`).
 - [ ] Alerting: per-user rate limit / circuit breaker for a channel that
       keeps failing (today each delivery retries independently for ~11 h).
 - [ ] Exposure events (e.g. `exposure.port_public`) once the scanner
