@@ -187,8 +187,9 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		log.Printf("host %s: running kernel now %q", hostID, in.KernelRelease)
 	}
 
-	// TODO(phase 1, exposure): enqueue the external port-exposure check
-	// here (same AfterWrite/InsertTx pattern) once that worker exists.
+	// TODO(phase 1, exposure): enqueue host-side port-exposure
+	// classification here (same AfterWrite/InsertTx pattern) once that
+	// job exists (docs/TASKS.md Phase 1.6; no external scanning).
 
 	w.WriteHeader(http.StatusAccepted)
 }
@@ -441,10 +442,10 @@ func kernelRelease(p SnapshotPayload) string {
 }
 
 // clientIP prefers X-Forwarded-For because production deploys sit behind
-// Dokploy/Coolify's Traefik proxy; this value is later used to verify that
-// an external port scan only ever targets an enrolled agent's own IP, so
-// the reverse proxy MUST be configured to set/overwrite this header itself
-// (never trust it from a source that isn't the proxy).
+// Dokploy/Coolify's Traefik proxy. The reverse proxy MUST be configured to
+// set/overwrite this header itself (never trust it from a source that isn't
+// the proxy), or source_ip can be spoofed; a future external port scanner
+// would rely on it to target only an enrolled agent's own IP.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")

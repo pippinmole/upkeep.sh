@@ -58,7 +58,7 @@ memory or a stale conversation summary.
 Roughly in the order they unblock each other. See root `README.md` for
 the original phased roadmap; this list is the actionable breakdown.
 [DOMAIN_MODEL.md](DOMAIN_MODEL.md) holds the design behind the P1a–c and
-Phase 1.5 items below, including open questions (Q1–Q16) to settle
+Phase 1.5 items below, including open questions (Q1–Q17) to settle
 before or while building them.
 
 ### Phase 1 remainder — package inventory history (P1a)
@@ -223,13 +223,9 @@ params, no new Go endpoints.
       for "previously installed/affected" fleet queries.
 - [ ] 24 pre-existing files fail `oxfmt --check` (ui/*, nav-*, providers).
 
-### Phase 1 remainder — exposure + alerting
-- [ ] External port-exposure scanner: scan only an IP verified as an
-      enrolled agent's own connection source (`snapshots.source_ip`),
-      rate-limited, platform must never be usable to scan arbitrary
-      targets.
-- [ ] `listening_sockets.is_public` currently always `false` (column
-      exists, nothing sets it yet) — populate from the scan result.
+### Phase 1 remainder — alerting
+Port exposure moved to host-side analysis in Phase 1.6 below; the
+external scanner is deferred to Phase 2+ (DECISIONS.md "Port exposure").
 - [x] Alert rule evaluation worker + dispatch (migration 0009,
       `internal/alerting`, `jobs/alerting.go`): rules on finding opened /
       reopened / resolved (min severity, KEV-only, host scope) and agent
@@ -281,8 +277,8 @@ params, no new Go endpoints.
       left out of agent events' `host_ids` / payload (`store/alerting.go`).
 - [ ] Alerting: per-user rate limit / circuit breaker for a channel that
       keeps failing (today each delivery retries independently for ~11 h).
-- [ ] Exposure events (e.g. `exposure.port_public`) once the scanner
-      exists: a new event type + `Event` object, no dispatch changes.
+- [ ] Exposure events: see Phase 1.6 (a new event type + `Event` object,
+      no dispatch changes).
 
 ### Phase 1.5 — agent/host split + Linux collector breadth
 Design: [DOMAIN_MODEL.md §4](DOMAIN_MODEL.md#4-domain-model-agents-hosts-os-families).
@@ -349,8 +345,8 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       processes without `CAP_SYS_PTRACE` (counted as unreadable); service
       / listener / user changes on the History tab; fleet "which hosts
       listen on port N" page (`host_listeners_port_open_idx` is ready);
-      retire `listening_sockets` once the exposure scanner writes to
-      `host_listeners` instead.
+      retire `listening_sockets` (and its unused `is_public`) once
+      exposure (Phase 1.6) reads `host_listeners` instead.
 - [x] Remote collection over SSH for Linux (Q3–Q5 decided 2026-09-27;
       migration 0012, PROTOCOL.md §4): "Add host" → "Reach it from an
       existing agent", `GET /v1/agent/config` + `POST /v1/agent/status`,
@@ -368,6 +364,104 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       otherwise); a "Try again" button that clears a target's backoff;
       surface failed collectors (e.g. unreadable dpkg status) in the
       setup dialog instead of showing "Connected".
+
+### Phase 1.6 — Docker inventory + host-side port exposure
+Decided 2026-09-27 (DECISIONS.md "Port exposure" and "Docker
+collection"). Generic Docker Engine support, including Swarm (managers
+and workers), rootless Docker and Podman's Docker-compatible API; no
+per-platform special-casing (Dokploy, Coolify…). Planned wire shape:
+PROTOCOL.md "Docker sections (planned)". Order: the collector, then
+storage/UI, then firewall + exposure on top.
+- [ ] Agent: hand-written Docker Engine API client over the socket
+      mounted into the agent container (`SW_DOCKER_SOCKET`, default
+      `/var/run/docker.sock`). **This client is the security boundary**
+      (no sidecar proxy, DECISIONS.md "Docker collection"): no Docker
+      SDK, no code path that sends anything but these GETs: `/_ping`,
+      `/version`, `/info`, `/containers/json`, `/containers/{id}/json`,
+      `/images/json`, `/images/{id}/json`, `/networks`, and on managers
+      `/services`, `/tasks`, `/nodes` (API-version path prefix, pinned
+      minimum version). Never the dangerous GETs
+      (`/containers/{id}/archive`, `/export`, `/logs`, `…/attach/ws`,
+      `/images/{id}/get`, `/secrets`, `/configs`). A test asserts the
+      client's full set of methods + paths, so adding one is a visible,
+      reviewed change.
+- [ ] Agent: Docker collectors via that client (`skipped` with a reason
+      when the socket isn't mounted, so "no Docker" and "Docker not
+      enabled" are normal states, distinct from `error`):
+      `docker_engine` (version, API version, storage driver / image
+      store, rootless, Swarm node id / cluster id / role),
+      `docker_containers`, `docker_images`, `docker_networks`, and
+      `swarm_services` (managers only; `skipped` on workers). The agent's
+      wire types are the allowlist: only declared fields are sent (never
+      `Env`, command lines, Swarm secret/config references), and labels
+      only under allowlisted prefixes (`com.docker.compose.*`,
+      `com.docker.stack.*`, `com.docker.swarm.*`,
+      `org.opencontainers.image.*`), because labels routinely carry
+      secrets (e.g. reverse-proxy basic-auth hashes). Caps + `truncated`
+      like the other collectors.
+- [ ] Compose example + dashboard `docker run` line: Docker collection
+      is **opt-in**, one socket mount with a comment saying plainly what
+      it grants (full Docker API access, i.e. root-equivalent; the agent
+      only makes the reads above). Docs for rootless Docker
+      (`$XDG_RUNTIME_DIR/docker.sock`) and Podman (`podman.socket`).
+- [ ] Make opting out real: `/:/host:ro` is a recursive bind, so the
+      host's `/run/docker.sock` is already reachable at
+      `/host/run/docker.sock` whether or not the socket is mounted (`:ro`
+      doesn't stop `connect()` on a socket). Reproduced 2026-09-27
+      (Docker Desktop, Engine 29.8.0) with the agent's exact hardening
+      (`cap_drop: ALL`, `no-new-privileges`, `read_only`, uid 0): `GET
+      /version` and `POST /containers/create` both succeeded. The agent
+      code never touches it. A non-recursive bind
+      (`bind-recursive=disabled`, Docker 25+) hides the socket but also
+      every nested mount: `/run` (the `reboot_required` collector reads
+      `/host/run/reboot-required{,.pkgs}`) and any separately mounted
+      `/var`, `/boot` or `/usr`. Options: non-recursive `/` plus explicit
+      read-only binds for what the collectors read (not `/run` itself,
+      it holds the socket); or masking known sockets (`docker.sock`,
+      `containerd/*.sock`, `podman/*.sock`, `/run/user/*/docker.sock`),
+      a fragile denylist. Verify on a real Ubuntu host.
+- [ ] Migration + ingest on the validity-range pattern (like
+      `host_services`): `container_images` interned fleet-wide by image
+      ID (content-addressed: OS/arch, created, layer diff IDs, OCI
+      labels); `host_images` (image present on a host, with that host's
+      repo tags + repo digests); `host_containers` (keyed by container
+      ID: name, image ref as configured + image ID actually run, state,
+      started at, compose project/service, Swarm service/task/stack,
+      published ports, networks, network mode, privileged, restart
+      policy, mount types/paths); `swarm_services` per Swarm cluster
+      (from any manager's push: name, image, mode/replicas, published
+      ports with ingress/host mode). Per-kind set hashes in
+      `host_fact_state`, never closed when the collector isn't `ok`.
+- [ ] Dashboard: host **Containers** tab (grouped by compose project or
+      Swarm stack, published ports, image, state) and **Images** tab;
+      containers/images changes on the History tab; fleet
+      `/dashboard/images` ("which hosts run image X / digest Y") and a
+      Swarm cluster view (services → nodes/tasks).
+- [ ] Agent: `firewall` collector, file reads only (live netfilter state
+      needs `CAP_NET_ADMIN`, which the agent won't get): ufw enabled
+      (`/etc/ufw/ufw.conf`), default policies (`/etc/default/ufw`),
+      rules (`/etc/ufw/user.rules`, `user6.rules`); Docker's
+      `/etc/docker/daemon.json` (`iptables`, `ip`, `userland-proxy`,
+      `data-root`). nftables / firewalld / raw iptables → reported as
+      "other firewall" (unknown), not guessed.
+- [ ] Server: exposure classification per open listener, from
+      `host_listeners` + Docker published ports + Swarm published ports +
+      firewall facts: local-only; **published by Docker (host firewall
+      doesn't apply: Docker's rules are evaluated before ufw's)**; no
+      host firewall; allowed by ufw; blocked by ufw; unknown (other
+      firewall, Docker with `userland-proxy: false` and no Docker data).
+      A listener owned by `docker-proxy` or `dockerd` on a wildcard
+      address counts as Docker-published even without the Docker
+      collector. Wording is "not protected by the host firewall", never
+      "public": provider firewalls (e.g. Hetzner Cloud) are invisible to
+      the agent. Remediation text differs per class (bind to
+      `127.0.0.1:` / `DOCKER-USER` rules for Docker; a ufw rule
+      otherwise).
+- [ ] Exposure events (`exposure.port_exposed` / `exposure.port_closed`)
+      on class transitions, through the existing alerting pipeline (a
+      new event type + `Event` object, no dispatch changes); ignore
+      expected ports per rule (e.g. 80/443 on a reverse proxy). Replace
+      `TODO(phase 1, exposure)` in `ingest/handler.go`.
 
 ### Cross-cutting gaps worth closing before real users
 - [ ] Tests: dpkg status parsing, OS detection and the inventory range
@@ -387,13 +481,33 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       `docker run` line), which doesn't
       exist yet — needs a build/publish pipeline before that snippet is
       actually usable end-to-end.
+- [ ] Release supply chain (the realistic way the agent gets
+      compromised, and with the Docker socket mounted a bad release is
+      root on every opted-in host): sign agent images (cosign) with SBOM
+      + build provenance; release only from tagged commits in CI;
+      versioned tags (not `:latest`) in the compose example and the
+      dashboard snippet so a bad release doesn't auto-propagate; 2FA and
+      branch protection on the publishing account, narrowly scoped
+      publish tokens.
 - [x] Expired-enrollment-token cleanup: hourly River `credential_cleanup`
       job in the worker (also clears expired post-rotation secrets).
 - [ ] `server/Dockerfile` runtime base (`alpine:3.20`) wasn't covered by
       the last version audit — check it.
 
 ### Phase 2+ (explicitly deferred, don't start early)
-- [ ] Container image vulnerability scanning for Docker workloads.
+- [ ] Container image vulnerability scanning for Docker workloads. Builds
+      on the Phase 1.6 image inventory: scan once per image ID (or layer
+      diff ID) fleet-wide, like `software_versions`, and attach results
+      to every host / container running it. How to read an image's
+      package database (layers via the API's export, or the running
+      container's filesystem) is undecided; mind the proxy allowlist.
+- [ ] External port-exposure scanner (deferred 2026-09-27, DECISIONS.md
+      "Port exposure"): probe only an enrolled agent's own
+      `snapshots.source_ip`, rate-limited, never an arbitrary target;
+      skip private / CGNAT / loopback source IPs ("can't verify"); remote
+      (SSH) hosts ineligible (Q5). Its vantage point is the platform
+      box, not the internet, which self-hosters' private networks and
+      allowlists make misleading.
 - [ ] RHEL/Alpine package collectors (agent currently Debian/Ubuntu-only
       by design).
 - [ ] SMS notifications.

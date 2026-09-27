@@ -1439,7 +1439,8 @@ Phase labels, as used in [TASKS.md](TASKS.md):
 
 - **P1**: Phase 1 remainder (inventory history, matching, packages UI)
 - **P1.5**: agent/host split + Linux collector breadth
-- **P2**: existing Phase 2+ (containers, RHEL/Alpine)
+- **P1.6**: Docker inventory (containers, images, Swarm) + host-side port exposure
+- **P2**: existing Phase 2+ (container image vulns, external scanner, RHEL/Alpine)
 - **P3**: Windows agent
 - **P4**: macOS agent
 
@@ -1459,7 +1460,8 @@ cells assume Q1 is answered yes.
 | Listening UDP sockets | 🛠 P3 | ✅ `/proc/net/udp{,6}` (bound, unconnected) | 🛠 P4 |
 | Agent-reported public IPv4/IPv6 | 🛠 P3 (collector code is portable) | ✅ ipify | 🛠 P4 |
 | Server-observed source IP | 🛠 P3 (free once an agent exists) | ✅ `snapshots.source_ip` | 🛠 P4 |
-| External port-exposure scan | ❓ Q5 | 🛠 P1 (exposure phase; `local` hosts only) | ❓ Q5 |
+| Host-side port exposure (listeners × firewall × Docker ports) | ❓ | 🛠 P1.6 | ❓ |
+| External port-exposure scan | ❓ Q5 | 🛠 P2 (deferred 2026-09-27; `local` hosts only) | ❓ Q5 |
 | Installed OS packages | 🛠 P3 (Uninstall registry programs) | ✅ dpkg name/version/arch | 🛠 P4 (.app bundles + pkgutil receipts) |
 | Source package name/version | ❌ n/a | 🛠 P1 (dpkg `Source:`) | ❌ n/a |
 | Third-party package managers | ❓ (winget/Chocolatey/Scoop) | ❌ (snap/flatpak ❓ later) | 🛠 P4 (Homebrew Cellar/Caskroom) |
@@ -1473,11 +1475,12 @@ cells assume Q1 is answered yes.
 | Processes using deleted libraries | ❌ | ✅ `/proc/*/maps` | ❌ |
 | Services inventory + state | 🛠 P3 (SCM) | ✅ systemd unit files + `/proc` cgroups | 🛠 P4 (launchd plists) |
 | Local users / admins | 🛠 P3 | ✅ `/etc/passwd`, `/etc/group` | 🛠 P4 |
-| Firewall enabled | 🛠 P3 (profiles) | ❓ (ufw/nftables state is hard without exec) | 🛠 P4 (ALF) |
+| Firewall enabled | 🛠 P3 (profiles) | 🛠 P1.6 (ufw config files, Docker `daemon.json`; nftables/firewalld reported as unknown) | 🛠 P4 (ALF) |
+| Docker containers, images, networks, Swarm services | ❓ | 🛠 P1.6 (Engine API over an opt-in socket mount, Q17) | ❓ |
 | Built-in AV / malware protection | 🛠 P3 (Defender status) | ❌ | 🛠 P4 (XProtect version) |
 | Disk encryption | 🛠 P3 (BitLocker) | ❓ (LUKS detection) | 🛠 P4 (FileVault, exec) |
 | Platform integrity (SIP/Gatekeeper) | ❌ n/a | ❌ n/a | 🛠 P4 (exec, Q3) |
-| Container image vulns | ❌ | 🛠 P2 | ❌ |
+| Container image vulns | ❌ | 🛠 P2 (on the P1.6 image inventory) | ❌ |
 | Remote (agentless-from-target) collection | ❓ Q3 (WinRM) | ❓ Q3 (SSH) | ❓ Q3 (SSH) |
 
 Verified "✅ now" set, exactly: dpkg packages (name, version, arch), OS
@@ -1527,7 +1530,10 @@ Linux/Debian-family only. Nothing else is collected today.
    way, for example the user proving control with a DNS TXT record?
    **Resolved (2026-09-27, by recommendation):** ineligible. A remote
    host's pushes carry the agent's `source_ip`; the scanner must only
-   consider `local` assignments.
+   consider `local` assignments. **Update 2026-09-27:** the external
+   scanner itself is deferred to Phase 2+ in favour of host-side exposure
+   analysis (DECISIONS.md "Port exposure"); this answer applies if it is
+   built.
 6. **Resolved: `snapshot_packages` is retired entirely** (the alternative
    was keeping raw per-snapshot package rows for N days). Nothing read it beyond the one-off 0003 backfill, and
    `host_software` ranges plus `snapshots.package_set_hashes` cover the
@@ -1592,6 +1598,18 @@ Linux/Debian-family only. Nothing else is collected today.
     collecting agent): after a merge the old and new agent both collect
     the host until the old one is detached or revoked. Enforcing one
     active collector is still open.
+17. **Resolved (2026-09-27, user + recommendation): how the agent collects
+    Docker.** Engine API, not Docker's on-disk files, because Swarm
+    service specs and containerd-store image metadata aren't readable
+    from disk and the API also covers rootless Docker and Podman. The
+    socket is mounted into the agent (opt-in); the boundary is its
+    hand-written client (a fixed list of GETs) and wire types that never
+    carry env / command lines. A proxy sidecar was rejected: it ships
+    from the same release pipeline, so it doesn't stop the realistic
+    threat (a malicious release). Images are collected from the start (image ID, repo
+    digests, layer diff IDs) for Phase 2 image CVE matching. Docker and
+    Swarm are supported generically, not per platform. Details:
+    DECISIONS.md "Docker collection", TASKS.md Phase 1.6.
 
 ---
 

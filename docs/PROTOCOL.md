@@ -398,7 +398,80 @@ only.
 `listening_sockets` is still stored per snapshot (TCP and UDP rows, first
 of each primary key) in addition to the `host_listeners` ranges: it keeps
 the owning pid, which ranges deliberately don't (it would churn on every
-restart), and `is_public` for the planned exposure scanner.
+restart). Its `is_public` column is never set: the external scanner it
+was meant for is deferred (DECISIONS.md "Port exposure").
+
+### Docker sections (planned, not built)
+
+TASKS.md Phase 1.6; rationale in DECISIONS.md "Docker collection". A
+sketch to build against, not a contract yet. Additive within
+`schema_version: 1`, like the breadth sections.
+
+The agent reads the Docker Engine API over the socket mounted into its
+container (`SW_DOCKER_SOCKET`, default `/var/run/docker.sock`; opt-in),
+with a hand-written client that only makes a fixed list of GETs. New
+collectors, each with its own status:
+
+| Collector | Owns | Applies to |
+|---|---|---|
+| `docker_engine` | `docker.engine`, `docker.swarm` | socket mounted (else `skipped`: "docker socket not mounted"; engine unreachable is `error`) |
+| `docker_containers` | `docker.containers` | engine reachable |
+| `docker_images` | `docker.images` | engine reachable |
+| `docker_networks` | `docker.networks` | engine reachable |
+| `swarm_services` | `docker.swarm_services` | Swarm manager (`skipped` on workers and outside Swarm) |
+
+```
+"docker": {
+  "engine": { "version": "29.8.0", "api_version": "1.56",
+              "storage_driver": "overlayfs", "rootless": false },
+  "swarm": { "node_id": "…", "cluster_id": "…", "role": "manager" },
+  "containers": [
+    { "id": "8e89…", "name": "myapp-db-1", "image": "postgres:18",
+      "image_id": "sha256:…", "state": "running",
+      "started_at": "2026-09-27T10:00:00Z",
+      "labels": { "com.docker.compose.project": "myapp",
+                  "com.docker.compose.service": "db" },
+      "ports": [ { "host_ip": "0.0.0.0", "host_port": 5432,
+                   "container_port": 5432, "proto": "tcp" } ],
+      "networks": ["myapp_default"], "network_mode": "bridge",
+      "privileged": false, "restart_policy": "unless-stopped",
+      "mounts": [ { "type": "volume", "destination": "/var/lib/postgresql",
+                    "rw": true } ] }
+  ],
+  "images": [
+    { "id": "sha256:…", "repo_tags": ["postgres:18"],
+      "repo_digests": ["postgres@sha256:…"], "created": "…",
+      "os": "linux", "arch": "amd64",
+      "layers": ["sha256:…"],
+      "labels": { "org.opencontainers.image.version": "18.0" } }
+  ],
+  "networks": [ { "id": "…", "name": "myapp_default", "driver": "bridge",
+                  "scope": "local", "internal": false,
+                  "subnets": ["172.18.0.0/16"] } ],
+  "swarm_services": [
+    { "id": "…", "name": "web_api", "image": "ghcr.io/me/api:1@sha256:…",
+      "mode": "replicated", "replicas": 2,
+      "labels": { "com.docker.stack.namespace": "web" },
+      "ports": [ { "published": 443, "target": 8443, "proto": "tcp",
+                   "publish_mode": "ingress" } ] }
+  ]
+}
+```
+
+- **Never sent**: environment variables, command lines, Swarm secrets or
+  configs, volume driver options, labels outside the allowlisted
+  prefixes (`com.docker.compose.*`, `com.docker.stack.*`,
+  `com.docker.swarm.*`, `org.opencontainers.image.*`). Enforced by the
+  agent's wire types (only declared fields are serialized) and the
+  label filter.
+- `image` is the reference as configured (a tag can move); `image_id` is
+  what the container actually runs, and the key for future image CVE
+  matching. `layers` are the image's layer diff IDs.
+- Swarm: every node reports its own task containers (with
+  `com.docker.swarm.*` labels); only managers report `swarm_services`.
+  The server joins them by `cluster_id` / `node_id`. Ingress-published
+  ports exist only in `swarm_services`; on each node the listener is
+  owned by `dockerd`.
 
 ### Other fields
 
@@ -438,9 +511,9 @@ them (ARCHITECTURE.md "Vulnerability pipeline").
 `clientIP()` in `server/internal/ingest/handler.go` prefers
 `X-Forwarded-For` because production sits behind Dokploy/Coolify's
 Traefik proxy. **The reverse proxy must set/overwrite this header
-itself** — it is later used to verify that an external port scan only
-ever targets an enrolled agent's own IP (not yet built), so trusting an
-unproxied value here would let anyone spoof their source IP.
+itself**, or anyone can spoof their recorded source IP. It matters most
+for the deferred external port scanner, which would use it to target
+only an enrolled agent's own IP (DECISIONS.md "Port exposure").
 
 ## 3. Credential rotation
 
@@ -595,7 +668,8 @@ the agent (`agent/cmd/agent/remote.go`, `agent/internal/target/ssh.go`):
   forever (which would also trip fail2ban-style lockouts).
 - **Port scanning.** A remote host's pushes come from the agent's IP, so
   `snapshots.source_ip` says nothing about the host. Remote hosts are not
-  eligible for the external port scan (DOMAIN_MODEL.md Q5).
+  eligible for the external port scan, if it is built (DOMAIN_MODEL.md
+  Q5; deferred to Phase 2+).
 
 ## Types
 
@@ -632,8 +706,8 @@ manually; a mismatch should only ever be an additive field.
 
 ## Not yet implemented
 
-- Beyond the inventory diff, snapshot processing is insert-only — see the
-  `TODO(phase 1)` in `handler.go`. Vulnerability matching and port-exposure evaluation
-  are meant to be enqueued per snapshot once those workers exist, not run
-  inline in the request handler.
+- Port-exposure classification (TASKS.md Phase 1.6) — see
+  `TODO(phase 1, exposure)` in `handler.go`. Like vulnerability matching,
+  it is enqueued per snapshot, not run inline in the request handler.
+- The Docker sections above.
 - No agent self-update.

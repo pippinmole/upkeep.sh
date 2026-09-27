@@ -6,11 +6,13 @@ Qualys — just the handful of things on your servers that actually matter:
 
 1. **Security updates** — installed packages with known CVEs, prioritized
    by real-world exploitability (CISA KEV, FIRST EPSS), not raw CVSS.
-2. **Open ports** — what's listening on the host vs. what's actually
-   reachable from the internet ("port 5432 just became public").
+2. **Open ports** — what's listening on the host, and whether the host
+   firewall actually covers it ("port 5432 is published by Docker, and
+   ufw doesn't apply to it").
 3. **Patched but not fixed** — reboot required, or services still running
    old library versions after an upgrade.
-4. *(Phase 2)* Container image vulnerabilities for Docker workloads.
+4. **Docker inventory** — containers, images and Swarm services per host;
+   *(Phase 2)* vulnerabilities in those images.
 
 **Status**: early scaffold. The agent→ingest pipeline (enrollment, fact
 collection, snapshot storage) and the dashboard's auth/host-list flow
@@ -26,7 +28,7 @@ agent/       Go, single static binary. Read-only, outbound-only host
              fact collector (packages, listening sockets, OS release,
              reboot state). No inbound ports, no remote command execution.
 server/      Go. Agent enrollment + snapshot ingest today; vulnerability
-             matching, port scanning, and alert dispatch land here.
+             matching, exposure analysis, and alert dispatch land here.
 web/         Next.js (App Router) + Bun + Auth.js. Marketing, auth,
              dashboard. Reads Postgres directly (see docs/DECISIONS.md).
 migrations/  SQL migrations (golang-migrate format) — the actual schema
@@ -85,14 +87,15 @@ glance, the phases:
 2. ✅ OSV Debian/Ubuntu sync + dpkg-version-comparison matching + CISA KEV /
    FIRST EPSS enrichment → findings.
 3. ✅ Dashboard findings UI.
-4. External port-exposure scanning + webhook, ntfy and email (SMTP)
-   alerting with dedup and digest mode (Slack/Discord integrations
-   deferred).
-5. Polish, tests, CI.
+4. ✅ Webhook, ntfy and email (SMTP) alerting with dedup and digest mode
+   (Slack/Discord integrations deferred).
+5. Docker inventory (containers, images, Swarm) + host-side port
+   exposure (listeners × ufw × Docker published ports) with alerts.
+6. Polish, tests, CI.
 
 **Phase 2+** (explicitly deferred): container image vulnerabilities,
-RHEL/Alpine collectors, Slack/Discord notifiers, SMS, billing,
-multi-tenant orgs.
+external port-exposure scanning, RHEL/Alpine collectors, Slack/Discord
+notifiers, SMS, billing, multi-tenant orgs.
 
 **Non-goals**: auto-patching, remote command execution, compliance
 reporting (SOC2/CIS), Windows/macOS support, log analysis/SIEM.
@@ -106,6 +109,12 @@ reporting (SOC2/CIS), Windows/macOS support, log analysis/SIEM.
 - **Alert fatigue**: raw CVSS ranks almost everything "critical." Ranking
   must lead with CISA KEV (actively exploited) and EPSS (predicted
   exploitation probability), with CVSS only as a tiebreaker.
-- **Scanning abuse**: the platform must never be usable to port-scan
-  arbitrary targets. Only scan an IP that matches an enrolled agent's own
-  verified connection source, and rate-limit aggressively.
+- **False reassurance on exposure**: Docker-published ports bypass ufw,
+  so "ufw is on" says nothing about a container's ports. Exposure must
+  combine listeners, firewall config and Docker's published ports, and
+  say "not protected by the host firewall" rather than guess "public".
+- **Docker socket = root**: with Docker collection enabled (opt-in),
+  the agent is root-equivalent on that host. Its hand-written client
+  only makes a fixed list of reads, and releases must be signed and
+  pinned, since a malicious release is the realistic threat (see
+  docs/DECISIONS.md).

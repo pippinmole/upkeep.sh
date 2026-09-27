@@ -23,6 +23,10 @@
   expose: dpkg database, `/etc/os-release`, reboot-required flag). It
   collects facts only — no command execution, no inbound ports. CVE
   matching happens server-side so the agent stays small and auditable.
+  Planned (TASKS.md Phase 1.6): Docker containers, images and Swarm
+  services over an opt-in Docker socket mount, through a hand-written
+  client that can only make a fixed list of read calls (DECISIONS.md
+  "Docker collection").
 
 - **`server/`** — Go, two binaries from one image:
   - `cmd/api`: agent enrollment (`POST /v1/enroll`) and snapshot ingest
@@ -34,8 +38,9 @@
     Debian/Ubuntu advisory sync (hourly incremental, weekly full), CISA
     KEV + FIRST EPSS (daily), the vulnerability matcher and findings
     reconciliation (see "Vulnerability pipeline" below), and alerting
-    (see "Alerting" below). Planned: port-exposure scanning (see
-    [TASKS.md](TASKS.md)). A
+    (see "Alerting" below). Planned: host-side port-exposure
+    classification (TASKS.md Phase 1.6; no external scanning, see
+    DECISIONS.md "Port exposure"). A
     separate process so multi-minute feed imports (Ubuntu's OSV zip is
     ~800 MB) never compete with ingest. One-shot commands run the same
     code in the foreground: `worker sync osv|kev|epss`, `worker match`
