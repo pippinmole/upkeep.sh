@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-// The host list still lives at /dashboard/agents until the agent/host
-// split (DOMAIN_MODEL.md §4) renames it to Hosts.
+// Hosts are listed under the agent(s) that collect them on
+// /dashboard/agents; there is no standalone host list yet.
 export default function HostsIndexPage() {
   redirect("/dashboard/agents");
 }

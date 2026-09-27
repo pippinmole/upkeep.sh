@@ -36,7 +36,7 @@ docker exec security-whatnot-dev-postgres-1 psql -U swuser -d security_whatnot -
   >/dev/null
 
 echo "==> Running the test agent (Ctrl-C to stop; it will keep pushing every $INTERVAL)..."
-echo "    Note: the host will show up in /dashboard/agents as a random container ID"
+echo "    Note: the agent and its host show up in /dashboard/agents as a random container ID"
 echo "    (e.g. '8f4cee2f53bc'), not a real hostname — os.Hostname() just returns the"
 echo "    container's own hostname, which Docker assigns from the container ID. That's"
 echo "    fine for verifying the pipeline; it's just not a meaningful name."

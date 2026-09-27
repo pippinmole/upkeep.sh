@@ -112,34 +112,6 @@ export const getHostVulnSummary = cache(async function getHostVulnSummary(
   return foldSummary(rows);
 });
 
-// Per-host open counts for the host list.
-export async function getHostsVulnCounts(
-  userId: string,
-): Promise<Map<string, { open: number; kev: number; topSeverity: string | null }>> {
-  const { rows } = await pool.query<{
-    host_id: string;
-    open: string;
-    kev: string;
-    top_severity: string | null;
-  }>(
-    `SELECT f.host_id,
-            count(*) AS open,
-            count(*) FILTER (WHERE f.is_kev) AS kev,
-            (array_agg(f.severity ORDER BY f.severity_key DESC))[1] AS top_severity
-     FROM hosts h
-     JOIN findings f ON f.host_id = h.id
-     WHERE h.user_id = $1 AND f.kind = 'vulnerable_package' AND f.status = 'open'
-     GROUP BY f.host_id`,
-    [userId],
-  );
-  return new Map(
-    rows.map((r) => [
-      r.host_id,
-      { open: Number(r.open), kev: Number(r.kev), topSeverity: r.top_severity },
-    ]),
-  );
-}
-
 export type OverviewStats = {
   hosts: number;
   staleHosts: number; // not seen in 24h (or never)

@@ -189,6 +189,11 @@ params, no new Go endpoints.
       package's 806 dpkg vectors) and "fixed N / introduced N" per change
       (set difference of `software_vulnerabilities`, today's advisory
       data), computed on read.
+- [ ] Move the FilterBar tables (host packages / vulnerabilities / history,
+      fleet packages / vulnerabilities) to `DataTable` in server mode
+      (`web/src/components/data-table/`, `tableStateFromParams` +
+      `useServerTable`); the SQL side keeps its allowlisted sort keys and
+      bound params (DOMAIN_MODEL Q11).
 - [ ] `host_software_changes` derived table written by ingest (pairing +
       direction once in Go) — only if the on-read History tab gets slow.
 - [x] Fleet `/dashboard/vulnerabilities` (open / "resolved everywhere",
@@ -257,15 +262,19 @@ Today agent == host: enrollment creates a `hosts` row and the returned
 - [ ] Dashboard host management for the split: merge/split a flagged
       duplicate (`hosts.duplicate_of`), revoke an agent
       (`agents.revoked_at`; ingest already refuses revoked agents),
-      rotate its credential. Pre-name agents via
-      `enrollment_tokens.agent_name` in the Register dialog.
+      rotate its credential. (Pre-naming agents via
+      `enrollment_tokens.agent_name` in the Register dialog is done.)
 - [ ] Agent/host reporting gaps: `hosts.arch` and `hosts.os_build` are
       never written (the agent doesn't report them yet); the production
       image build needs `--build-arg VERSION=...` so `agent.version` isn't
       `dev`.
-- [ ] Dashboard: rename the current "Agents" host list to **Hosts**; new
-      **Agents** page lists collectors (version, platform, last seen,
-      hosts collected, revoke).
+- [x] Dashboard **Agents** page lists collectors (name, status online /
+      stale / revoked / never connected, version, platform, host count,
+      vuln pills, last seen) with their hosts as expandable sub-rows (OS,
+      mode, last collected, findings, "Possible duplicate"), on the new
+      shared `DataTable` (Q11). Optional agent name in the Register dialog.
+- [ ] A standalone **Hosts** list, if wanted (today `/dashboard/hosts`
+      redirects to Agents, where every host is listed under its agent(s)).
 - [ ] Linux collectors: uptime, hostname + machine-id (running kernel
       landed in P1b as `os.kernel`),
       UDP listeners, systemd services (unit files + `/proc/*/cgroup`, no

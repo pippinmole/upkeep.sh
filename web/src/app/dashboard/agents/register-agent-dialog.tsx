@@ -32,6 +32,7 @@ function dockerRunCommand(serverUrl: string, token: string): string {
 export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [agentName, setAgentName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -43,6 +44,7 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
     if (!next) {
       setToken(null);
       setError(null);
+      setAgentName("");
     }
   }
 
@@ -50,7 +52,7 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
     setError(null);
     startTransition(async () => {
       try {
-        setToken(await createEnrollmentToken());
+        setToken(await createEnrollmentToken(agentName));
       } catch {
         setError("Could not generate a token. Please try again.");
       }
@@ -66,8 +68,7 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
         <DialogHeader>
           <DialogTitle>Register a new agent</DialogTitle>
           <DialogDescription>
-            Generate a one-time enrollment token and run it on the host you
-            want to monitor.
+            Generate a one-time enrollment token and run it on the host you want to monitor.
           </DialogDescription>
         </DialogHeader>
 
@@ -80,9 +81,19 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="agent-name">Agent name (optional)</Label>
+              <Input
+                id="agent-name"
+                value={agentName}
+                maxLength={100}
+                onChange={(e) => setAgentName(e.target.value)}
+                placeholder="Defaults to the host's hostname"
+              />
+            </div>
             <p className="text-muted-foreground text-sm">
-              Click generate to create a one-time token for the new host. The
-              token expires in 1 hour if unused.
+              Click generate to create a one-time token for the new agent. The token expires in 1
+              hour if unused.
             </p>
           </div>
         ) : (
@@ -91,9 +102,8 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Copy this now</AlertTitle>
               <AlertDescription>
-                This token is shown only once and can&apos;t be retrieved
-                again. If you lose it, close this dialog and register a new
-                agent to get a fresh token.
+                This token is shown only once and can&apos;t be retrieved again. If you lose it,
+                close this dialog and register a new agent to get a fresh token.
               </AlertDescription>
             </Alert>
 
@@ -116,9 +126,8 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium">Run the agent</p>
               <p className="text-muted-foreground text-sm">
-                Pass the token above to the agent on the host you want to
-                monitor. Docker is one way to run it — more install methods
-                may be added later.
+                Pass the token above to the agent on the host you want to monitor. Docker is one way
+                to run it — more install methods may be added later.
               </p>
 
               <div className="flex flex-col gap-1.5">
@@ -136,7 +145,8 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
             </div>
 
             <p className="text-muted-foreground text-sm">
-              The agent will appear in this list once it checks in.
+              The agent appears in this list once it enrolls, and its host shows up under it after
+              the first push.
             </p>
           </div>
         )}

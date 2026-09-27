@@ -670,8 +670,9 @@ Filters, sorting, paging and search live in **URL search params**, so views
 are shareable, work with the back button, and render on the server. The
 existing shell has `Table`, `Badge`, `Sheet`, `Input`, `Command` and
 `Tooltip`. It still needs shadcn `tabs`, `select` (or a popover faceted
-filter) and a small pagination component. `@tanstack/react-table` isn't
-installed. Tables are server-driven, so it isn't needed (open question Q11).
+filter) and a small pagination component. Tables use the shadcn data table
+(`@tanstack/react-table`) in its server-driven mode, state in URL params
+(Q11, resolved).
 
 ### 3.1 Navigation (sidebar `navGroups` in `web/src/components/layout/app-sidebar.tsx`)
 
@@ -1428,9 +1429,15 @@ Linux/Debian-family only. Nothing else is collected today.
 10. **Resolved: River** (Postgres-backed, v0.47, tables vendored as
     migration 0006), in a separate `cmd/worker` process; the API holds an
     insert-only client and enqueues with `InsertTx`.
-11. **Table library.** Keep server-driven tables (URL params + existing
-    shadcn `Table`, recommended), or add `@tanstack/react-table` to match
-    shadcn-admin's data-table pattern with client-side faceting?
+11. **Resolved: shadcn data table (TanStack) as the standard; server-driven
+    mode for large tables.** `@tanstack/react-table` v9 behind a reusable
+    `DataTable` (`web/src/components/data-table/`): column defs, sorting,
+    faceted + text filtering, column visibility, pagination, expandable
+    sub-rows. Small per-user lists (agents) load everything and run
+    client-side. Large tables (packages, vulnerabilities) use its server
+    mode: manual sorting / filtering / pagination, state in the same URL
+    search params as before (`url-params.ts` / `url-state.ts`), one page of
+    rows queried in SQL. The FilterBar tables migrate to it later.
 12. **Resolved by recommendation (P1.5): host identity collisions**
     (cloned VMs with the same `machine-id`). Never auto-merge when a
     different *active* agent already collects the identity's host locally;
