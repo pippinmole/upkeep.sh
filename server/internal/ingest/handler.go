@@ -25,7 +25,25 @@ type Handler struct {
 	// nil disables enqueueing (tests); the worker's matcher_sweep then
 	// still evaluates new versions, but findings are not reconciled.
 	Jobs *river.Client[pgx.Tx]
+	// RotationGrace is how long an agent's previous secret stays valid
+	// after it rotates (0 = DefaultRotationGrace).
+	RotationGrace time.Duration
+	// CredentialMaxAge: a push authenticated with a secret older than this
+	// is told to rotate (periodic rotation). 0 disables it.
+	CredentialMaxAge time.Duration
 }
+
+const (
+	// DefaultRotationGrace covers an agent restarting after a crash between
+	// receiving a rotated secret and persisting it (it pushes on start).
+	DefaultRotationGrace = time.Hour
+	// DefaultCredentialMaxAge is the periodic rotation age.
+	DefaultCredentialMaxAge = 90 * 24 * time.Hour
+	// RotateHeader on a push response tells the agent to rotate its
+	// credential now (POST /v1/agent/rotate). Agents that predate rotation
+	// ignore it.
+	RotateHeader = "X-Upkeep-Rotate-Credentials"
+)
 
 type enrollRequest struct {
 	EnrollmentToken string `json:"enrollment_token"`
@@ -87,22 +105,22 @@ func (h *Handler) Enroll(w http.ResponseWriter, r *http.Request) {
 // hash — never a shared platform-wide credential. The host the push
 // describes is resolved from its host block (store.resolveHost).
 func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
-	agentID := r.Header.Get("X-Agent-ID")
-	secret := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if agentID == "" || secret == "" {
-		http.Error(w, "missing credentials", http.StatusUnauthorized)
-		return
-	}
-
 	ctx := r.Context()
-	cred, err := h.Store.AgentCredential(ctx, agentID)
-	if err != nil || !authn.VerifySecret(secret, cred.SecretHash) {
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+	agentID, auth, ok := h.authenticate(w, r)
+	if !ok {
 		return
 	}
-	if cred.Revoked {
-		http.Error(w, "agent revoked", http.StatusUnauthorized)
-		return
+	if auth.usedPrevious {
+		log.Printf("agent %s: authenticated with its previous (pre-rotation) secret; asking it to rotate again", agentID)
+	} else if auth.cred.PreviousSecretHash != "" {
+		// First use of the rotated secret: it was persisted, so the old
+		// one's grace window can end now.
+		if err := h.Store.ConfirmRotation(ctx, agentID); err != nil {
+			log.Printf("agent %s: confirm rotation: %v", agentID, err)
+		}
+	}
+	if h.shouldRotate(auth) {
+		w.Header().Set(RotateHeader, "1")
 	}
 
 	var payload SnapshotPayload
@@ -173,6 +191,97 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 	// here (same AfterWrite/InsertTx pattern) once that worker exists.
 
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// agentAuth is the outcome of authenticating an agent request.
+type agentAuth struct {
+	cred store.AgentCredential
+	// matchedHash is the stored hash the presented secret matched.
+	matchedHash string
+	// usedPrevious: the secret was the pre-rotation one, in its grace window.
+	usedPrevious bool
+}
+
+// authenticate checks X-Agent-ID + Authorization: Bearer against the
+// agent's stored credential: the current secret, or the previous one
+// during its post-rotation grace window. Revoked agents are refused. On
+// failure it has already written the 401.
+func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (agentID string, a agentAuth, ok bool) {
+	agentID = r.Header.Get("X-Agent-ID")
+	secret := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if agentID == "" || secret == "" {
+		http.Error(w, "missing credentials", http.StatusUnauthorized)
+		return "", a, false
+	}
+	cred, err := h.Store.AgentCredential(r.Context(), agentID)
+	if err != nil {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return "", a, false
+	}
+	a.cred = cred
+	// Both comparisons always run (each in constant time), so timing
+	// doesn't reveal which one matched.
+	cur := authn.VerifySecret(secret, cred.SecretHash)
+	prev := cred.PreviousSecretHash != "" && authn.VerifySecret(secret, cred.PreviousSecretHash)
+	switch {
+	case cur:
+		a.matchedHash = cred.SecretHash
+	case prev:
+		a.matchedHash, a.usedPrevious = cred.PreviousSecretHash, true
+	default:
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return "", a, false
+	}
+	if cred.Revoked {
+		http.Error(w, "agent revoked", http.StatusUnauthorized)
+		return "", a, false
+	}
+	return agentID, a, true
+}
+
+// shouldRotate: the dashboard requested a rotation, the agent is still on
+// its pre-rotation secret (it lost the new one), or the secret is older
+// than CredentialMaxAge.
+func (h *Handler) shouldRotate(a agentAuth) bool {
+	return a.cred.RotateRequested || a.usedPrevious ||
+		(h.CredentialMaxAge > 0 && time.Since(a.cred.IssuedAt) > h.CredentialMaxAge)
+}
+
+// Rotate issues the authenticated agent a new secret (agent-initiated;
+// PROTOCOL.md "Credential rotation"). The secret it authenticated with
+// stays valid for RotationGrace, or until the new one is first used, so
+// an agent that dies before persisting the new secret can still push and
+// rotate again. Same response shape as enrollment.
+func (h *Handler) Rotate(w http.ResponseWriter, r *http.Request) {
+	agentID, auth, ok := h.authenticate(w, r)
+	if !ok {
+		return
+	}
+	secret, hash, err := authn.GenerateSecret()
+	if err != nil {
+		log.Printf("generate secret: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	grace := h.RotationGrace
+	if grace <= 0 {
+		grace = DefaultRotationGrace
+	}
+	err = h.Store.RotateAgentCredential(r.Context(), agentID, auth.matchedHash, hash, grace)
+	switch {
+	case errors.Is(err, store.ErrAgentRevoked):
+		http.Error(w, "agent revoked", http.StatusUnauthorized)
+		return
+	case errors.Is(err, store.ErrInvalidCredential):
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	case err != nil:
+		log.Printf("agent %s: rotate credential: %v", agentID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("agent %s: credential rotated (previous secret valid for %s or until the new one is used)", agentID, grace)
+	writeJSON(w, http.StatusOK, enrollResponse{AgentID: agentID, AgentSecret: secret})
 }
 
 // buildSnapshotInput maps a decoded payload onto the store input, including
