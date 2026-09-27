@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Package, Server, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Bell, LayoutDashboard, Package, Server, ShieldAlert, ShieldCheck } from "lucide-react";
 import * as React from "react";
 
 import { NavGroup } from "@/components/layout/nav-group";
@@ -25,6 +25,7 @@ export const navGroups: NavGroupType[] = [
       { title: "Agents", url: "/dashboard/agents", icon: Server },
       { title: "Vulnerabilities", url: "/dashboard/vulnerabilities", icon: ShieldAlert },
       { title: "Packages", url: "/dashboard/packages", icon: Package },
+      { title: "Notifications", url: "/dashboard/notifications", icon: Bell },
     ],
   },
 ];

@@ -166,3 +166,38 @@
     }
   }
 }
+
+/* highlight.js tokens for response bodies (components/response-body.tsx). */
+:root {
+  --code-tag: oklch(0.5 0.15 255);
+  --code-attr: oklch(0.52 0.14 300);
+  --code-string: oklch(0.5 0.13 150);
+  --code-number: oklch(0.55 0.15 45);
+}
+
+.dark {
+  --code-tag: oklch(0.75 0.12 255);
+  --code-attr: oklch(0.76 0.11 300);
+  --code-string: oklch(0.78 0.12 150);
+  --code-number: oklch(0.8 0.12 60);
+}
+
+.hljs-tag,
+.hljs-name {
+  color: var(--code-tag);
+}
+.hljs-attr,
+.hljs-attribute {
+  color: var(--code-attr);
+}
+.hljs-string {
+  color: var(--code-string);
+}
+.hljs-number,
+.hljs-literal {
+  color: var(--code-number);
+}
+.hljs-comment,
+.hljs-meta {
+  color: var(--muted-foreground);
+}

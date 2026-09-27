@@ -158,8 +158,10 @@ inventories.
       (`/var/lib/ubuntu-advantage/status.json`) so attached hosts can show
       "fix available via Pro" instead of "requires Pro" (Q9 follow-up;
       the label is correct without it).
-- [ ] Alert hooks on finding transitions (opened / reopened / resolved
-      from `reconcile_host`) — with the alerting worker.
+- [x] Alert hooks on finding transitions (opened / reopened / resolved
+      from `reconcile_host`): written to the `alert_events` outbox in the
+      reconcile transaction, `alert_evaluate` queued with `InsertTx`
+      (migration 0009, ARCHITECTURE.md "Alerting").
 
 ### Phase 1 remainder — packages & vulnerabilities UI (P1c)
 Design: [DOMAIN_MODEL.md §3](DOMAIN_MODEL.md#3-packages-in-the-dashboard).
@@ -228,11 +230,36 @@ params, no new Go endpoints.
       targets.
 - [ ] `listening_sockets.is_public` currently always `false` (column
       exists, nothing sets it yet) — populate from the scan result.
-- [ ] Alert rule evaluation worker + dispatch: webhook (HMAC-signed),
-      email, Discord, Slack, ntfy. Dedup + digest mode
-      (`alert_rules.digest`).
-- [ ] Dashboard: alert rule + notification channel CRUD (currently no
-      UI at all — schema exists, nothing writes to it yet).
+- [x] Alert rule evaluation worker + dispatch (migration 0009,
+      `internal/alerting`, `jobs/alerting.go`): rules on finding opened /
+      reopened / resolved (min severity, KEV-only, host scope) and agent
+      stale / recovered (`agent_health`, the dashboard's stale rule);
+      dedup per (rule, event type, subject) within a window; digest mode;
+      delivery with River retries/backoff and a per-attempt log.
+- [x] Generalized notifier (`internal/notify`: `Notifier` interface,
+      declared field schema, registry) with the **webhook** type:
+      HMAC-SHA256-signed JSON POST ([WEBHOOKS.md](WEBHOOKS.md)), SSRF guard
+      `internal/netguard` (https, ports 443/8443, public IPs checked at dial
+      time, same-origin redirects; dev escape hatch
+      `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS`).
+- [x] Dashboard `/dashboard/notifications`: rules, channels (form rendered
+      from the type's schema, secret shown once + rotate, "Send test"),
+      delivery log with attempts; all on `DataTable`, server actions
+      scoped by `user_id`.
+- [ ] Email notifier (SMTP settings are platform config, not per user:
+      decide where they live).
+- [ ] Discord notifier (webhook URL as a secret field, embed formatting).
+- [ ] Slack notifier (incoming-webhook URL; Block Kit formatting).
+- [ ] ntfy notifier (server URL + topic, optional access token).
+- [ ] Encrypt channel secrets at rest (`notification_channels.secrets` is
+      plaintext today; the worker needs the webhook secret to sign, so it
+      would need a key shared by web + worker, e.g. `SW_SECRETS_KEY`).
+- [ ] Skip archived hosts in alerting once migration 0011 lands (TODO in
+      `store/alerting.go` `insertFindingEvents`).
+- [ ] Alerting: per-user rate limit / circuit breaker for a channel that
+      keeps failing (today each delivery retries independently for ~11 h).
+- [ ] Exposure events (e.g. `exposure.port_public`) once the scanner
+      exists: a new event type + `Event` object, no dispatch changes.
 
 ### Phase 1.5 — agent/host split + Linux collector breadth
 Design: [DOMAIN_MODEL.md §4](DOMAIN_MODEL.md#4-domain-model-agents-hosts-os-families).

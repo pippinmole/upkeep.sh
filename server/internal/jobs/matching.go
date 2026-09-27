@@ -179,7 +179,9 @@ type ReconcileHostWorker struct {
 }
 
 func (w *ReconcileHostWorker) Work(ctx context.Context, job *river.Job[ReconcileHostArgs]) error {
-	res, err := w.Store.ReconcileHostFindings(ctx, job.Args.HostID)
+	// Transitions go to the alert_events outbox in the reconcile
+	// transaction; alert_evaluate is queued in it too (jobs/alerting.go).
+	res, err := w.Store.ReconcileHostFindingsTx(ctx, job.Args.HostID, EnqueueAlertEvaluate)
 	if errors.Is(err, store.ErrUnevaluated) {
 		// The host's match_versions job (inserted in the same transaction
 		// as the snapshot) hasn't run yet; matcher_sweep is the backstop.
@@ -193,8 +195,8 @@ func (w *ReconcileHostWorker) Work(ctx context.Context, job *river.Job[Reconcile
 		if kernel == "" {
 			kernel = "unknown"
 		}
-		log.Printf("reconcile_host %s: %d opened, %d reopened, %d resolved, %d unchanged (running kernel %s)",
-			job.Args.HostID, res.Opened, res.Reopened, res.Resolved, res.Kept, kernel)
+		log.Printf("reconcile_host %s: %d opened, %d reopened, %d resolved, %d unchanged (running kernel %s); %d alert events",
+			job.Args.HostID, res.Opened, res.Reopened, res.Resolved, res.Kept, kernel, res.AlertEvents)
 	}
 	return nil
 }

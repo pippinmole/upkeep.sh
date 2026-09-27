@@ -1,0 +1,36 @@
+{
+  "$comment": "Generated from server/internal/notify/notifiers: go test ./internal/notify/notifiers -update. Do not edit.",
+  "eventTypes": [
+    "finding.opened",
+    "finding.reopened",
+    "finding.resolved",
+    "agent.stale",
+    "agent.recovered"
+  ],
+  "types": [
+    {
+      "type": "webhook",
+      "label": "Webhook",
+      "description": "HTTPS POST of a JSON payload, signed with HMAC-SHA256.",
+      "fields": [
+        {
+          "key": "url",
+          "label": "URL",
+          "type": "url",
+          "help": "Public https endpoint (port 443 or 8443). Private and internal addresses are refused.",
+          "placeholder": "https://example.com/hooks/upkeep",
+          "required": true,
+          "maxLength": 2048
+        },
+        {
+          "key": "secret",
+          "label": "Signing secret",
+          "type": "secret",
+          "help": "Generated for you and shown once. Verify the X-Upkeep-Signature header with it (docs/WEBHOOKS.md).",
+          "secret": true,
+          "generated": true
+        }
+      ]
+    }
+  ]
+}

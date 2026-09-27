@@ -7,9 +7,12 @@
 //   - "matcher":  match_versions, advisory_rematch, matcher_sweep
 //     (software_vulnerabilities writers; see matching.go).
 //   - "findings": reconcile_host, findings_rerank.
+//   - "alerts":   alert_evaluate, alert_digest, alert_deliver, agent_health,
+//     alert_prune (see alerting.go).
 package jobs
 
 import (
+	"cmp"
 	"context"
 	"log"
 	"time"
@@ -21,6 +24,8 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/feeds"
+	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
+	"github.com/pippinmole/upkeep.sh/server/internal/notify/notifiers"
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
@@ -160,6 +165,18 @@ type Config struct {
 	MatcherInterval time.Duration
 	// DisableMatcherSchedule turns the matcher safety net off (tests).
 	DisableMatcherSchedule bool
+
+	// Alerting: channel types (nil = notifiers.Registry(netguard.FromEnv()))
+	// and the dashboard base URL for links in notifications.
+	Alerting AlertingConfig
+	// AlertInterval is the cadence of agent_health, alert_digest and the
+	// alert_evaluate safety net (default 1m).
+	AlertInterval time.Duration
+	// DisableAlertSchedule turns those periodic jobs off (tests).
+	DisableAlertSchedule bool
+	// AlertWorkers is the alerts queue's concurrency (deliveries are
+	// network-bound; default 10).
+	AlertWorkers int
 }
 
 // NewClient builds a River client that works the feeds and matcher queues
@@ -176,6 +193,16 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	river.AddWorker(workers, &MatcherSweepWorker{Store: st})
 	river.AddWorker(workers, &ReconcileHostWorker{Store: st})
 	river.AddWorker(workers, &FindingsRerankWorker{Store: st})
+
+	acfg := cfg.Alerting
+	if acfg.Notifiers == nil {
+		acfg.Notifiers = notifiers.Registry(netguard.FromEnv())
+	}
+	river.AddWorker(workers, &AlertEvaluateWorker{Store: st, Cfg: acfg})
+	river.AddWorker(workers, &AlertDigestWorker{Store: st, Cfg: acfg})
+	river.AddWorker(workers, &AgentHealthWorker{Store: st, Cfg: acfg})
+	river.AddWorker(workers, &AlertPruneWorker{Store: st, Cfg: acfg})
+	river.AddWorker(workers, &AlertDeliverWorker{Store: st, Cfg: acfg})
 
 	// Matcher safety net, independent of the feed schedule (no network):
 	// drains advisory_changes and evaluates never/stale-evaluated versions
@@ -195,6 +222,26 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	}
 	if cfg.DisableMatcherSchedule {
 		periodic = nil
+	}
+	if !cfg.DisableAlertSchedule {
+		alertEvery := cfg.AlertInterval
+		if alertEvery <= 0 {
+			alertEvery = time.Minute
+		}
+		periodic = append(periodic,
+			river.NewPeriodicJob(river.PeriodicInterval(alertEvery),
+				func() (river.JobArgs, *river.InsertOpts) { return AgentHealthArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "agent_health", RunOnStart: true}),
+			river.NewPeriodicJob(river.PeriodicInterval(alertEvery),
+				func() (river.JobArgs, *river.InsertOpts) { return AlertEvaluateArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "alert_evaluate", RunOnStart: true}),
+			river.NewPeriodicJob(river.PeriodicInterval(alertEvery),
+				func() (river.JobArgs, *river.InsertOpts) { return AlertDigestArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "alert_digest", RunOnStart: true}),
+			river.NewPeriodicJob(river.PeriodicInterval(time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) { return AlertPruneArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "alert_prune", RunOnStart: true}),
+		)
 	}
 	if cfg.PeriodicSyncs {
 		for _, eco := range cfg.OSVEcosystems {
@@ -219,6 +266,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 			QueueFeeds:    {MaxWorkers: max(1, cfg.FeedWorkers)},
 			QueueMatcher:  {MaxWorkers: 1}, // writes are serialized by an advisory lock anyway
 			QueueFindings: {MaxWorkers: max(1, cfg.FindingsWorkers)},
+			QueueAlerts:   {MaxWorkers: cmp.Or(cfg.AlertWorkers, 10)},
 		},
 		Workers:              workers,
 		PeriodicJobs:         periodic,

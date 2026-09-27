@@ -56,6 +56,10 @@ services:
     environment:
       DATABASE_URL: postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable
       SW_FEED_SYNC_ENABLED: ${SW_FEED_SYNC_ENABLED:-true}
+      SW_DASHBOARD_URL: http://localhost:3000
+      # Dev only: lets notification channels reach http:// and private /
+      # loopback receivers (docs/WEBHOOKS.md). Set it in web/.env.local too.
+      SW_NOTIFY_ALLOW_PRIVATE_NETWORKS: ${SW_NOTIFY_ALLOW_PRIVATE_NETWORKS:-false}
 
   # `web` is intentionally NOT run here. Turbopack's file watcher does not
   # reliably see changes made to a Windows-path bind mount under Docker
