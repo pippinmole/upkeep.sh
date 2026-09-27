@@ -291,10 +291,11 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       (`agents.revoked_at`; ingest already refuses revoked agents),
       rotate its credential. (Pre-naming agents via
       `enrollment_tokens.agent_name` in the Register dialog is done.)
-- [ ] Agent/host reporting gaps: `hosts.arch` and `hosts.os_build` are
-      never written (the agent doesn't report them yet); the production
-      image build needs `--build-arg VERSION=...` so `agent.version` isn't
-      `dev`.
+- [ ] Agent/host reporting gaps: ~~`hosts.arch`~~ (done: agent `arch`
+      collector → `os.arch`, `snapshots.arch`, `hosts.arch`);
+      `hosts.os_build` is never written (only meaningful for the
+      Windows/macOS agents); the production image build needs
+      `--build-arg VERSION=...` so `agent.version` isn't `dev`.
 - [x] Dashboard **Agents** page lists collectors (name, status online /
       stale / revoked / never connected, version, platform, host count,
       vuln pills, last seen) with their hosts as expandable sub-rows (OS,
@@ -302,14 +303,28 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       shared `DataTable` (Q11). Optional agent name in the Register dialog.
 - [ ] A standalone **Hosts** list, if wanted (today `/dashboard/hosts`
       redirects to Agents, where every host is listed under its agent(s)).
-- [ ] Linux collectors: uptime, hostname + machine-id (running kernel
-      landed in P1b as `os.kernel`),
-      UDP listeners, systemd services (unit files + `/proc/*/cgroup`, no
+- [x] Linux collectors (file/procfs reads only, per-collector status,
+      capped with a `truncated` flag): uptime, arch, UDP listeners,
+      systemd services (unit files + `*.wants` + `/proc/*/cgroup`, no
       D-Bus), local users (`/etc/passwd`/`/etc/group`), processes on
       deleted libraries (`/proc/*/maps`), unattended-upgrades config +
-      last apt update.
-- [ ] `host_services` / `host_listeners` on the same validity-range
-      pattern as `host_software`.
+      last apt update (hostname + machine-id landed with the split,
+      running kernel in P1b). PROTOCOL.md "Linux breadth sections".
+- [x] Migration `0010_host_facts`: `host_services` / `host_listeners`
+      (TCP+UDP) / `host_users` on the validity-range pattern, per-(host,
+      kind) set hashes in `host_fact_state`, never closed when the
+      collector isn't ok (truncated = additive only);
+      `snapshots.uptime_seconds` / `arch` / `facts` (validated
+      `hostfacts.LinuxFacts`), `hosts.arch`. Host tabs Services /
+      Listeners / Users (DataTable), overview System + Needs restart,
+      header arch/uptime/needs-restart badges.
+- [ ] Follow-ups to the Linux collectors: services `failed` state (needs
+      D-Bus or journal parsing); `needs_restart` misses other users'
+      processes without `CAP_SYS_PTRACE` (counted as unreadable); service
+      / listener / user changes on the History tab; fleet "which hosts
+      listen on port N" page (`host_listeners_port_open_idx` is ready);
+      retire `listening_sockets` once the exposure scanner writes to
+      `host_listeners` instead.
 - [ ] Remote collection (SSH/WinRM from a subnet agent) — **blocked on
       open questions Q3–Q5** (command execution principle, credential
       storage, port-scan eligibility). Schema supports it; don't build

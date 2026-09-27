@@ -1133,6 +1133,31 @@ Trade-off accepted: a fact moves between jsonb and a column when it becomes
 important. That costs one migration and a backfill from `facts`, which is
 cheaper than designing all three OSes' schemas up front.
 
+**As implemented (`migrations/0010_host_facts.up.sql`, P1.5).**
+`host_services`, `host_listeners` and `host_users` are validity-range
+tables like `host_software`, but not interned: each row carries its
+values plus `row_key` (natural key: `systemd/ssh.service`,
+`tcp 0.0.0.0:5432`, `alice`) and `row_hash` (hash of all values,
+`server/internal/hostfacts`). At most one range per (host, row_key) is
+open; any value change (a service stops, a port changes owner, a user
+joins `sudo`) closes it and opens a new one at the same boundary, so
+history needs no extra table. Bookkeeping is per (host, kind) in
+`host_fact_state` (`services:systemd`, `listeners:tcp`, `listeners:udp`,
+`users:local`), mirroring `host_inventory_state`: an unchanged set hash
+only moves `confirmed_at`; pushes not newer than it are stale; a kind is
+diffed only when its collector is `ok`; a truncated list is additive
+(opens/replaces, never closes) and leaves `set_hash` NULL. TCP and UDP
+share `host_listeners`, partitioned by `transport`, because their
+collectors fail independently. The owning pid is not part of a listener
+range (it would churn on restarts); `listening_sockets` keeps it per
+snapshot. No backfill: ranges start at each host's first push after
+0010. `host_users` was cheap enough to land now rather than as a fact.
+`snapshots.facts` holds `needs_restart` and `unattended_upgrades`,
+validated against `hostfacts.LinuxFacts`; `snapshots.uptime_seconds` and
+`snapshots.arch` / `hosts.arch` are columns. The dashboard reads the
+open ranges (Services / Listeners / Users host tabs) and the newest
+snapshot's facts (Overview), all scoped by `hosts.user_id`.
+
 ### 4.6 Target schema sketch (identity and topology)
 
 ```sql
@@ -1272,6 +1297,22 @@ preference for `local` mode, in line with the current agent's principle.
 | Users | `/etc/passwd` (uid ≥ 1000 plus uid 0, and login shell); `/etc/group` for sudo/admin membership. Never `/etc/shadow`. |
 | Ubuntu Pro attachment | `/var/lib/ubuntu-advantage/status.json` |
 
+**As implemented (Linux, P1.5).** Collectors in `agent/internal/collector`
+(`uptime.go`, `arch.go`, `ports.go`, `systemd.go`, `procs.go`,
+`users.go`, `deletedlibs.go`, `unattended.go`), wired in
+`agent/internal/snapshot`, each gated on the detected OS and on the
+target's `LiveProc` capability, each with its own status. Differences
+from the table above: arch comes from the installed `dpkg` package's
+`Architecture` (the userland's native arch), falling back to
+`/proc/sys/kernel/arch`; UDP "listeners" are bound, unconnected sockets;
+systemd `start_mode` adds `manual` (started by an enabled
+socket/timer/path unit) and `static`/`masked`, and running state comes
+from `/proc/<pid>/cgroup` matched on the `system.slice` segment (the
+agent sits in its own cgroup namespace); needs-restart also names the
+systemd unit to restart and counts processes it couldn't read (no
+`CAP_SYS_PTRACE`); the last unattended run is its periodic stamp, not
+the log. Wire details in PROTOCOL.md "Linux breadth sections".
+
 **Windows (requires a native Windows agent: a Windows service, not Docker)**
 
 | Fact | Source |
@@ -1344,9 +1385,9 @@ cells assume Q1 is answered yes.
 | Running kernel | ❌ n/a | 🛠 P1.5 (`/proc/sys/kernel/osrelease`) | 🛠 P4 (Darwin version) |
 | Hostname | 🛠 P3 | ✅ at enrollment only; 🛠 P1.5 every push | 🛠 P4 |
 | Stable machine identity | 🛠 P3 (MachineGuid) | 🛠 P1.5 (`/etc/machine-id`) | 🛠 P4 (IOPlatformUUID) |
-| Uptime / boot time | 🛠 P3 | 🛠 P1.5 (`/proc/uptime`) | 🛠 P4 |
+| Uptime / boot time | 🛠 P3 | ✅ `/proc/uptime` | 🛠 P4 |
 | Listening TCP sockets + owning process | 🛠 P3 (iphlpapi) | ✅ `/proc/net/tcp{,6}` + pid/comm | 🛠 P4 |
-| Listening UDP sockets | 🛠 P3 | 🛠 P1.5 | 🛠 P4 |
+| Listening UDP sockets | 🛠 P3 | ✅ `/proc/net/udp{,6}` (bound, unconnected) | 🛠 P4 |
 | Agent-reported public IPv4/IPv6 | 🛠 P3 (collector code is portable) | ✅ ipify | 🛠 P4 |
 | Server-observed source IP | 🛠 P3 (free once an agent exists) | ✅ `snapshots.source_ip` | 🛠 P4 |
 | External port-exposure scan | ❓ Q5 | 🛠 P1 (exposure phase; `local` hosts only) | ❓ Q5 |
@@ -1358,11 +1399,11 @@ cells assume Q1 is answered yes.
 | Vulnerability matching | ❓ Q14 (MSRC CVRF by build) | 🛠 P1 (OSV Debian/Ubuntu + KEV/EPSS) | ❓ Q14 (Apple security releases by OS version) |
 | Security updates available | 🛠 P3 (WU Agent API) | 🛠 P1 (server-computed from matches) | 🛠 P4 (SoftwareUpdate plist) |
 | All pending updates (non-security) | 🛠 P3 (same API) | ❓ Q13 (apt lists parsing) | 🛠 P4 (same plist) |
-| Auto-update configured / last run | 🛠 P3 (WU policy + last success) | 🛠 P1.5 (unattended-upgrades config, apt stamps) | 🛠 P4 (SoftwareUpdate prefs) |
+| Auto-update configured / last run | 🛠 P3 (WU policy + last success) | ✅ unattended-upgrades config, apt stamps | 🛠 P4 (SoftwareUpdate prefs) |
 | Pending reboot | 🛠 P3 (CBS/WU/PendingFileRename keys) | ✅ `/var/run/reboot-required{,.pkgs}` | ❓ (no clean equivalent) |
-| Processes using deleted libraries | ❌ | 🛠 P1.5 (`/proc/*/maps`) | ❌ |
-| Services inventory + state | 🛠 P3 (SCM) | 🛠 P1.5 (systemd unit files + `/proc` cgroups) | 🛠 P4 (launchd plists) |
-| Local users / admins | 🛠 P3 | 🛠 P1.5 (`/etc/passwd`, `/etc/group`) | 🛠 P4 |
+| Processes using deleted libraries | ❌ | ✅ `/proc/*/maps` | ❌ |
+| Services inventory + state | 🛠 P3 (SCM) | ✅ systemd unit files + `/proc` cgroups | 🛠 P4 (launchd plists) |
+| Local users / admins | 🛠 P3 | ✅ `/etc/passwd`, `/etc/group` | 🛠 P4 |
 | Firewall enabled | 🛠 P3 (profiles) | ❓ (ufw/nftables state is hard without exec) | 🛠 P4 (ALF) |
 | Built-in AV / malware protection | 🛠 P3 (Defender status) | ❌ | 🛠 P4 (XProtect version) |
 | Disk encryption | 🛠 P3 (BitLocker) | ❓ (LUKS detection) | 🛠 P4 (FileVault, exec) |
