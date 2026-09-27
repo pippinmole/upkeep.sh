@@ -48,7 +48,7 @@ func main() {
 	client := transport.New(serverURL)
 	credPath := filepath.Join(dataDir, "credentials.json")
 
-	agentID, agentSecret, err := loadOrEnroll(client, credPath)
+	creds, err := loadOrEnroll(client, credPath)
 	if err != nil {
 		log.Fatalf("enrollment failed: %v", err)
 	}
@@ -63,14 +63,27 @@ func main() {
 	collect.Agent = &collector.Agent{Version: version, Platform: platform(), IntervalSeconds: int(interval.Seconds())}
 
 	for {
+		rotate := false
 		for _, t := range targets {
 			snap := collect.Collect(context.Background(), t)
 			logCollectorErrors(t, snap)
-			if err := client.PushSnapshot(agentID, agentSecret, snap); err != nil {
+			res, err := client.PushSnapshot(creds.AgentID, creds.AgentSecret, snap)
+			if err != nil {
 				log.Printf("[%s] push failed: %v", t.Ref(), err)
+				continue
+			}
+			log.Printf("[%s] pushed snapshot: os=%s/%s, %d packages, %d listening sockets, %d services, %d users",
+				t.Ref(), snap.Host.OSFamily, snap.OS.ID, len(snap.Packages), len(snap.ListeningSockets), len(snap.Services), len(snap.Users))
+			rotate = rotate || res.RotateCredentials
+		}
+		// Credential rotation is agent-initiated: the server only asks (a
+		// push response header); nothing it sends is ever executed.
+		if rotate {
+			if next, err := rotateCredentials(client, credPath, creds); err != nil {
+				log.Printf("credential rotation failed: %v", err)
 			} else {
-				log.Printf("[%s] pushed snapshot: os=%s/%s, %d packages, %d listening sockets, %d services, %d users",
-					t.Ref(), snap.Host.OSFamily, snap.OS.ID, len(snap.Packages), len(snap.ListeningSockets), len(snap.Services), len(snap.Users))
+				creds = next
+				log.Printf("credentials rotated and saved to %s", credPath)
 			}
 		}
 		time.Sleep(interval)
