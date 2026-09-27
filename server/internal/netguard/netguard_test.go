@@ -243,3 +243,111 @@ func portOf(t *testing.T, u string) int {
 	}
 	return n
 }
+
+func TestCheckSMTP(t *testing.T) {
+	g := &Guard{}
+	for _, port := range SMTPPorts {
+		if err := g.CheckSMTP("smtp.example.com", port); err != nil {
+			t.Errorf("port %d: %v", port, err)
+		}
+	}
+	for _, ok := range []string{"mail.example.com.", "8.8.8.8", "2606:4700:4700::1111", "[2606:4700:4700::1111]", "smtp_relay.example.com"} {
+		if err := g.CheckSMTP(ok, 587); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, port := range []int{22, 80, 443, 8443, 2586, 1025, 110, 143, 993} {
+		if err := g.CheckSMTP("smtp.example.com", port); !errors.Is(err, ErrBlocked) {
+			t.Errorf("port %d: want blocked, got %v", port, err)
+		}
+	}
+	for _, bad := range []string{"127.0.0.1", "::1", "[::1]", "10.1.2.3", "192.168.0.1", "169.254.169.254", "::ffff:10.0.0.1"} {
+		if err := g.CheckSMTP(bad, 587); !errors.Is(err, ErrBlocked) {
+			t.Errorf("%q: want blocked, got %v", bad, err)
+		}
+	}
+	for _, bad := range []string{"", "smtp.example.com:587", "smtp://smtp.example.com", "mail example.com",
+		"mail.example.com\r\nRCPT TO:<x@y>", "-bad.example.com", "a..b", "user@mail.example.com", "mail.example.com/x"} {
+		if err := g.CheckSMTP(bad, 587); err == nil {
+			t.Errorf("%q: want error", bad)
+		}
+	}
+	for _, port := range []int{0, -1, 65536} {
+		if err := g.CheckSMTP("smtp.example.com", port); err == nil {
+			t.Errorf("port %d: want error", port)
+		}
+	}
+	// The HTTP policy is untouched: SMTP ports stay closed to https.
+	if _, err := g.CheckURL("https://example.com:587/"); !errors.Is(err, ErrBlocked) {
+		t.Errorf("https on an SMTP port: %v", err)
+	}
+
+	dev := &Guard{AllowPrivate: true}
+	for _, ok := range []struct {
+		host string
+		port int
+	}{{"127.0.0.1", 1025}, {"localhost", 25}, {"10.0.0.5", 587}, {"[::1]", 2525}} {
+		if err := dev.CheckSMTP(ok.host, ok.port); err != nil {
+			t.Errorf("escape hatch %s:%d: %v", ok.host, ok.port, err)
+		}
+	}
+	if err := dev.CheckSMTP("bad host", 25); err == nil {
+		t.Error("escape hatch must still refuse malformed hosts")
+	}
+}
+
+// DialSMTP checks the resolved address at dial time: a name resolving to
+// loopback or a private address is refused, a real loopback listener is
+// only reachable through the escape hatch.
+func TestDialSMTP(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var hits atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			hits.Add(1)
+			c.Close()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	strict := &Guard{Lookup: lookupTable(map[string][]string{
+		"loop.test":  {"127.0.0.1"},
+		"priv.test":  {"10.0.0.7"},
+		"mixed.test": {"93.184.216.34", "192.168.1.1"},
+		"meta.test":  {"169.254.169.254"},
+		"localhost":  {"127.0.0.1", "::1"},
+	})}
+	ctx := context.Background()
+	for _, h := range []string{"loop.test", "priv.test", "mixed.test", "meta.test", "127.0.0.1", "localhost"} {
+		if _, err := strict.DialSMTP(ctx, h, 587); !errors.Is(err, ErrBlocked) {
+			t.Errorf("%s: want blocked, got %v", h, err)
+		}
+	}
+	if _, err := strict.DialSMTP(ctx, "127.0.0.1", port); !errors.Is(err, ErrBlocked) {
+		t.Errorf("strict dial to the loopback listener: %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("listener was reached by the strict guard")
+	}
+
+	c, err := (&Guard{AllowPrivate: true}).DialSMTP(ctx, "127.0.0.1", port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for hits.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if hits.Load() != 1 {
+		t.Fatal("escape hatch did not reach the listener")
+	}
+}

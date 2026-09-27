@@ -1,8 +1,10 @@
 "use client";
 
 import { MoreHorizontal, Plus } from "lucide-react";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
+import { NOTIFICATION_SETTINGS_URL } from "@/components/notifications/links";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
@@ -18,9 +20,9 @@ import {
 import { durationLabel, eventTypeLabel, isFindingEvent, SEVERITY_FLOORS } from "@/lib/notifiers";
 import type { ChannelRow, RuleRow, ScopeHost } from "@/lib/queries-notifications";
 
-import { deleteRule, setRuleEnabled } from "./actions";
+import { deleteRule, setRuleEnabled } from "@/app/dashboard/notification-actions";
 import { RuleDialog } from "./rule-dialog";
-import { ConfirmDialog, EnabledBadge } from "./shared";
+import { ConfirmDialog, EnabledBadge } from "@/components/notifications/shared";
 
 type Ctx = { channels: ChannelRow[]; hosts: ScopeHost[] };
 
@@ -130,7 +132,15 @@ function makeColumns(ctx: Ctx) {
     col.accessor((r) => r.channels.map((c) => c.name).join(", "), {
       id: "channels",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Channels" />,
-      cell: ({ getValue }) => getValue() || <span className="text-muted-foreground">None</span>,
+      // Channels are managed under Settings; link there rather than to nowhere.
+      cell: ({ getValue }) =>
+        getValue() ? (
+          <Link href={NOTIFICATION_SETTINGS_URL} className="hover:underline">
+            {getValue()}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">None</span>
+        ),
     }),
     col.accessor(
       (r) => (r.digest ? `Digest, every ${durationLabel(r.digestIntervalSeconds)}` : "Immediate"),

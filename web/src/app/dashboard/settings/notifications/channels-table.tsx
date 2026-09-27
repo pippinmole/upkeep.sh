@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  CheckCircle2,
-  ChevronDown,
-  Loader2,
-  MoreHorizontal,
-  Plus,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, ChevronDown, Loader2, MoreHorizontal, Plus, XCircle } from "lucide-react";
 import { useState, useTransition } from "react";
 
 import { DataTable } from "@/components/data-table/data-table";
@@ -39,9 +32,14 @@ import {
   sendTestNotification,
   setChannelEnabled,
   type TestResult,
-} from "../actions";
-import { ChannelDialog } from "../channel-dialog";
-import { channelTypeIcon, ConfirmDialog, DeliveryStatusBadge, EnabledBadge } from "../shared";
+} from "@/app/dashboard/notification-actions";
+import { ChannelDialog } from "./channel-dialog";
+import {
+  channelTypeIcon,
+  ConfirmDialog,
+  DeliveryStatusBadge,
+  EnabledBadge,
+} from "@/components/notifications/shared";
 
 const TYPE_OPTIONS = CHANNEL_TYPES.map((t) => ({ value: t.type, label: t.label }));
 
@@ -259,12 +257,7 @@ export function AddChannelButton() {
         </DropdownMenuContent>
       </DropdownMenu>
       {type && (
-        <ChannelDialog
-          key={type}
-          open
-          onOpenChange={(o) => !o && setType(null)}
-          type={type}
-        />
+        <ChannelDialog key={type} open onOpenChange={(o) => !o && setType(null)} type={type} />
       )}
     </>
   );

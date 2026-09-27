@@ -7,7 +7,7 @@
 // jobs/alerting.go) only ever talk to a Notifier through this package, so
 // adding a channel type touches nothing there.
 //
-// # How to add a notifier (email, Discord, Slack, ntfy, ...)
+// # How to add a notifier (webhook, ntfy and email exist; e.g. Slack)
 //
 //  1. Create internal/notify/<type> with a type implementing Notifier:
 //     - Spec(): the type key (e.g. "slack"), label, description and its
@@ -19,15 +19,18 @@
 //     netguard.CheckURL, required fields, formats). Runs at send time, and
 //     the "send test" button surfaces its error.
 //     - Send(ctx, cfg, n): deliver one Notification. Make every outbound
-//     HTTP request through a netguard.Guard client. Return a Result with the
-//     status code, and wrap errors that retrying cannot fix with
-//     Permanent(err); anything else is retried with backoff by the caller.
+//     HTTP request through a netguard.Guard client (other protocols dial
+//     through the guard too, e.g. Guard.DialSMTP for email). Return a
+//     Result with the status code, and wrap errors that retrying cannot fix
+//     with Permanent(err); anything else is retried with backoff by the
+//     caller. Channels written for people can reuse notify/render for
+//     event titles and bodies.
 //  2. Register it in internal/notify/notifiers.Registry.
 //  3. Regenerate the dashboard's copy of the schemas:
 //     `go test ./internal/notify/notifiers -update` (writes
 //     web/src/lib/notifier-types.json). The dashboard renders the channel
 //     form from it; for a type that needs a custom form, register a
-//     component in web/src/app/dashboard/notifications/channel-forms.tsx.
+//     component in web/src/app/dashboard/settings/notifications/channel-forms.tsx.
 //
 // That's all: rules, evaluation, dedup, digests, retries and the delivery
 // log are shared.

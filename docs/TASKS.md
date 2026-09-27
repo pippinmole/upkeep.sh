@@ -1,6 +1,6 @@
 # Tasks
 
-Status as of 2026-09-26. Check this before starting new work — it's the
+Status as of 2026-09-27. Check this before starting new work — it's the
 single source of truth for what's done vs. outstanding, kept ahead of
 memory or a stale conversation summary.
 
@@ -241,16 +241,39 @@ params, no new Go endpoints.
       HMAC-SHA256-signed JSON POST ([WEBHOOKS.md](WEBHOOKS.md)), SSRF guard
       `internal/netguard` (https, ports 443/8443, public IPs checked at dial
       time, same-origin redirects; dev escape hatch
-      `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS`).
-- [x] Dashboard `/dashboard/notifications`: rules, channels (form rendered
-      from the type's schema, secret shown once + rotate, "Send test"),
-      delivery log with attempts; all on `DataTable`, server actions
-      scoped by `user_id`.
-- [ ] Email notifier (SMTP settings are platform config, not per user:
-      decide where they live).
-- [ ] Discord notifier (webhook URL as a secret field, embed formatting).
-- [ ] Slack notifier (incoming-webhook URL; Block Kit formatting).
-- [ ] ntfy notifier (server URL + topic, optional access token).
+      `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS`; a separate SMTP policy for the
+      email channel, see below).
+- [x] Dashboard: rules and delivery log with attempts under
+      `/dashboard/alerts`; channels (form rendered from the type's schema,
+      secret shown once + rotate, "Send test") under
+      `/dashboard/settings/notifications`; all on `DataTable`, server
+      actions scoped by `user_id`.
+- [x] **ntfy** notifier (`internal/notify/ntfy`): JSON publish to ntfy.sh
+      or a self-hosted server (topic validated against ntfy's charset,
+      optional Bearer access token, automatic or fixed priority);
+      human-readable title/body, priority from severity/KEV (KEV or
+      critical → urgent, resolved/recovered → low, digests capped at high),
+      emoji tags, `click` to the dashboard link. Through `netguard`, so a
+      self-hosted server must be public https on 443/8443
+      ([ARCHITECTURE.md § ntfy channel](ARCHITECTURE.md#ntfy-channel)).
+- [x] **Email (SMTP)** notifier (`internal/notify/email`): plain-text mail
+      through the user's own SMTP server. **SMTP settings are per channel**
+      (host, port, security, username/password, from, to), entered in the
+      channel form like webhook and ntfy; there is no platform-wide SMTP
+      config (DECISIONS.md). Security STARTTLS (default, required when
+      chosen), implicit TLS or none; certificates always verified.
+      **"Allow insecure authentication"** (default off): credentials are
+      never sent over a connection without TLS unless it is on. Subjects
+      and bodies share ntfy's rendering (`internal/notify/render`); headers
+      are CR/LF-safe, subjects RFC 2047 encoded. 4xx/connection errors are
+      retried, 5xx/auth/TLS failures fail at once. `netguard` gained an
+      **SMTP policy** (ports 25, 465, 587, 2525; same public-address
+      checks at dial time and dev escape hatch; the https rules are
+      unchanged)
+      ([ARCHITECTURE.md § Email (SMTP) channel](ARCHITECTURE.md#email-smtp-channel)).
+- MVP notification channels are **webhook + ntfy + email (SMTP)**;
+  Discord and Slack are deferred to Phase 2+ (a webhook can already feed
+  most chat tools).
 - [ ] Encrypt channel secrets at rest (`notification_channels.secrets` is
       plaintext today; the worker needs the webhook secret to sign, so it
       would need a key shared by web + worker, e.g. `SW_SECRETS_KEY`).
@@ -374,6 +397,8 @@ Today agent == host: enrollment creates a `hosts` row and the returned
 - [ ] RHEL/Alpine package collectors (agent currently Debian/Ubuntu-only
       by design).
 - [ ] SMS notifications.
+- [ ] Discord notifier (webhook URL as a secret field, embed formatting).
+- [ ] Slack notifier (incoming-webhook URL; Block Kit formatting).
 - [ ] Billing/Stripe (see DECISIONS.md — deferred until real users).
 - [ ] Multi-tenant orgs/teams (see DECISIONS.md — deferred until demand).
 - [ ] Cache layer + revalidation webhook for dashboard reads (only

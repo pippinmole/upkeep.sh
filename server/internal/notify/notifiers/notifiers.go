@@ -6,14 +6,19 @@ package notifiers
 import (
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
+	"github.com/pippinmole/upkeep.sh/server/internal/notify/email"
+	"github.com/pippinmole/upkeep.sh/server/internal/notify/ntfy"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify/webhook"
 )
 
 // Registry returns every supported channel type, all making outbound
-// requests through g.
+// connections through g.
 func Registry(g *netguard.Guard) *notify.Registry {
 	return notify.NewRegistry(
 		webhook.New(g),
-		// email.New(...), slack.New(g), discord.New(g), ntfy.New(g): TASKS.md follow-ups.
+		ntfy.New(g),
+		email.New(g),
+		// Slack and Discord are deferred past MVP (docs/TASKS.md
+		// "Phase 2+"); webhook covers chat tools via their inbound hooks.
 	)
 }

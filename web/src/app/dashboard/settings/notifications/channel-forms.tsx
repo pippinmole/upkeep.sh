@@ -30,7 +30,7 @@ export type ChannelFieldsProps = {
 
 // Per-type form overrides, registered here and only here. A channel type
 // whose form can't be expressed by its declared fields (e.g. an OAuth
-// "connect" button) gets a component; every other type — webhook today —
+// "connect" button) gets a component; every other type — webhook and ntfy today —
 // is rendered from its schema by SchemaFields.
 const CUSTOM_FORMS: Partial<Record<string, ComponentType<ChannelFieldsProps>>> = {};
 
