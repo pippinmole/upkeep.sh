@@ -340,6 +340,11 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       host's own pages (today: Hosts list badge + dialog); listeners and
       deleted-library facts for remote hosts (need walking remote /proc,
       slow over SFTP); collecting several targets in parallel; WinRM.
+- [ ] Faster setup feedback for remote hosts (post-MVP): agent polls
+      config every ~10s while any target is unconfirmed or failing (60s
+      otherwise); a "Try again" button that clears a target's backoff;
+      surface failed collectors (e.g. unreadable dpkg status) in the
+      setup dialog instead of showing "Connected".
 
 ### Cross-cutting gaps worth closing before real users
 - [ ] Tests: dpkg status parsing, OS detection and the inventory range
