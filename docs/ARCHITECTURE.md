@@ -317,7 +317,8 @@ platform-wide SMTP config (DECISIONS.md "Email notifier").
   https rules (443/8443) are separate and unchanged. The stdlib `net/smtp`
   client runs over the guarded connection with a 30 s deadline.
   `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` allows any port and private
-  addresses (e.g. Mailpit on `localhost:1025`) for development only.
+  addresses for development only. A test SMTP server (Mailpit) and the
+  exact channel settings for it are in `dev/smtp/README.md`.
 - **Message**: headers `From: "upkeep.sh" <from>`, `To`, `Subject`,
   `Date`, `Message-ID` (`<delivery id@from domain>`, stable across
   retries), `MIME-Version`, `Content-Type: text/plain; charset=utf-8`,

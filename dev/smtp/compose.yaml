@@ -1,0 +1,24 @@
+# Throwaway test SMTP server (Mailpit) for the email notification channel.
+# Captures every message and shows it in a web UI; nothing is delivered
+# anywhere. Usage and the exact channel settings: dev/smtp/README.md.
+name: upkeep-dev-smtp
+
+services:
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    environment:
+      # SMTP on 2525, one of the ports the notifier's SMTP policy allows.
+      MP_SMTP_BIND_ADDR: 0.0.0.0:2525
+      # Fixed test login ("user:password"); mail without it is refused.
+      MP_SMTP_AUTH: alerts@upkeep.sh:upkeep-test-password
+      # No TLS here, so allow PLAIN/LOGIN over plain text (dev only).
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_MAX_MESSAGES: 500
+    ports:
+      - "2525:2525" # SMTP
+      - "8025:8025" # web UI and API
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
