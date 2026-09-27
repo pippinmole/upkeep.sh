@@ -57,8 +57,9 @@ func TestRemoteHostLifecycle(t *testing.T) {
 	ctx := context.Background()
 	a := f.enroll("")
 
-	// An agent that never reported an ssh key can't collect remote hosts.
-	if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, '10.0.0.5', 22, 'upkeep', '')`, f.userID, a); st != "agent_no_ssh" {
+	// A host can be added before the agent has reported its ssh key (it
+	// may not have started yet); the dashboard waits for the key.
+	if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, '10.0.0.5', 22, 'upkeep', '')`, f.userID, f.enroll("")); !strings.HasPrefix(st, "ok:") {
 		t.Fatalf("add before key: %s", st)
 	}
 	f.reportStatus(a, StatusReport{SSHPublicKey: testAgentKey})

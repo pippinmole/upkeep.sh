@@ -17,8 +17,8 @@
 BEGIN;
 
 -- The agent's SSH public key, authorized_keys format ("ssh-ed25519 AAAA...").
--- NULL: an agent that predates remote collection (not offered as a remote
--- collector in the dashboard).
+-- NULL until the agent's first status report (the dashboard then shows
+-- "waiting for the agent to report its SSH key").
 ALTER TABLE agents ADD COLUMN ssh_public_key text;
 
 --   port, username       ssh connection settings (address already exists).
@@ -58,7 +58,6 @@ BEGIN
     SELECT * INTO a FROM agents WHERE id = p_agent AND user_id = p_user FOR UPDATE;
     IF NOT FOUND THEN RETURN 'not_found'; END IF;
     IF a.revoked_at IS NOT NULL THEN RETURN 'revoked'; END IF;
-    IF a.ssh_public_key IS NULL THEN RETURN 'agent_no_ssh'; END IF;
     -- Hostname or IP literal (v4, or v6 without brackets): no spaces, no
     -- user@ or :port, nothing a shell or ssh option parser would read.
     IF v_address IS NULL OR v_address !~ '^[A-Za-z0-9._:-]{1,253}$' OR v_address ~ '^-' THEN

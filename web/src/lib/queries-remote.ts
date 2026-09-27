@@ -15,26 +15,20 @@ export function sshFingerprint(key: string | null): string | null {
   return `SHA256:${digest.replace(/=+$/, "")}`;
 }
 
-export type RemoteCollectorAgent = {
+export type CollectorAgent = {
   id: string;
   name: string;
   status: AgentStatus;
-  // The agent reported an SSH public key, which only builds with remote
-  // collection support do (they generate the key on start). Older agents
-  // never fetch a target list, so a host added to them would never be
-  // collected.
-  supportsRemote: boolean;
 };
 
 // The user's agents that aren't revoked, for "Reach it from an existing
-// agent": remote-capable ones first.
-export async function getRemoteCollectorAgents(userId: string): Promise<RemoteCollectorAgent[]> {
-  const { rows } = await pool.query<RemoteCollectorAgent>(
-    `SELECT a.id, a.name, ${AGENT_STATUS_SQL} AS status,
-            a.ssh_public_key IS NOT NULL AS "supportsRemote"
+// agent".
+export async function getCollectorAgents(userId: string): Promise<CollectorAgent[]> {
+  const { rows } = await pool.query<CollectorAgent>(
+    `SELECT a.id, a.name, ${AGENT_STATUS_SQL} AS status
      FROM agents a
      WHERE a.user_id = $1 AND a.revoked_at IS NULL
-     ORDER BY a.ssh_public_key IS NULL, a.last_seen_at DESC NULLS LAST, a.name`,
+     ORDER BY a.last_seen_at DESC NULLS LAST, a.name`,
     [userId],
   );
   return rows;

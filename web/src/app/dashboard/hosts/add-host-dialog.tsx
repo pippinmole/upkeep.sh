@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { RemoteCollectorAgent } from "@/lib/queries-remote";
+import type { CollectorAgent } from "@/lib/queries-remote";
 
 import { EnrollAgentPanel } from "../agents/register-agent-dialog";
 import { addRemoteHost } from "../manage-actions";
@@ -52,7 +52,7 @@ export function AddHostDialog({
   agents,
 }: {
   serverUrl: string;
-  agents: RemoteCollectorAgent[];
+  agents: CollectorAgent[];
 }) {
   return (
     <Dialog>
@@ -66,7 +66,7 @@ export function AddHostDialog({
   );
 }
 
-function AddHostFlow({ serverUrl, agents }: { serverUrl: string; agents: RemoteCollectorAgent[] }) {
+function AddHostFlow({ serverUrl, agents }: { serverUrl: string; agents: CollectorAgent[] }) {
   const [step, setStep] = useState<Step>({ kind: "choose" });
   const [title, description] = TITLES[step.kind];
 
@@ -144,12 +144,11 @@ function RemoteHostForm({
   agents,
   onAdded,
 }: {
-  agents: RemoteCollectorAgent[];
+  agents: CollectorAgent[];
   onAdded: (agentId: string, hostId: string) => void;
 }) {
-  const usable = agents.filter((a) => a.supportsRemote);
-  const online = usable.find((a) => a.status === "online");
-  const [agentId, setAgentId] = useState(online?.id ?? usable[0]?.id ?? "");
+  const online = agents.find((a) => a.status === "online");
+  const [agentId, setAgentId] = useState(online?.id ?? agents[0]?.id ?? "");
   const [address, setAddress] = useState("");
   const [port, setPort] = useState("22");
   const [username, setUsername] = useState("upkeep");
@@ -163,22 +162,6 @@ function RemoteHostForm({
         You don&apos;t have an agent yet. Install one on a machine on the same network as the host
         (&quot;Install the agent on it&quot;), then come back here.
       </p>
-    );
-  }
-  if (usable.length === 0) {
-    return (
-      <div className="flex flex-col gap-2 text-sm">
-        <p className="text-muted-foreground">
-          Your {agents.length === 1 ? "agent is" : `${agents.length} agents are`} running an older
-          version that can only monitor the machine it&apos;s installed on:{" "}
-          <span className="text-foreground">{agents.map((a) => a.name).join(", ")}</span>.
-        </p>
-        <p className="text-muted-foreground">
-          Update one to the latest agent image and restart it, keeping its data volume. On start it
-          creates the SSH key it uses to reach other hosts and reports it here; then it becomes
-          selectable. Nothing has been tried against any host yet.
-        </p>
-      </div>
     );
   }
 
@@ -208,14 +191,10 @@ function RemoteHostForm({
           </SelectTrigger>
           <SelectContent>
             {agents.map((a) => (
-              <SelectItem key={a.id} value={a.id} disabled={!a.supportsRemote}>
+              <SelectItem key={a.id} value={a.id}>
                 {a.name}
-                {!a.supportsRemote ? (
-                  <span className="text-muted-foreground"> (older version, update to use)</span>
-                ) : (
-                  a.status !== "online" && (
-                    <span className="text-muted-foreground"> ({a.status})</span>
-                  )
+                {a.status !== "online" && (
+                  <span className="text-muted-foreground"> ({a.status})</span>
                 )}
               </SelectItem>
             ))}
@@ -223,8 +202,6 @@ function RemoteHostForm({
         </Select>
         <p className="text-muted-foreground text-xs">
           It must be able to reach the host&apos;s SSH port.
-          {usable.length < agents.length &&
-            " Greyed-out agents run an older version that only monitors its own machine."}
         </p>
       </div>
 
