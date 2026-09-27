@@ -75,7 +75,7 @@ for the reasoning.
 | `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
 | `users` | Next.js (signup) |
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
-| `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Notifications settings) |
+| `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Notification settings: channels) |
 
 Both sides **read** any table directly from Postgres. There is no caching
 layer in front of these reads today — every dashboard render is a live
@@ -214,8 +214,8 @@ alerts queue:
   ./internal/notify/notifiers -update` writes
   `web/src/lib/notifier-types.json` (a golden test fails when it is stale);
   the channel dialog renders any type from it, with a per-type override map
-  in `web/src/app/dashboard/notifications/channel-forms.tsx` for forms that
-  need more.
+  in `web/src/app/dashboard/settings/notifications/channel-forms.tsx` for
+  forms that need more.
 - **Secrets**: fields declared secret live in `notification_channels.secrets`,
   which dashboard queries never select; generated ones (the webhook
   signing secret) are shown once on create/rotate. They are stored in
@@ -225,7 +225,59 @@ alerts queue:
   same-origin redirects). `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` is a
   dev-only escape hatch.
 
-### How to add a notifier (email, Slack, Discord, ntfy, …)
+### ntfy channel
+
+`server/internal/notify/ntfy` publishes a push notification to a topic on
+ntfy.sh or a self-hosted ntfy server. Config: server URL (blank =
+`https://ntfy.sh`), topic (ntfy's own rule, `[-_A-Za-z0-9]{1,64}`), an
+optional access token (secret field, sent as `Authorization: Bearer …`)
+and a priority (Automatic, or a fixed 1–5 that overrides the mapping).
+
+- **Publish**: one JSON `POST` of `{topic, title, message, priority, tags,
+  click}` to the server root (a reverse-proxy path prefix is kept), not
+  `POST /<topic>` with `X-Title`/`X-Tags` headers: titles and bodies carry
+  package, host and agent names verbatim, which JSON encodes safely while
+  header values would need RFC 2047 encoding and CR/LF sanitizing.
+- **Message**: one event → a title such as `KEV CVE-2024-3094 opened on
+  web-1`, `Critical CVE-… reopened on db-1`, `CVE-… resolved on web-1` or
+  `Agent "edge" stopped reporting`, and a short plain-text body (package +
+  installed version, fix version or "none available yet", severity / KEV /
+  EPSS; for agents last seen + hosts), then `Rule: <name>`. Several events
+  (a batch or a digest) → the notification's `Summary` as the title and a
+  bulleted list of up to 10 events ("…and N more"). Digests are titled
+  `Digest: …`. "Send test" sends a fixed test message. The body is kept
+  under 3500 bytes (ntfy turns messages over 4 KB into attachments).
+- **Priority** (Automatic), highest event wins:
+
+  | Event | Priority |
+  |---|---|
+  | finding opened/reopened, KEV or critical | 5 urgent |
+  | finding opened/reopened, high | 4 high |
+  | finding opened/reopened, medium | 3 default |
+  | finding opened/reopened, low/negligible/unknown | 2 low |
+  | finding resolved, agent recovered | 2 low |
+  | agent stale | 4 high |
+  | "Send test" | 3 default |
+
+  Digests are capped at 4 (the user chose a roundup over being paged).
+  Tags: an emoji for the top event (`rotating_light` KEV/critical,
+  `warning` high, `mag` other findings, `white_check_mark` resolved /
+  recovered, `electric_plug` stale), plus `kev`, the severity and the
+  host name.
+- **click**: the event's dashboard link (only when `SW_DASHBOARD_URL` is
+  set); for several events, their shared link, else the `/dashboard` root.
+- **Errors**: non-2xx fails the attempt with ntfy's error text (its JSON
+  `error`, else the truncated body) in the delivery log. 408/425/429/5xx
+  are retried with backoff; other 4xx (bad topic, 401/403 token) and 3xx
+  fail at once.
+- **Ports**: requests go through `netguard` like the webhook, so the
+  server must be **public https on port 443 or 8443**. A self-hosted ntfy
+  on its default `:80`/`:2586`, on plain http or on a LAN address is
+  refused; put it behind a TLS reverse proxy on 443.
+  `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` lifts this for local development
+  only.
+
+### How to add a notifier (email, Slack, Discord, …)
 
 1. `server/internal/notify/<type>`: implement `notify.Notifier` (make HTTP
    calls with a `netguard.Guard` client; wrap unfixable errors in

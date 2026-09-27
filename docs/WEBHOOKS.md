@@ -2,8 +2,9 @@
 
 A **webhook** notification channel receives an HTTPS `POST` of a JSON
 document for every notification a rule sends to it (and for "Send test").
-Channels and rules are configured under **Dashboard → Notifications**; the
-pipeline behind them is described in
+Channels are configured under **Dashboard → Settings → Notification
+settings** and the rules that send to them under **Dashboard → Alerts**
+(which also holds the delivery log); the pipeline behind them is described in
 [ARCHITECTURE.md § Alerting](ARCHITECTURE.md#alerting).
 
 ## Request
