@@ -69,21 +69,29 @@ export function AddHostDialog({
 function AddHostFlow({ serverUrl, agents }: { serverUrl: string; agents: CollectorAgent[] }) {
   const [step, setStep] = useState<Step>({ kind: "choose" });
   const [title, description] = TITLES[step.kind];
+  // No way back from "setup": the host already exists by then.
+  const canGoBack = step.kind === "local" || step.kind === "remote";
 
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
+        <div className="flex items-center justify-center gap-1 sm:justify-start">
+          {canGoBack && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="-ml-1"
+              aria-label="Back"
+              title="Back"
+              onClick={() => setStep({ kind: "choose" })}
+            >
+              <ArrowLeft />
+            </Button>
+          )}
+          <DialogTitle>{title}</DialogTitle>
+        </div>
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
-
-      {(step.kind === "local" || step.kind === "remote") && (
-        <div>
-          <Button variant="ghost" size="sm" onClick={() => setStep({ kind: "choose" })}>
-            <ArrowLeft /> Back
-          </Button>
-        </div>
-      )}
 
       {step.kind === "choose" && (
         <div className="grid gap-3 sm:grid-cols-2">
