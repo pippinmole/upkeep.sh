@@ -21,12 +21,15 @@ import { Label } from "@/components/ui/label";
 // upkeep-agent-data is the agent's data directory (a folder): its
 // credentials.json and its SSH key for remote hosts. Without a persistent
 // volume there, the read-only container can't save its credentials.
-function dockerRunCommand(serverUrl: string, token: string): string {
+// withDocker adds the opt-in Docker socket mount (DECISIONS.md "Docker
+// collection"), the same line as agent/docker-compose.example.yml.
+function dockerRunCommand(serverUrl: string, token: string, withDocker: boolean): string {
+  const socket = withDocker ? "\n  -v /var/run/docker.sock:/var/run/docker.sock \\" : "";
   return `docker run -d --restart unless-stopped \\
   --pid host --network host --read-only \\
   --cap-drop ALL --security-opt no-new-privileges:true \\
   -v /:/host:ro \\
-  -v upkeep-agent-data:/var/lib/upkeep \\
+  -v upkeep-agent-data:/var/lib/upkeep \\${socket}
   -e SW_SERVER_URL=${serverUrl} \\
   -e SW_ENROLLMENT_TOKEN=${token} \\
   ghcr.io/icondesk/upkeep-agent:latest`;
@@ -38,6 +41,7 @@ function dockerRunCommand(serverUrl: string, token: string): string {
 export function EnrollAgentPanel({ serverUrl }: { serverUrl: string }) {
   const [token, setToken] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("");
+  const [withDocker, setWithDocker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -86,6 +90,8 @@ export function EnrollAgentPanel({ serverUrl }: { serverUrl: string }) {
     );
   }
 
+  const command = dockerRunCommand(serverUrl, token, withDocker);
+
   return (
     <div className="flex flex-col gap-4">
       <Alert variant="destructive">
@@ -114,14 +120,12 @@ export function EnrollAgentPanel({ serverUrl }: { serverUrl: string }) {
 
         <div className="flex flex-col gap-1.5">
           <Label>Option: Docker</Label>
+          <DockerCollectionOption checked={withDocker} onChange={setWithDocker} />
           <div className="relative">
             <pre className="bg-muted overflow-x-auto rounded-md border p-3 pr-12 text-xs">
-              {dockerRunCommand(serverUrl, token)}
+              {command}
             </pre>
-            <CopyButton
-              className="absolute top-2 right-2 h-7 w-7"
-              text={dockerRunCommand(serverUrl, token)}
-            />
+            <CopyButton className="absolute top-2 right-2 h-7 w-7" text={command} />
           </div>
           <p className="text-muted-foreground text-xs">
             The <code>upkeep-agent-data</code> volume keeps the agent&apos;s credentials and its SSH
@@ -134,6 +138,65 @@ export function EnrollAgentPanel({ serverUrl }: { serverUrl: string }) {
         The agent appears on the Agents page once it enrolls, and its host shows up on the Hosts
         page after the first push.
       </p>
+    </div>
+  );
+}
+
+// Opt-in Docker collection: adds the socket mount to the command. Off by
+// default because socket access is root on the host; the copy says so
+// plainly (DECISIONS.md "Docker collection").
+function DockerCollectionOption({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border p-3">
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <input
+          type="checkbox"
+          className="accent-primary size-4"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        Collect Docker containers and images
+      </label>
+      <p className="text-muted-foreground text-xs">
+        Mounts the Docker socket into the agent. That is full Docker API access, which is
+        root-equivalent on the host. The agent only makes read calls, by design (containers, images,
+        networks, Swarm services; never logs, exec, secrets or environment variables).
+      </p>
+      {checked && (
+        <details className="text-muted-foreground text-xs">
+          <summary className="hover:text-foreground cursor-pointer select-none">
+            Rootless Docker or Podman?
+          </summary>
+          <div className="mt-1 flex flex-col gap-1 leading-relaxed">
+            <p>
+              Replace the left side of the socket mount with the socket&apos;s path on the host:
+            </p>
+            <ul className="list-disc pl-4">
+              <li>
+                Rootless Docker: <code>$XDG_RUNTIME_DIR/docker.sock</code>, e.g.{" "}
+                <code>/run/user/1000/docker.sock</code>
+              </li>
+              <li>
+                Podman: enable <code>podman.socket</code> first, then{" "}
+                <code>/run/podman/podman.sock</code> (rootful) or{" "}
+                <code>$XDG_RUNTIME_DIR/podman/podman.sock</code> (rootless)
+              </li>
+            </ul>
+            <p>
+              If that socket isn&apos;t owned by root, also add{" "}
+              <code>--group-add &lt;the socket&apos;s group id&gt;</code> (
+              <code>stat -c %g &lt;socket&gt;</code>): the agent drops all capabilities, so it
+              can&apos;t bypass the socket&apos;s permissions.
+            </p>
+          </div>
+        </details>
+      )}
     </div>
   );
 }

@@ -29,6 +29,43 @@ services:
     volumes:
       - /:/host:ro
       - upkeep-agent-data:/var/lib/upkeep
+      # Optional: Docker containers and images (off by default).
+      #
+      # Uncomment the line below to let the agent inventory this host's
+      # Docker containers, images, networks and Swarm services. Be aware
+      # of what it grants: access to the Docker socket is full Docker API
+      # access, which is root-equivalent on this host (anything that can
+      # talk to the socket can start a privileged container). There is no
+      # read-only mode for a socket, and adding ":ro" doesn't limit it.
+      # The agent itself only makes read calls, by design: ping, version,
+      # info, container list/inspect, image list/inspect, network list,
+      # and on Swarm managers service/task/node list. Never logs, exec,
+      # file export, secrets or configs, and never anything that changes
+      # state. Environment variables are never sent.
+      #
+      # The left side is the socket's path on the host:
+      #   Docker (rootful):  /var/run/docker.sock
+      #   rootless Docker:   $XDG_RUNTIME_DIR/docker.sock,
+      #                      e.g. /run/user/1000/docker.sock
+      #   Podman (rootful):  /run/podman/podman.sock
+      #   Podman (rootless): $XDG_RUNTIME_DIR/podman/podman.sock
+      #                      e.g. /run/user/1000/podman/podman.sock
+      # Podman serves its Docker-compatible API only while its socket is
+      # enabled: `systemctl enable --now podman.socket` (rootful) or
+      # `systemctl --user enable --now podman.socket` (rootless).
+      # Keep the right side as is, or mount it elsewhere and set
+      # SW_DOCKER_SOCKET to that path in the container.
+      #
+      # Permissions: the agent runs as root (uid 0) in the container but
+      # with cap_drop: ALL, so it can't bypass file permissions; it can
+      # connect because root owns the usual rootful sockets (rw for the
+      # owner). If the socket you mount is owned by another user (e.g. a
+      # rootless Docker/Podman socket while this agent runs under a
+      # rootful engine), also add the socket's group id, as shown by
+      # `stat -c %g <socket>`, e.g.:
+      #   group_add: ["1000"]
+      #
+      # - /var/run/docker.sock:/var/run/docker.sock
     environment:
       SW_SERVER_URL: "https://your-upkeep-instance.example.com"
       SW_ENROLLMENT_TOKEN: "paste-one-time-token-here"

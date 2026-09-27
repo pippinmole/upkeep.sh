@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Loader2, Network, Server } from "lucide-react";
+import { ArrowLeft, Loader2, Minus, Network, Server } from "lucide-react";
 import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -98,7 +98,7 @@ function AddHostFlow({ serverUrl, agents }: { serverUrl: string; agents: Collect
           <ChoiceCard
             icon={<Server className="size-5" />}
             title="Install the agent on it"
-            body="Run the agent on the machine. It reports everything, including live ports and processes."
+            body="Run the agent on the machine. It reports everything, including live ports, processes and (optionally) Docker."
             onClick={() => setStep({ kind: "local" })}
           />
           <ChoiceCard
@@ -106,7 +106,9 @@ function AddHostFlow({ serverUrl, agents }: { serverUrl: string; agents: Collect
             title="Reach it from an existing agent"
             body="For machines you'd rather not install on. An agent on the same network reads it over SSH."
             onClick={() => setStep({ kind: "remote" })}
-          />
+          >
+            <RemoteLimits />
+          </ChoiceCard>
         </div>
       )}
 
@@ -129,11 +131,13 @@ function ChoiceCard({
   title,
   body,
   onClick,
+  children,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
   onClick: () => void;
+  children?: React.ReactNode;
 }) {
   return (
     <button
@@ -144,7 +148,38 @@ function ChoiceCard({
       <span className="text-muted-foreground">{icon}</span>
       <span className="font-medium">{title}</span>
       <span className="text-muted-foreground text-sm">{body}</span>
+      {children}
     </button>
+  );
+}
+
+// What a remote (SSH) target doesn't report, so the trade-off is visible
+// before choosing. The agent reads it over read-only SFTP: no Docker socket
+// (Docker collectors are skipped with "remote host"), and no live procfs
+// walk (target.LiveProc), so no TCP/UDP listeners, deleted-library
+// processes or service running state; the public IP lookup only describes
+// the agent's own network. Port exposure is built from listeners + Docker.
+const REMOTE_NOT_COLLECTED = [
+  "Docker containers and images",
+  "Listening ports and port exposure",
+  "Processes that need a restart after upgrades",
+  "Whether services are running",
+  "Public IP address",
+];
+
+function RemoteLimits() {
+  return (
+    <span className="text-muted-foreground flex flex-col gap-1 text-xs">
+      <span>Not collected over SSH:</span>
+      <span className="flex flex-col gap-0.5">
+        {REMOTE_NOT_COLLECTED.map((item) => (
+          <span key={item} className="flex items-start gap-1.5">
+            <Minus className="mt-0.5 size-3 shrink-0" />
+            {item}
+          </span>
+        ))}
+      </span>
+    </span>
   );
 }
 

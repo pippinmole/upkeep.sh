@@ -1,7 +1,9 @@
 import { createHash } from "crypto";
+import { cache } from "react";
 
 import { pool } from "@/lib/db";
-import { AGENT_STATUS_SQL, type AgentStatus } from "@/lib/queries";
+import { AGENT_STATUS_SQL, type AgentHostRow, type AgentStatus } from "@/lib/queries";
+import { isUuid } from "@/lib/queries-inventory";
 
 // Remote (ssh) hosts: agents that can collect them, and one assignment's
 // setup/connection state (migration 0012, DOMAIN_MODEL.md §4.2).
@@ -33,6 +35,34 @@ export async function getCollectorAgents(userId: string): Promise<CollectorAgent
   );
   return rows;
 }
+
+export type HostCollector = {
+  id: string;
+  name: string;
+  status: AgentStatus;
+  mode: AgentHostRow["mode"];
+};
+
+// The agents collecting one host of the user's, with how they reach it
+// (local agent vs remote over SSH), not-revoked first, local before
+// remote. Remote hosts lack Docker, listeners etc. (TASKS.md Phase 1.6),
+// so pages use this to say why. cache(): layout + tab pages share it.
+export const getHostCollectors = cache(async function getHostCollectors(
+  userId: string,
+  hostId: string,
+): Promise<HostCollector[]> {
+  if (!isUuid(hostId)) return [];
+  const { rows } = await pool.query<HostCollector>(
+    `SELECT a.id, a.name, ${AGENT_STATUS_SQL} AS status, ah.mode
+     FROM agent_hosts ah
+     JOIN agents a ON a.id = ah.agent_id AND a.user_id = $1
+     JOIN hosts h ON h.id = ah.host_id AND h.user_id = $1
+     WHERE ah.host_id = $2
+     ORDER BY a.revoked_at IS NOT NULL, ah.mode <> 'local', a.name`,
+    [userId, hostId],
+  );
+  return rows;
+});
 
 export type RemoteTargetErrorCode =
   | "host_key_unconfirmed"

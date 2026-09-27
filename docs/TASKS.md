@@ -416,12 +416,26 @@ storage/UI, then firewall + exposure on top.
       dialog lists what remote collection doesn't cover (Docker,
       listeners, port exposure), so it's clear before the choice; and the
       host header shows a "Remote (SSH)" badge next to the collecting
-      agent.
-- [ ] Compose example + dashboard `docker run` line: Docker collection
+      agent. (Done: the Add host list and the header's "Collected by"
+      line with the badge, `getHostCollectors`; the tab empty states
+      remain.)
+- [x] Compose example + dashboard `docker run` line: Docker collection
       is **opt-in**, one socket mount with a comment saying plainly what
       it grants (full Docker API access, i.e. root-equivalent; the agent
       only makes the reads listed above). Docs for rootless Docker
       (`$XDG_RUNTIME_DIR/docker.sock`) and Podman (`podman.socket`).
+      Register agent dialog: "Collect Docker containers and images"
+      checkbox (default off); README "Docker collection (optional)".
+      With `cap_drop: ALL` the agent (uid 0) connects only to sockets
+      root owns; others need `group_add` with the socket's gid.
+- [ ] Running the agent itself under rootless Docker / rootless Podman
+      (as opposed to mounting a rootless engine's socket into a rootful
+      agent, which is documented): `network_mode: host` is rootlesskit's
+      network namespace there, not the host's, and `pid: host` / the
+      `/:/host` mount behave differently, so listeners (and likely
+      deleted-libs) would describe the wrong namespace. Verify on a real
+      host; either document it as unsupported or detect and report the
+      affected collectors `skipped`.
 - [ ] Make opting out real: `/:/host:ro` is a recursive bind, so the
       host's `/run/docker.sock` is already reachable at
       `/host/run/docker.sock` whether or not the socket is mounted (`:ro`

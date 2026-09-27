@@ -8,6 +8,7 @@ import { collectorLabel, hostTitle, osLabel, requireHost } from "@/lib/host-page
 import { getHostVulnSummary } from "@/lib/queries-vulns";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
+import { CollectedBy } from "./collected-by";
 import { HostTabs } from "./host-tabs";
 import { SystemBadges } from "./system-badges";
 
@@ -105,6 +106,7 @@ export default async function HostLayout({
             ))}
           <SystemBadges userId={userId} hostId={host.id} />
         </div>
+        <CollectedBy userId={userId} hostId={host.id} />
         <p className="text-muted-foreground mt-1 text-sm">
           Last seen{" "}
           <span title={formatDateTime(host.lastSeenAt)}>{relativeTime(host.lastSeenAt)}</span>

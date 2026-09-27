@@ -78,6 +78,52 @@ domains at the `web` service (port 3000) and `api` service (port 8080).
 Then deploy `agent/docker-compose.example.yml` on each host you want
 monitored, with `SW_SERVER_URL` set to your platform's public API URL.
 
+### Docker collection (optional)
+
+The agent can inventory a host's Docker containers, images, networks and
+Swarm services. It's off by default: enable it by mounting the Docker
+socket into the agent (uncomment the line in
+`agent/docker-compose.example.yml`, or tick "Collect Docker containers
+and images" in the dashboard's Register agent dialog):
+
+```yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+What that grants: access to the Docker socket is full Docker API access,
+which is **root-equivalent on the host** (anything that can talk to it
+can start a privileged container). A socket has no read-only mode, and
+`:ro` on the mount doesn't limit it. The agent only makes read calls, by
+design: ping, version, info, container list/inspect, image
+list/inspect, network list, and on Swarm managers service/task/node list.
+It never calls logs, exec, file export, secrets or configs, never changes
+state, and never sends environment variables
+([docs/DECISIONS.md](docs/DECISIONS.md) "Docker collection").
+
+The container side is `/var/run/docker.sock` unless you set
+`SW_DOCKER_SOCKET`. On the host side, mount the socket your engine uses:
+
+| Engine | Host socket |
+|---|---|
+| Docker | `/var/run/docker.sock` |
+| Rootless Docker | `$XDG_RUNTIME_DIR/docker.sock`, e.g. `/run/user/1000/docker.sock` |
+| Podman (rootful) | `/run/podman/podman.sock` after `systemctl enable --now podman.socket` |
+| Podman (rootless) | `$XDG_RUNTIME_DIR/podman/podman.sock` after `systemctl --user enable --now podman.socket` |
+
+The agent runs as root (uid 0) in its container but with all
+capabilities dropped, so it can't bypass file permissions: it connects
+because root owns the usual rootful sockets. If the socket you mount is
+owned by another user (a rootless socket while the agent runs under a
+rootful engine), add the socket's group id (`stat -c %g <socket>`) with
+`group_add` in compose or `--group-add` on `docker run`.
+
+Docker is only collected on hosts with their own agent. Hosts reached
+over SSH from another agent ("Add host" → "Reach it from an existing
+agent") are read over SFTP, which can't reach the socket, and also don't
+report listening ports, port exposure, processes needing a restart or
+the public IP.
+
 ## Roadmap
 
 See [docs/TASKS.md](docs/TASKS.md) for the actionable breakdown. At a
@@ -114,7 +160,7 @@ reporting (SOC2/CIS), Windows/macOS support, log analysis/SIEM.
   combine listeners, firewall config and Docker's published ports, and
   say "not protected by the host firewall" rather than guess "public".
 - **Docker socket = root**: with Docker collection enabled (opt-in),
-  the agent is root-equivalent on that host. Its hand-written client
-  only makes a fixed list of reads, and releases must be signed and
+  the agent is root-equivalent on that host. Its code only makes a
+  fixed list of reads, and releases must be signed and
   pinned, since a malicious release is the realistic threat (see
   docs/DECISIONS.md).
