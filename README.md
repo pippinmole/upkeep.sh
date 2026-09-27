@@ -82,15 +82,16 @@ See [docs/TASKS.md](docs/TASKS.md) for the actionable breakdown. At a
 glance, the phases:
 
 1. ✅ Agent collectors + enrollment + ingest + schema.
-2. OSV Debian/Ubuntu sync + dpkg-version-comparison matching + CISA KEV /
+2. ✅ OSV Debian/Ubuntu sync + dpkg-version-comparison matching + CISA KEV /
    FIRST EPSS enrichment → findings.
-3. Dashboard findings UI.
-4. External port-exposure scanning + webhook/email/Discord/Slack/ntfy
-   alerting with dedup and digest mode.
+3. ✅ Dashboard findings UI.
+4. External port-exposure scanning + webhook and ntfy alerting with dedup
+   and digest mode (email/chat integrations deferred).
 5. Polish, tests, CI.
 
 **Phase 2+** (explicitly deferred): container image vulnerabilities,
-RHEL/Alpine collectors, SMS, billing, multi-tenant orgs.
+RHEL/Alpine collectors, email/Slack/Discord notifiers, SMS, billing,
+multi-tenant orgs.
 
 **Non-goals**: auto-patching, remote command execution, compliance
 reporting (SOC2/CIS), Windows/macOS support, log analysis/SIEM.

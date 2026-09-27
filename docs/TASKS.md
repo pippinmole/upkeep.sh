@@ -1,6 +1,6 @@
 # Tasks
 
-Status as of 2026-09-26. Check this before starting new work — it's the
+Status as of 2026-09-27. Check this before starting new work — it's the
 single source of truth for what's done vs. outstanding, kept ahead of
 memory or a stale conversation summary.
 
@@ -246,11 +246,17 @@ params, no new Go endpoints.
       from the type's schema, secret shown once + rotate, "Send test"),
       delivery log with attempts; all on `DataTable`, server actions
       scoped by `user_id`.
-- [ ] Email notifier (SMTP settings are platform config, not per user:
-      decide where they live).
-- [ ] Discord notifier (webhook URL as a secret field, embed formatting).
-- [ ] Slack notifier (incoming-webhook URL; Block Kit formatting).
-- [ ] ntfy notifier (server URL + topic, optional access token).
+- [x] **ntfy** notifier (`internal/notify/ntfy`): JSON publish to ntfy.sh
+      or a self-hosted server (topic validated against ntfy's charset,
+      optional Bearer access token, automatic or fixed priority);
+      human-readable title/body, priority from severity/KEV (KEV or
+      critical → urgent, resolved/recovered → low, digests capped at high),
+      emoji tags, `click` to the dashboard link. Through `netguard`, so a
+      self-hosted server must be public https on 443/8443
+      ([ARCHITECTURE.md § ntfy channel](ARCHITECTURE.md#ntfy-channel)).
+- MVP notification channels are **webhook + ntfy**; email, Discord and
+  Slack are deferred to Phase 2+ (a webhook can already feed most chat
+  tools).
 - [ ] Encrypt channel secrets at rest (`notification_channels.secrets` is
       plaintext today; the worker needs the webhook secret to sign, so it
       would need a key shared by web + worker, e.g. `SW_SECRETS_KEY`).
@@ -374,6 +380,10 @@ Today agent == host: enrollment creates a `hosts` row and the returned
 - [ ] RHEL/Alpine package collectors (agent currently Debian/Ubuntu-only
       by design).
 - [ ] SMS notifications.
+- [ ] Email notifier (SMTP settings are platform config, not per user:
+      decide where they live).
+- [ ] Discord notifier (webhook URL as a secret field, embed formatting).
+- [ ] Slack notifier (incoming-webhook URL; Block Kit formatting).
 - [ ] Billing/Stripe (see DECISIONS.md — deferred until real users).
 - [ ] Multi-tenant orgs/teams (see DECISIONS.md — deferred until demand).
 - [ ] Cache layer + revalidation webhook for dashboard reads (only
