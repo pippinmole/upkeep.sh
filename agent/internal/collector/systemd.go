@@ -39,6 +39,9 @@ type unitIndex struct {
 	aliases map[string]string            // alias name -> real unit name
 	wanted  map[string]bool              // names symlinked into *.wants/*.requires/*.upholds
 	dropins map[string]map[string]string // unit name -> drop-in file name -> fs path (highest precedence)
+	// unreadableDirs counts unit directories that exist but could not be
+	// listed (permission denied): the index is then incomplete.
+	unreadableDirs int
 }
 
 // CollectSystemdServices lists the target's systemd services from unit
@@ -65,6 +68,17 @@ type unitIndex struct {
 // is wanted or running; bare templates ("getty@.service") are not units
 // and are not reported. Services seen only in cgroups with no unit file
 // (transient units) are not reported either.
+//
+// Permission errors don't fail the collector: the agent may run
+// unprivileged, and some generator output is root-only (netplan writes
+// /run/systemd/system/*.service mode 0640). A service whose unit file or
+// drop-in can't be read is still reported, with what the index alone
+// tells (name, unit_path, and start_mode when it is auto or manual;
+// start_mode and run_as are left empty when they depend on the file) and
+// the unreadable files' paths in attrs.unreadable. A unit directory that
+// can't be listed is skipped and the result reported as truncated, so the
+// server treats the list as additive only rather than reading the
+// services it would have held as removed. Other errors still fail.
 func CollectSystemdServices(fsys fs.FS, units map[int]string) ([]Service, bool, error) {
 	idx, found, err := indexUnits(fsys)
 	if err != nil {
@@ -104,7 +118,7 @@ func CollectSystemdServices(fsys fs.FS, units map[int]string) ([]Service, bool, 
 		sorted = append(sorted, n)
 	}
 	slices.Sort(sorted)
-	truncated := false
+	truncated := idx.unreadableDirs > 0
 	if len(sorted) > MaxServices {
 		sorted, truncated = sorted[:MaxServices], true
 	}
@@ -155,9 +169,14 @@ func indexUnits(fsys fs.FS) (*unitIndex, bool, error) {
 		dropins: map[string]map[string]string{},
 	}
 	found := false
+	var permErr error
 	for _, dir := range systemdUnitDirs {
 		entries, err := fs.ReadDir(fsys, dir)
 		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if errors.Is(err, fs.ErrPermission) {
+			idx.unreadableDirs++
+			permErr = err
 			continue
 		} else if err != nil {
 			return nil, false, err
@@ -213,6 +232,10 @@ func indexUnits(fsys fs.FS) (*unitIndex, bool, error) {
 			}
 		}
 	}
+	if !found && permErr != nil {
+		// Unit directories exist but none could be read: nothing to report.
+		return nil, false, permErr
+	}
 	// A wanted alias enables the unit it points to.
 	for name := range idx.wanted {
 		if real, ok := idx.aliases[name]; ok {
@@ -264,8 +287,21 @@ func (idx *unitIndex) service(fsys fs.FS, name string) (Service, error) {
 		return svc, nil
 	}
 
+	// Unreadable (permission denied) files are skipped and listed in
+	// attrs.unreadable; any other read error fails the collector.
+	var unreadable []string
+	readConf := func(conf *unitConf, file string) (bool, error) {
+		err := conf.read(fsys, file)
+		if errors.Is(err, fs.ErrPermission) {
+			unreadable = append(unreadable, "/"+file)
+			return false, nil
+		}
+		return err == nil, err
+	}
+
 	var conf unitConf
-	if err := conf.read(fsys, entry.file); err != nil {
+	mainRead, err := readConf(&conf, entry.file)
+	if err != nil {
 		return svc, err
 	}
 	hasInstall := conf.hasInstall
@@ -281,7 +317,7 @@ func (idx *unitIndex) service(fsys fs.FS, name string) (Service, error) {
 		}
 		slices.Sort(keys)
 		for _, k := range keys {
-			if err := conf.read(fsys, files[k]); err != nil {
+			if _, err := readConf(&conf, files[k]); err != nil {
 				return svc, err
 			}
 		}
@@ -292,14 +328,18 @@ func (idx *unitIndex) service(fsys fs.FS, name string) (Service, error) {
 		svc.BinaryPath = execBinary(conf.execStart[0])
 	}
 	attrs := map[string]any{"unit_path": "/" + entry.file}
+	if len(unreadable) > 0 {
+		attrs["unreadable"] = unreadable
+	}
 	switch {
 	case conf.user != "":
 		svc.RunAs = conf.user
 	case conf.dynamicUser:
 		attrs["dynamic_user"] = true
-	default:
+	case len(unreadable) == 0:
 		svc.RunAs = "root"
 	}
+	// Otherwise an unread file may set User=: leave run_as unknown.
 
 	// The trigger units that would start this service: foo.socket for
 	// foo.service, and for an instance its template's (an Accept=yes
@@ -320,7 +360,8 @@ func (idx *unitIndex) service(fsys fs.FS, name string) (Service, error) {
 				break
 			}
 		}
-		if svc.StartMode == "" {
+		if svc.StartMode == "" && mainRead {
+			// Without the unit file, disabled vs static is unknown.
 			if hasInstall {
 				svc.StartMode = "disabled"
 			} else {

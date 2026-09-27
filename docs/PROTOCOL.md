@@ -348,7 +348,12 @@ only.
   procfs, and there is no `failed`. `run_as` is `User=`, `root` when
   unset, empty with `attrs.dynamic_user` for `DynamicUser=yes`.
   Template instances are reported when wanted or running; transient
-  units (no unit file) are not.
+  units (no unit file) are not. Unit files or drop-ins the agent can't
+  read (permission denied, e.g. netplan's root-only generator units)
+  don't fail the collector: the service is still reported, their paths
+  are listed in `attrs.unreadable`, and `start_mode`/`run_as` are left
+  empty when they depend on the unread file. An unlistable unit
+  directory marks the section `truncated`.
 - `users`: `/etc/passwd` + `/etc/group` (never `/etc/shadow`). `groups`
   is the primary group then supplementary groups. `login_shell` is false
   for `nologin`/`false`/`true`/`sync`/`shutdown`/`halt`; `admin` is uid 0

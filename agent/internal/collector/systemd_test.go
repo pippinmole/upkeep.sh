@@ -183,6 +183,144 @@ func TestCollectSystemdServicesCap(t *testing.T) {
 	}
 }
 
+// deniedFS wraps an fs.FS and fails every access to the listed paths with
+// err (fs.ErrPermission unless set), as a root-only file does for an
+// unprivileged agent. Portable, unlike chmod.
+type deniedFS struct {
+	fstest.MapFS
+	denied map[string]bool
+	err    error
+}
+
+func (d deniedFS) check(op, name string) error {
+	if !d.denied[name] {
+		return nil
+	}
+	err := d.err
+	if err == nil {
+		err = fs.ErrPermission
+	}
+	return &fs.PathError{Op: op, Path: name, Err: err}
+}
+
+func (d deniedFS) Open(name string) (fs.File, error) {
+	if err := d.check("open", name); err != nil {
+		return nil, err
+	}
+	return d.MapFS.Open(name)
+}
+
+func (d deniedFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if err := d.check("open", name); err != nil {
+		return nil, err
+	}
+	return d.MapFS.ReadDir(name)
+}
+
+func (d deniedFS) ReadFile(name string) ([]byte, error) {
+	if err := d.check("open", name); err != nil {
+		return nil, err
+	}
+	return d.MapFS.ReadFile(name)
+}
+
+func denied(fsys fstest.MapFS, paths ...string) deniedFS {
+	d := deniedFS{MapFS: fsys, denied: map[string]bool{}}
+	for _, p := range paths {
+		d.denied[p] = true
+	}
+	return d
+}
+
+// A unit file or drop-in the agent may not read (netplan's generator
+// writes root-only units to /run/systemd/system) doesn't fail the
+// collector: the service is still reported with what the index tells.
+func TestCollectSystemdServicesUnreadableFiles(t *testing.T) {
+	host := systemdHost()
+	host["run/systemd/system/netplan-ovs-cleanup.service"] = unit("[Unit]\nDescription=OpenVSwitch configuration for cleanup\n[Service]\nExecStart=/usr/sbin/netplan apply --only-ovs-cleanup\n")
+	host["run/systemd/system/multi-user.target.wants/netplan-wanted.service"] = link("/run/systemd/system/netplan-wanted.service")
+	host["run/systemd/system/netplan-wanted.service"] = unit("[Service]\nExecStart=/bin/true\n")
+	fsys := denied(host,
+		"run/systemd/system/netplan-ovs-cleanup.service",
+		"run/systemd/system/netplan-wanted.service",
+		"lib/systemd/system/apt-daily.service",
+		"etc/systemd/system/cron.service.d/override.conf",
+	)
+	svcs, truncated, err := CollectSystemdServices(fsys, map[int]string{1: "netplan-ovs-cleanup.service"})
+	if err != nil || truncated {
+		t.Fatalf("err=%v truncated=%v", err, truncated)
+	}
+	got := map[string]Service{}
+	for _, s := range svcs {
+		got[s.Name] = s
+	}
+	want := map[string]Service{
+		// Not wanted and unread: disabled vs static, and User=, unknown.
+		"netplan-ovs-cleanup.service": {Manager: "systemd", Name: "netplan-ovs-cleanup.service", State: "running",
+			Attrs: map[string]any{"unit_path": "/run/systemd/system/netplan-ovs-cleanup.service",
+				"unreadable": []string{"/run/systemd/system/netplan-ovs-cleanup.service"}}},
+		// Enablement comes from the index, not the file.
+		"netplan-wanted.service": {Manager: "systemd", Name: "netplan-wanted.service", StartMode: "auto", State: "stopped",
+			Attrs: map[string]any{"unit_path": "/run/systemd/system/netplan-wanted.service",
+				"unreadable": []string{"/run/systemd/system/netplan-wanted.service"}}},
+		"apt-daily.service": {Manager: "systemd", Name: "apt-daily.service", StartMode: "manual", State: "stopped",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/apt-daily.service", "activated_by": "apt-daily.timer",
+				"unreadable": []string{"/lib/systemd/system/apt-daily.service"}}},
+		// Main file read, drop-in not: the drop-in may set User=, so run_as is unknown.
+		"cron.service": {Manager: "systemd", Name: "cron.service", DisplayName: "Regular background program processing daemon",
+			StartMode: "auto", State: "stopped", BinaryPath: "/usr/sbin/cron",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/cron.service",
+				"unreadable": []string{"/etc/systemd/system/cron.service.d/override.conf"}}},
+		// Unaffected services are unchanged.
+		"ssh.service": {Manager: "systemd", Name: "ssh.service", DisplayName: "OpenBSD Secure Shell server",
+			StartMode: "auto", State: "stopped", RunAs: "root", BinaryPath: "/usr/sbin/sshd",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/ssh.service"}},
+	}
+	for name, w := range want {
+		if g := got[name]; !reflect.DeepEqual(g, w) {
+			t.Errorf("%s:\n got %+v\nwant %+v", name, g, w)
+		}
+	}
+	if len(svcs) != 13 { // systemdHost's 11 without running instances, plus 2
+		t.Errorf("got %d services, want 13", len(svcs))
+	}
+}
+
+// An unlistable unit directory is skipped and the list flagged truncated
+// (additive only on the server); if none can be listed the collector fails.
+func TestCollectSystemdServicesUnreadableDir(t *testing.T) {
+	svcs, truncated, err := CollectSystemdServices(denied(systemdHost(), "etc/systemd/system"), nil)
+	if err != nil || !truncated {
+		t.Fatalf("err=%v truncated=%v, want truncated", err, truncated)
+	}
+	names := map[string]bool{}
+	for _, s := range svcs {
+		names[s.Name] = true
+	}
+	if !names["ssh.service"] || names["custom.service"] {
+		t.Errorf("names = %v: want lib/ units, none from etc/", names)
+	}
+
+	_, _, err = CollectSystemdServices(denied(systemdHost(), "etc/systemd/system", "lib/systemd/system"), nil)
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("all unit dirs unreadable: err = %v, want permission error", err)
+	}
+}
+
+// Only permission errors are tolerated: anything else still fails.
+func TestCollectSystemdServicesReadError(t *testing.T) {
+	fsys := denied(systemdHost(), "lib/systemd/system/nginx.service")
+	fsys.err = errors.New("input/output error")
+	if _, _, err := CollectSystemdServices(fsys, nil); err == nil || errors.Is(err, fs.ErrPermission) {
+		t.Errorf("err = %v, want the I/O error", err)
+	}
+	fsys = denied(systemdHost(), "lib/systemd/system")
+	fsys.err = errors.New("input/output error")
+	if _, _, err := CollectSystemdServices(fsys, nil); err == nil {
+		t.Error("unit dir I/O error: want failure")
+	}
+}
+
 func TestUnitFromCgroup(t *testing.T) {
 	for in, want := range map[string]string{
 		"0::/system.slice/ssh.service\n":                                           "ssh.service",
