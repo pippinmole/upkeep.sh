@@ -15,33 +15,29 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { CHANNEL_TYPES, channelType } from "@/lib/notifiers";
+import { channelType } from "@/lib/notifiers";
 import type { ChannelRow } from "@/lib/queries-notifications";
 
 import { createChannel, rotateChannelSecret, updateChannel } from "./actions";
 import { ChannelFields } from "./channel-forms";
 import { SecretOnce } from "./secret-once";
 
-// Create (channel = undefined) or edit a channel. The form body is the
-// channel type's generic, schema-driven form (channel-forms.tsx).
+// Create a channel of `type` (channel = undefined; the type is picked in
+// the Add channel menu) or edit a channel. The form body is the channel
+// type's generic, schema-driven form (channel-forms.tsx).
 export function ChannelDialog({
   open,
   onOpenChange,
   channel,
+  type: createType,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channel?: ChannelRow;
+  type?: string;
 }) {
   const mode = channel ? "edit" : "create";
-  const [type, setType] = useState(channel?.type ?? CHANNEL_TYPES[0]?.type ?? "");
+  const type = channel?.type ?? createType ?? "";
   const [name, setName] = useState(channel?.name ?? "");
   const [values, setValues] = useState<Record<string, string>>({ ...channel?.config });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -125,30 +121,6 @@ export function ChannelDialog({
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
-            )}
-            {mode === "create" && CHANNEL_TYPES.length > 1 && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="channel-type">Type</Label>
-                <Select
-                  value={type}
-                  onValueChange={(t) => {
-                    setType(t);
-                    setValues({});
-                    setErrors({});
-                  }}
-                >
-                  <SelectTrigger id="channel-type" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CHANNEL_TYPES.map((t) => (
-                      <SelectItem key={t.type} value={t.type}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="channel-name">

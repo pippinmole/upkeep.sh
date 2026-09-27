@@ -1,6 +1,16 @@
 "use client";
 
-import { CheckCircle2, Loader2, MoreHorizontal, Plus, XCircle } from "lucide-react";
+import {
+  Bell,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  type LucideIcon,
+  MoreHorizontal,
+  Plus,
+  Webhook,
+  XCircle,
+} from "lucide-react";
 import { useState, useTransition } from "react";
 
 import { DataTable } from "@/components/data-table/data-table";
@@ -227,15 +237,45 @@ const columns = col.columns([
   }),
 ]);
 
+// Menu icon per channel type. The menu itself lists every type in the
+// generated registry (CHANNEL_TYPES) and opens the schema-driven
+// ChannelDialog for it, so a new type needs at most an icon here.
+const CHANNEL_TYPE_ICONS: Record<string, LucideIcon> = {
+  webhook: Webhook,
+};
+
 export function AddChannelButton() {
-  const [open, setOpen] = useState(false);
+  const [type, setType] = useState<string | null>(null);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus />
-        Add channel
-      </Button>
-      {open && <ChannelDialog open={open} onOpenChange={setOpen} />}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button>
+            <Plus />
+            Add channel
+            <ChevronDown />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {CHANNEL_TYPES.map((t) => {
+            const Icon = CHANNEL_TYPE_ICONS[t.type] ?? Bell;
+            return (
+              <DropdownMenuItem key={t.type} onSelect={() => setType(t.type)}>
+                <Icon />
+                {t.label}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {type && (
+        <ChannelDialog
+          key={type}
+          open
+          onOpenChange={(o) => !o && setType(null)}
+          type={type}
+        />
+      )}
     </>
   );
 }
