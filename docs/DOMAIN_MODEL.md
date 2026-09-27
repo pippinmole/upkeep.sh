@@ -679,14 +679,13 @@ filter) and a small pagination component. Tables use the shadcn data table
 ```
 General
   Overview          /dashboard
-  Hosts             /dashboard/hosts            (today's "Agents" list, renamed; see §4)
+  Hosts             /dashboard/hosts            (machine list; built with P1.5 management)
   Vulnerabilities   /dashboard/vulnerabilities
   Packages          /dashboard/packages
-Settings
   Agents            /dashboard/agents           (deployed collectors, after the split in §4)
 ```
 
-Until the agent/host split lands, `/dashboard/agents` can stay as is, and
+As built, Agents sits under General next to Hosts (no Settings group yet);
 host detail pages hang off `/dashboard/hosts/[hostId]`.
 
 ### 3.2 Host detail shell: `/dashboard/hosts/[hostId]/layout.tsx`
@@ -1041,8 +1040,61 @@ made.
   `linux-machine-id` style sketched in §4.6. Values are lowercased.
 - A machine-id that shows up later for a host (older agent upgraded, or
   a host created without one) is attached to that host if unclaimed.
-- Not built: dashboard merge/split actions, revoke/rotate actions, and
-  remote hosts created in the dashboard.
+- Not built: remote hosts created in the dashboard.
+
+**Management (migration 0011, `web/src/app/dashboard/manage-actions.ts`).**
+Every dashboard mutation on these Go-owned tables is a server action that
+calls one `mgmt_*` SQL function with the session user's id; the function
+scopes every row it touches by that id and returns a status (`ok`,
+`not_found` for another user's row as for a missing one, or a reason).
+The Go integration tests (`store/mgmt_integration_test.go`) call the same
+functions, cross-tenant cases included.
+
+- **Revoke agent** (`agents.revoked_at`): irreversible; ingest and
+  rotation return 401. Hosts and history are kept; a new agent on the same
+  machine re-attaches (the revoked agent is not active).
+- **Rotate credentials**: sets `agent_credentials.rotate_requested_at`;
+  the agent rotates itself on its next push (PROTOCOL.md §3). Grace window
+  for the previous secret: 1h or until the new one is first used.
+- **Rename host**: `hosts.label` (display name); `hostname` stays what the
+  agent reports.
+- **Archive / unarchive** (`hosts.archived_at`): hidden from the Hosts
+  list (State facet), the overview and the fleet vulnerability/package
+  views (`h.archived_at IS NULL` in every fleet query). Snapshots,
+  inventory and findings are kept as they are: findings are not resolved
+  (they weren't fixed), they are just out of fleet views, and **alerting
+  should skip archived hosts** (for the alerting worker). Pushes from an
+  agent that still collects an archived host are recorded but don't
+  unarchive it (revoke the agent to stop them); a *new* agent that
+  re-attaches to it by identity does unarchive it. The per-host pages stay
+  reachable.
+- **Delete host**: hard delete with a typed hostname confirmation
+  (checked in the function too), cascading to snapshots, inventory,
+  findings, identities and assignments. Agents are kept. If an active
+  agent still reports the host, its next push re-creates it; the dialog
+  says to revoke first.
+- **Merge a flagged duplicate into its original** (`mgmt_merge_host`,
+  only when `duplicate_of` = that original, neither archived): the
+  duplicate's assignments move to the original (an agent that already
+  collects the original just drops its duplicate assignment), its
+  identities move, hosts flagged against it are re-pointed, and the
+  duplicate is archived with `merged_into`. Its snapshots, `host_software`
+  ranges and findings are **not moved**: splicing two overlapping range
+  sets and colliding findings (`UNIQUE (host_id, dedup_key)`) is where
+  corruption would come from, and a duplicate from a fast reinstall has
+  minutes of history. The moved agent's next push diffs against the
+  original's inventory state, so the original's ranges simply continue
+  (tested). Agent rows are locked first, as in ingest, so an in-flight
+  push finishes before the merge or resolves after it. Merged hosts stay
+  archived.
+- **Not a duplicate** (`mgmt_dismiss_duplicate`): clears `duplicate_of`
+  and records `duplicate_dismissed_of`, so ingest doesn't flag the host
+  against the same host again (it still could against a different one).
+- **Detach** (`agent_hosts` row delete): only for an agent that isn't
+  active (revoked or silent past the active window;
+  `mgmt_agent_active` mirrors `store.activeAgentSQL`, with a test that
+  they agree). An active agent's next push would just re-attach. Typical
+  use: the old agent left on a host after a reinstall was merged.
 
 ### 4.4 Wire protocol changes (additive where possible)
 
@@ -1484,8 +1536,8 @@ Linux/Debian-family only. Nothing else is collected today.
     different *active* agent already collects the identity's host locally;
     create a separate host with `hosts.duplicate_of` set. The hostname is
     not part of the identity. "Active" and the reinstall trade-off are in
-    §4.3 "As implemented". Still open: the dashboard merge/split actions
-    that resolve a flag.
+    §4.3 "As implemented". The dashboard resolves a flag with "Merge into
+    …" or "Not a duplicate" (§4.3 "Management").
 13. **Non-security pending upgrades on Debian/Ubuntu.** Is it worth parsing
     `/var/lib/apt/lists` (large) to show "N updates pending", or is
     "security fixes available" (server-computed, free) enough?
@@ -1495,10 +1547,16 @@ Linux/Debian-family only. Nothing else is collected today.
 15. **Agent naming in the UI.** After the split, "Agents" is the collector
     list and "Hosts" is the machine list. Should the existing "Register
     agent" button live on Hosts ("Add host" → enroll an agent on it) or on
-    Agents? Recommended: both entry points, one dialog.
+    Agents? Recommended: both entry points, one dialog. **Resolved by
+    recommendation:** the sidebar has Hosts (machines) and Agents
+    (collectors); "Add host" on Hosts and "Register agent" on Agents open
+    the same enrollment dialog.
 16. **Multiple agents per host.** The schema allows it (for redundancy or
     migration). Should the UI allow it, or enforce one active collector per
-    host?
+    host? As built, it is allowed and shown (the Hosts list lists every
+    collecting agent): after a merge the old and new agent both collect
+    the host until the old one is detached or revoked. Enforcing one
+    active collector is still open.
 
 ---
 
