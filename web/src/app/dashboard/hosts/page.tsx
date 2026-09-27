@@ -4,8 +4,9 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { getHosts } from "@/lib/queries";
+import { getRemoteCapableAgents } from "@/lib/queries-remote";
 
-import { RegisterAgentDialog } from "../agents/register-agent-dialog";
+import { AddHostDialog } from "./add-host-dialog";
 import { HostsTable } from "./hosts-table";
 
 export const metadata: Metadata = {
@@ -14,13 +15,17 @@ export const metadata: Metadata = {
 
 // The machine list (DOMAIN_MODEL.md §3.1, §4): every host of the account
 // with the agent(s) collecting it. Agents (the collectors) have their own
-// page; "Add host" here and "Register agent" there open the same dialog
-// (Q15), since adding a host means enrolling an agent on it.
+// page. "Add host" either enrolls an agent on the machine (the same panel
+// as "Register agent" there, Q15) or has an existing agent reach it over
+// SSH (§4.2).
 export default async function HostsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const hosts = await getHosts(session.user.id);
+  const [hosts, remoteAgents] = await Promise.all([
+    getHosts(session.user.id),
+    getRemoteCapableAgents(session.user.id),
+  ]);
   const serverUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   const active = hosts.filter((h) => !h.archivedAt).length;
   const archived = hosts.length - active;
@@ -36,7 +41,7 @@ export default async function HostsPage() {
               ` ${active} ${active === 1 ? "host" : "hosts"}${archived > 0 ? `, ${archived} archived` : ""}.`}
           </p>
         </div>
-        <RegisterAgentDialog serverUrl={serverUrl} triggerLabel="Add host" />
+        <AddHostDialog serverUrl={serverUrl} agents={remoteAgents} />
       </div>
 
       <div className="mt-6">
@@ -46,11 +51,11 @@ export default async function HostsPage() {
             <div>
               <h2 className="font-semibold">No hosts yet</h2>
               <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-                Add a host by running the agent on it. You&apos;ll get a one-time token and a docker
-                command; the host appears here after the agent&apos;s first push.
+                Add a host by running the agent on it, or by letting an agent you already run reach
+                it over SSH.
               </p>
             </div>
-            <RegisterAgentDialog serverUrl={serverUrl} triggerLabel="Add host" />
+            <AddHostDialog serverUrl={serverUrl} agents={remoteAgents} />
           </div>
         ) : (
           <HostsTable hosts={hosts} />
