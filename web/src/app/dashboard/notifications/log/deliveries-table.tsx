@@ -14,7 +14,7 @@ import type { DeliveryRow } from "@/lib/queries-notifications";
 import { formatDateTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-import { DELIVERY_STATUS_OPTIONS, DeliveryStatusBadge } from "../shared";
+import { channelTypeIcon, DELIVERY_STATUS_OPTIONS, DeliveryStatusBadge } from "../shared";
 
 const KIND_OPTIONS = [
   { value: "alert", label: "Alert" },
@@ -96,16 +96,22 @@ const columns = col.columns([
   }),
   col.accessor("channelName", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Channel" />,
-    cell: ({ row }) => (
-      <span className="whitespace-nowrap">
-        {row.original.channelName}
-        <span className="text-muted-foreground">
-          {" "}
-          ({channelType(row.original.channelType)?.label ?? row.original.channelType}
-          {row.original.channelId === null && ", deleted"})
+    cell: ({ row }) => {
+      const Icon = channelTypeIcon(row.original.channelType);
+      return (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+          <span>
+            {row.original.channelName}
+            <span className="text-muted-foreground">
+              {" "}
+              ({channelType(row.original.channelType)?.label ?? row.original.channelType}
+              {row.original.channelId === null && ", deleted"})
+            </span>
+          </span>
         </span>
-      </span>
-    ),
+      );
+    },
   }),
   col.accessor((d) => d.ruleName ?? "", {
     id: "rule",

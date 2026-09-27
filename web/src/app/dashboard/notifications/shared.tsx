@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Bell, Loader2, type LucideIcon, Webhook } from "lucide-react";
 import { type ReactNode, useTransition } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -97,4 +97,13 @@ export function ConfirmDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+const CHANNEL_TYPE_ICONS: Record<string, LucideIcon> = {
+  webhook: Webhook,
+};
+
+// Icon for a channel type; types without one fall back to a bell.
+export function channelTypeIcon(type: string): LucideIcon {
+  return CHANNEL_TYPE_ICONS[type] ?? Bell;
 }

@@ -1,14 +1,11 @@
 "use client";
 
 import {
-  Bell,
   CheckCircle2,
   ChevronDown,
   Loader2,
-  type LucideIcon,
   MoreHorizontal,
   Plus,
-  Webhook,
   XCircle,
 } from "lucide-react";
 import { useState, useTransition } from "react";
@@ -44,7 +41,7 @@ import {
   type TestResult,
 } from "../actions";
 import { ChannelDialog } from "../channel-dialog";
-import { ConfirmDialog, DeliveryStatusBadge, EnabledBadge } from "../shared";
+import { channelTypeIcon, ConfirmDialog, DeliveryStatusBadge, EnabledBadge } from "../shared";
 
 const TYPE_OPTIONS = CHANNEL_TYPES.map((t) => ({ value: t.type, label: t.label }));
 
@@ -234,13 +231,9 @@ const columns = col.columns([
   }),
 ]);
 
-// Menu icon per channel type. The menu itself lists every type in the
-// generated registry (CHANNEL_TYPES) and opens the schema-driven
-// ChannelDialog for it, so a new type needs at most an icon here.
-const CHANNEL_TYPE_ICONS: Record<string, LucideIcon> = {
-  webhook: Webhook,
-};
-
+// The menu lists every type in the generated registry (CHANNEL_TYPES) and
+// opens the schema-driven ChannelDialog for it, so a new type needs at most
+// an icon in channelTypeIcon.
 export function AddChannelButton() {
   const [type, setType] = useState<string | null>(null);
   return (
@@ -255,7 +248,7 @@ export function AddChannelButton() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {CHANNEL_TYPES.map((t) => {
-            const Icon = CHANNEL_TYPE_ICONS[t.type] ?? Bell;
+            const Icon = channelTypeIcon(t.type);
             return (
               <DropdownMenuItem key={t.type} onSelect={() => setType(t.type)}>
                 <Icon />
