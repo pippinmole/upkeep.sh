@@ -63,6 +63,8 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
       SW_FEED_SYNC_ENABLED: ${SW_FEED_SYNC_ENABLED:-true}
+      # Dashboard links in alert notifications.
+      SW_DASHBOARD_URL: ${PUBLIC_WEB_URL:-}
 
   web:
     build:
