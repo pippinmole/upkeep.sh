@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,5 +178,19 @@ func TestValidate(t *testing.T) {
 		if err := n.Validate(cfg); err == nil {
 			t.Errorf("%s: valid", name)
 		}
+	}
+}
+
+func TestSendTruncatesLongResponse(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), maxResponse+10))
+	}))
+	defer srv.Close()
+
+	res, _ := New(tlsGuard(srv)).Send(context.Background(),
+		notify.Config{"url": srv.URL, "secret": "whsec_abc"}, sample())
+	if want := strings.Repeat("x", maxResponse) + "…"; res.Response != want {
+		t.Fatalf("response len %d, want %d ending in …", len(res.Response), len(want))
 	}
 }

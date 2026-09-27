@@ -672,7 +672,8 @@ func (s *Store) RecordAttempt(ctx context.Context, deliveryID string, a Attempt,
 		code = a.StatusCode
 	}
 	if a.Error != "" {
-		errText = truncate(a.Error, 500)
+		// Backstop only: notifiers already cap the response body they append.
+		errText = truncate(a.Error, 64<<10)
 	}
 	var n int
 	err = tx.QueryRow(ctx, `

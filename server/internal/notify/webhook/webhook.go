@@ -34,8 +34,9 @@ const (
 
 	// Timeout bounds one attempt, including reading the response.
 	Timeout = 10 * time.Second
-	// maxResponse is how much of the response body is read and kept.
-	maxResponse = 1024
+	// maxResponse is how much of the response body is kept for the delivery
+	// log; a longer body is cut and ends in "…".
+	maxResponse = 50 << 10
 )
 
 // Notifier is the webhook channel type.
@@ -150,8 +151,15 @@ func (w *Notifier) Send(ctx context.Context, cfg notify.Config, n notify.Notific
 	}
 	defer resp.Body.Close()
 	res.StatusCode = resp.StatusCode
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
+	truncated := len(b) > maxResponse
+	if truncated {
+		b = b[:maxResponse]
+	}
 	res.Response = strings.ToValidUTF8(string(b), string(utf8.RuneError))
+	if truncated {
+		res.Response += "…"
+	}
 
 	switch code := resp.StatusCode; {
 	case code >= 200 && code < 300:

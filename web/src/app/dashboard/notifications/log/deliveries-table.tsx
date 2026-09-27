@@ -7,6 +7,7 @@ import { useTransition } from "react";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
+import { DeliveryError } from "@/components/response-body";
 import { Button } from "@/components/ui/button";
 import { channelType } from "@/lib/notifiers";
 import type { DeliveryRow } from "@/lib/queries-notifications";
@@ -44,7 +45,7 @@ function Attempts({ d }: { d: DeliveryRow }) {
               <td className="py-2 pr-4 whitespace-nowrap">{formatDateTime(a.attemptedAt)}</td>
               <td className="py-2 pr-4 tabular-nums">{a.statusCode ?? "—"}</td>
               <td className="py-2 pr-4 tabular-nums">{a.durationMs} ms</td>
-              <td className="py-2 font-mono text-xs break-all">{a.error ?? ""}</td>
+              <td className="py-2">{a.error && <DeliveryError error={a.error} />}</td>
             </tr>
           ))}
         </tbody>

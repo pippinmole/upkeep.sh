@@ -16,6 +16,7 @@ import { useState, useTransition } from "react";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
+import { DeliveryError } from "@/components/response-body";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -93,11 +94,7 @@ function TestResultDialog({
                 <span className="text-muted-foreground font-normal">HTTP {result.statusCode}</span>
               )}
             </p>
-            {result.error && (
-              <pre className="bg-muted overflow-x-auto rounded-md p-2 text-xs whitespace-pre-wrap">
-                {result.error}
-              </pre>
-            )}
+            {result.error && <DeliveryError error={result.error} defaultOpen />}
           </div>
         ) : null}
         <DialogFooter>
