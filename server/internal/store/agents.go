@@ -4,7 +4,8 @@ package store
 //
 // An agent is one deployed collector with its own credential. A host is one
 // monitored machine. agent_hosts says which agent collects which host, in
-// which mode; only 'local' (the machine the agent runs on) is implemented.
+// which mode: 'local' (the machine the agent runs on) or 'ssh' (a remote
+// host the agent reads over SFTP; see remote.go).
 //
 // Host resolution rules for a push from agent A with host.ref "local" and
 // identity M (the host's machine-id, possibly unknown):
@@ -189,7 +190,7 @@ func resolveHost(ctx context.Context, tx pgx.Tx, agentID string, claim HostClaim
 		return res, err
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE agent_hosts SET last_collected_at = now(), last_error = NULL
+		UPDATE agent_hosts SET last_collected_at = now(), last_error = NULL, last_error_code = NULL
 		WHERE agent_id = $1 AND host_id = $2
 	`, agentID, res.HostID); err != nil {
 		return res, err
@@ -289,9 +290,9 @@ func resolveLocalHost(ctx context.Context, tx pgx.Tx, userID, agentID, agentName
 	return res, assignLocal(ctx, tx, agentID, res.HostID)
 }
 
-// resolveRemoteHost maps a remote target ref to its pre-created
-// assignment. Remote collection is not implemented, so no such assignment
-// exists yet; the path is here so a push can never create one implicitly.
+// resolveRemoteHost maps a remote target ref to its assignment, created
+// up front in the dashboard (mgmt_add_remote_host, migration 0012). A
+// push can never create one implicitly: an unknown ref is refused.
 func resolveRemoteHost(ctx context.Context, tx pgx.Tx, userID, agentID, ref string, claim HostClaim) (res HostResolution, err error) {
 	err = tx.QueryRow(ctx, `
 		SELECT host_id FROM agent_hosts WHERE agent_id = $1 AND target_ref = $2 AND enabled

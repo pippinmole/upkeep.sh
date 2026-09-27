@@ -3,26 +3,25 @@ package collector
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"strings"
 )
 
 // CollectKernelRelease reads the running kernel's release string (what
-// `uname -r` prints, e.g. "6.8.0-45-generic") from procRoot's
+// `uname -r` prints, e.g. "6.8.0-45-generic") from the procfs file
 // sys/kernel/osrelease. It is a plain file read: the agent never executes
 // uname or anything else.
 //
-// procRoot is the target's live procfs (target.LiveProc). In the Docker
+// procFS is the target's procfs (target.ProcFiles). In the Docker
 // deployment that is the agent container's own /proc, which is correct
 // for the host: the kernel release is global to the kernel, not
 // namespaced, so every container on a host sees the host kernel's
 // release. The /:/host bind mount's host/proc is deliberately not used: a
 // non-recursive bind (or a host without /proc mounted there) would show an
 // empty directory.
-func CollectKernelRelease(procRoot string) (string, error) {
-	p := filepath.Join(procRoot, "sys", "kernel", "osrelease")
-	b, err := os.ReadFile(p)
+func CollectKernelRelease(procFS fs.FS) (string, error) {
+	const p = "sys/kernel/osrelease"
+	b, err := fs.ReadFile(procFS, p)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", p, err)
 	}

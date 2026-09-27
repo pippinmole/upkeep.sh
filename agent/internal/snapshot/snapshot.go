@@ -83,7 +83,10 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 		status[name] = st
 	}
 
-	// Live kernel state needs the target's procfs (see target.LiveProc).
+	// Single-file kernel facts need the target's procfs files
+	// (target.ProcFiles, local or remote); walking live process state
+	// needs the local procfs (target.LiveProc).
+	procFS, hasProcFiles := target.ProcFSOf(t)
 	procRoot, hasProc := target.ProcRootOf(t)
 
 	// Running kernel: the server raises kernel CVEs only against the
@@ -91,10 +94,10 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 	switch {
 	case !isLinux:
 		status[collector.CollectorKernel] = notLinux
-	case !hasProc:
+	case !hasProcFiles:
 		status[collector.CollectorKernel] = collector.Skipped("target has no readable procfs")
 	default:
-		rel, err := collector.CollectKernelRelease(procRoot)
+		rel, err := collector.CollectKernelRelease(procFS)
 		snap.OS.Kernel = rel
 		status[collector.CollectorKernel] = result(err)
 	}
@@ -104,10 +107,10 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 	switch {
 	case !isLinux:
 		status[collector.CollectorUptime] = notLinux
-	case !hasProc:
+	case !hasProcFiles:
 		status[collector.CollectorUptime] = noProc
 	default:
-		up, err := collector.CollectUptime(procRoot)
+		up, err := collector.CollectUptime(procFS)
 		if err == nil {
 			snap.UptimeSeconds = &up
 		}
@@ -122,7 +125,7 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 		debPkgs = pkgs
 	}
 	if isLinux {
-		arch, err := collector.CollectArch(debPkgs, procRoot)
+		arch, err := collector.CollectArch(debPkgs, procFS)
 		snap.OS.Arch = arch
 		status[collector.CollectorArch] = result(err)
 	} else {

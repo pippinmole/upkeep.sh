@@ -12,7 +12,7 @@ import { pool } from "./db";
 export type AgentStatus = "online" | "stale" | "revoked" | "never";
 
 // AgentStatus of an agents row aliased "a".
-const AGENT_STATUS_SQL = `CASE
+export const AGENT_STATUS_SQL = `CASE
     WHEN a.revoked_at IS NOT NULL THEN 'revoked'
     WHEN a.last_seen_at IS NULL THEN 'never'
     WHEN now() - a.last_seen_at >
@@ -211,6 +211,11 @@ export type HostAgent = {
   name: string;
   mode: AgentHostRow["mode"];
   status: AgentStatus;
+  // Remote assignments: last connection problem (agent_hosts.last_error_code),
+  // a host key waiting for confirmation, and whether it was ever collected.
+  errorCode: string | null;
+  keyPending: boolean;
+  collected: boolean;
 };
 
 export type HostListRow = {
@@ -279,7 +284,10 @@ export async function getHosts(userId: string): Promise<HostListRow[]> {
      LEFT JOIN hosts mh ON mh.id = h.merged_into AND mh.user_id = h.user_id
      LEFT JOIN LATERAL (
        SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'mode', ah.mode,
-                                         'status', ${AGENT_STATUS_SQL})
+                                         'status', ${AGENT_STATUS_SQL},
+                                         'errorCode', ah.last_error_code,
+                                         'keyPending', ah.host_key_pending IS NOT NULL,
+                                         'collected', ah.last_collected_at IS NOT NULL)
                        ORDER BY a.revoked_at IS NOT NULL, ah.mode <> 'local', a.name) AS agents
        FROM agent_hosts ah
        JOIN agents a ON a.id = ah.agent_id AND a.user_id = h.user_id

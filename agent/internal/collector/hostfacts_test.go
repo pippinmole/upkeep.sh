@@ -202,12 +202,12 @@ APT::Periodic::Update-Package-Lists "1";
 func TestCollectUptime(t *testing.T) {
 	p := newFakeProc(t)
 	p.file("uptime", "350735.47 234388.90\n")
-	if got, err := CollectUptime(p.root); err != nil || got != 350735 {
+	if got, err := CollectUptime(os.DirFS(p.root)); err != nil || got != 350735 {
 		t.Errorf("uptime = %d, %v", got, err)
 	}
 	for _, bad := range []string{"", "abc 1", "-5 1"} {
 		p.file("uptime", bad)
-		if _, err := CollectUptime(p.root); err == nil {
+		if _, err := CollectUptime(os.DirFS(p.root)); err == nil {
 			t.Errorf("uptime %q: want error", bad)
 		}
 	}
@@ -217,16 +217,16 @@ func TestCollectArch(t *testing.T) {
 	p := newFakeProc(t)
 	p.file("sys/kernel/arch", "aarch64\n")
 	dpkg := []Package{{Name: "libc6", Arch: "amd64", Ecosystem: "deb"}, {Name: "dpkg", Arch: "armhf", Ecosystem: "deb"}}
-	if got, err := CollectArch(dpkg, p.root); err != nil || got != "armhf" {
+	if got, err := CollectArch(dpkg, os.DirFS(p.root)); err != nil || got != "armhf" {
 		t.Errorf("from dpkg = %q, %v (want armhf: userland over kernel)", got, err)
 	}
-	if got, err := CollectArch(nil, p.root); err != nil || got != "arm64" {
+	if got, err := CollectArch(nil, os.DirFS(p.root)); err != nil || got != "arm64" {
 		t.Errorf("from kernel = %q, %v", got, err)
 	}
-	if _, err := CollectArch(nil, ""); err == nil {
+	if _, err := CollectArch(nil, nil); err == nil {
 		t.Error("no source: want error")
 	}
-	if _, err := CollectArch(nil, t.TempDir()); err == nil {
+	if _, err := CollectArch(nil, os.DirFS(t.TempDir())); err == nil {
 		t.Error("no arch file: want error")
 	}
 }

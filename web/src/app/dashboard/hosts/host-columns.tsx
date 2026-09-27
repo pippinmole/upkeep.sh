@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 import { osLabel } from "../agents/agent-hosts";
 import { HostRowActions } from "./host-row-actions";
+import { RemoteTargetBadge } from "./remote-target-dialog";
 
 export type HostState = "active" | "archived";
 
@@ -101,17 +102,22 @@ export const hostColumns = col.columns([
       return (
         <div className="flex flex-col gap-0.5">
           {agents.map((a) => (
-            <Link
-              key={a.id}
-              href="/dashboard/agents"
-              className="inline-flex items-center gap-1.5 whitespace-nowrap hover:underline"
-              title={`${a.name}: ${AGENT_STATUS_LABEL[a.status]}${a.mode !== "local" ? `, ${a.mode}` : ""}`}
-            >
-              <span className={cn("inline-block size-2 rounded-full", AGENT_DOT[a.status])} />
-              <span className={cn(a.status === "revoked" && "text-muted-foreground line-through")}>
-                {a.name}
-              </span>
-            </Link>
+            <span key={a.id} className="inline-flex flex-wrap items-center gap-1.5">
+              <Link
+                href="/dashboard/agents"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap hover:underline"
+                title={`${a.name}: ${AGENT_STATUS_LABEL[a.status]}${a.mode !== "local" ? `, ${a.mode}` : ""}`}
+              >
+                <span className={cn("inline-block size-2 rounded-full", AGENT_DOT[a.status])} />
+                <span
+                  className={cn(a.status === "revoked" && "text-muted-foreground line-through")}
+                >
+                  {a.name}
+                </span>
+                {a.mode !== "local" && <span className="text-muted-foreground">via {a.mode}</span>}
+              </Link>
+              <RemoteTargetBadge agent={a} hostId={row.original.id} />
+            </span>
           ))}
         </div>
       );
