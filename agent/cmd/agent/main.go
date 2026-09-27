@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pippinmole/upkeep.sh/agent/internal/collector"
+	"github.com/pippinmole/upkeep.sh/agent/internal/dockerapi"
 	"github.com/pippinmole/upkeep.sh/agent/internal/snapshot"
 	"github.com/pippinmole/upkeep.sh/agent/internal/target"
 	"github.com/pippinmole/upkeep.sh/agent/internal/transport"
@@ -59,6 +60,15 @@ func main() {
 	local := target.NewLocal(hostRoot, "/proc")
 	collect := snapshot.New()
 	collect.Agent = &collector.Agent{Version: version, Platform: platform(), IntervalSeconds: int(interval.Seconds())}
+	// Docker collection is opt-in: it runs only if the engine socket is
+	// mounted at this path (docs/DECISIONS.md "Docker collection").
+	collect.DockerSocket = envOr("SW_DOCKER_SOCKET", dockerapi.DefaultSocket)
+	// Remote targets never touch the socket: Collect already skips Docker
+	// for any non-local target before looking at the path, and their
+	// collector has no socket configured at all.
+	remoteCollect := *collect
+	remoteCollect.DockerSocket = ""
+	remoteCollect.OpenDocker = nil
 
 	// Remote targets (hosts added in the dashboard, read over SFTP) need
 	// the agent's SSH key. Without one the agent still collects its own
@@ -71,7 +81,7 @@ func main() {
 	if signer, err := loadOrCreateSSHKey(keyPath, !keyFromEnv); err != nil {
 		log.Printf("remote targets disabled: ssh key %s: %v", keyPath, err)
 	} else {
-		remote = newRemoteRunner(client, signer, collect, interval)
+		remote = newRemoteRunner(client, signer, &remoteCollect, interval)
 		log.Printf("ssh public key for remote targets: %s", remote.pubLine)
 	}
 

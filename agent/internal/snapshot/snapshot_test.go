@@ -49,6 +49,12 @@ func TestCollectUbuntu(t *testing.T) {
 		collector.CollectorLocalUsers:         collector.StatusOK,
 		collector.CollectorDeletedLibs:        collector.StatusOK,
 		collector.CollectorUnattendedUpgrades: collector.StatusOK,
+		// testCollector has no Docker opener.
+		collector.CollectorDockerEngine:     collector.StatusSkipped,
+		collector.CollectorDockerContainers: collector.StatusSkipped,
+		collector.CollectorDockerImages:     collector.StatusSkipped,
+		collector.CollectorDockerNetworks:   collector.StatusSkipped,
+		collector.CollectorSwarmServices:    collector.StatusSkipped,
 	}
 	if got := statuses(snap); !reflect.DeepEqual(got, wantStatus) {
 		t.Errorf("collectors = %v, want %v (full: %+v)", got, wantStatus, snap.Collectors)
@@ -177,7 +183,9 @@ func TestCollectNonLinuxAndUndetected(t *testing.T) {
 			for _, name := range []string{"deb_packages", collector.CollectorHostIdentity, collector.CollectorKernel,
 				collector.CollectorTCPListeners, collector.CollectorUDPListeners, collector.CollectorRebootRequired,
 				collector.CollectorUptime, collector.CollectorArch, collector.CollectorSystemdServices,
-				collector.CollectorLocalUsers, collector.CollectorDeletedLibs, collector.CollectorUnattendedUpgrades} {
+				collector.CollectorLocalUsers, collector.CollectorDeletedLibs, collector.CollectorUnattendedUpgrades,
+				collector.CollectorDockerEngine, collector.CollectorDockerContainers, collector.CollectorDockerImages,
+				collector.CollectorDockerNetworks, collector.CollectorSwarmServices} {
 				if st := snap.Collectors[name]; st.Status != collector.StatusSkipped {
 					t.Errorf("%s = %+v, want skipped", name, st)
 				}

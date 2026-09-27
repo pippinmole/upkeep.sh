@@ -16,6 +16,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/agent/internal/collector"
 	"github.com/pippinmole/upkeep.sh/agent/internal/collector/pkgsource"
 	"github.com/pippinmole/upkeep.sh/agent/internal/detect"
+	"github.com/pippinmole/upkeep.sh/agent/internal/dockerapi"
 	"github.com/pippinmole/upkeep.sh/agent/internal/target"
 )
 
@@ -26,6 +27,14 @@ type Collector struct {
 	// tests can stub out the network; nil skips the lookup.
 	PublicIPs func(context.Context) (ipv4, ipv6 string)
 
+	// DockerSocket is the Docker Engine socket (SW_DOCKER_SOCKET). It is
+	// only ever opened for the local target; empty disables Docker
+	// collection (reported like an unmounted socket).
+	DockerSocket string
+	// OpenDocker connects to the engine at a socket path: dockerapi.Open
+	// in production, a stub in tests. nil disables Docker collection.
+	OpenDocker func(ctx context.Context, socket string) (dockerapi.Client, error)
+
 	// Now defaults to time.Now.
 	Now func() time.Time
 
@@ -33,10 +42,25 @@ type Collector struct {
 	Agent *collector.Agent
 }
 
-// New returns a Collector with the production package sources and public
-// IP lookup.
+// New returns a Collector with the production package sources, public IP
+// lookup and Docker opener, using the default Docker socket.
 func New() *Collector {
-	return &Collector{Sources: pkgsource.Default(), PublicIPs: collector.CollectPublicIPs}
+	return &Collector{
+		Sources:      pkgsource.Default(),
+		PublicIPs:    collector.CollectPublicIPs,
+		DockerSocket: dockerapi.DefaultSocket,
+		OpenDocker:   openDocker,
+	}
+}
+
+// openDocker adapts dockerapi.Open to Collector.OpenDocker. It must not
+// return a typed nil *Engine inside the interface.
+func openDocker(ctx context.Context, socket string) (dockerapi.Client, error) {
+	e, err := dockerapi.Open(ctx, socket)
+	if err != nil {
+		return nil, err
+	}
+	return e, nil
 }
 
 // Collect gathers one snapshot of t.
@@ -241,6 +265,8 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 		cancel()
 		status[collector.CollectorPublicIP] = collector.OK()
 	}
+
+	snap.Docker = c.collectDocker(ctx, t, isLinux, notLinux, status)
 
 	return snap
 }

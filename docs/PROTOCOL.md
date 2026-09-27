@@ -475,6 +475,17 @@ Local targets only: on remote (SSH) targets every Docker collector is
   `project.environment_file` labels are kept: host paths, never file
   contents. Enforced by the agent's wire types (only declared fields are
   serialized) and `FilterDockerLabels`.
+- Status reasons are exact strings the dashboard keys on: `"remote host"`
+  (all five, SSH targets; the socket is never touched), `"docker socket
+  not mounted"` (all five; nothing at `SW_DOCKER_SOCKET`), and when
+  something is there but unusable (refused, permission, API older than
+  1.41) `docker_engine` is `error` and the other four are skipped `"docker
+  engine unavailable"`. `swarm_services` is skipped `"not in a swarm"` or
+  `"not a swarm manager"`. A Docker collector missing from `collectors`
+  means that agent build doesn't have it: not authoritative.
+- `engine.api_version` is the engine's highest supported API version
+  (`/version`), not the one the agent negotiated. `swarm` is sent only
+  for active Swarm members.
 - `mounts[].source` is set only for `type: "bind"`, where it is a host
   path, so the dashboard can flag e.g. the Docker socket or `/`
   bind-mounted into a container.
