@@ -179,7 +179,7 @@ so `/host/run/docker.sock` is already reachable, and was shown to allow
 code never uses it, but it means opting out of Docker isn't real until
 that mount is fixed (TASKS.md Phase 1.6).
 
-**Client: Docker's official Go SDK** (`github.com/docker/docker/client`),
+**Client: Docker's official Go client** (see the package below),
 decided 2026-09-28 by the user, replacing a hand-written GET-only
 client. A hand-written client only protects against someone running
 arbitrary code in the agent, and anyone who can do that can talk to the
@@ -189,6 +189,15 @@ the binary. So the SDK sits behind a small internal interface holding
 only the read calls the collectors need, and SDK structs are mapped onto
 our own wire types (the field and label allowlist), never serialized
 as-is.
+
+The package is **`github.com/moby/moby/client`** (API types in
+`github.com/moby/moby/api`), the Engine API client the `docker` CLI
+itself uses; `github.com/docker/docker/client` is its older module path.
+Not `github.com/docker/go-sdk` (considered 2026-09-28): that is a v0.x
+convenience layer over the same client that resolves Docker contexts,
+`DOCKER_HOST` and `~/.docker/config.json` and adds pull/run helpers,
+none of which a read-only collector needs, and the discovery conflicts
+with the rule that the agent only ever dials `SW_DOCKER_SOCKET`.
 
 **Docker is collected only on hosts with their own agent.** Remote (SSH)
 hosts get `skipped`: their key is pinned to read-only SFTP, and SFTP

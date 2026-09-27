@@ -372,8 +372,8 @@ and workers), rootless Docker and Podman's Docker-compatible API; no
 per-platform special-casing (Dokploy, Coolify…). Planned wire shape:
 PROTOCOL.md "Docker sections (planned)". Order: the collector, then
 storage/UI, then firewall + exposure on top.
-- [ ] Agent: Docker Engine API access through Docker's official Go SDK
-      (`github.com/docker/docker/client`; decided 2026-09-28,
+- [ ] Agent: Docker Engine API access through Docker's official Go client
+      (`github.com/moby/moby/client`; decided 2026-09-28,
       DECISIONS.md "Docker collection") over the socket mounted into the
       agent container (`SW_DOCKER_SOCKET`, default
       `/var/run/docker.sock`), with API version negotiation and a pinned
