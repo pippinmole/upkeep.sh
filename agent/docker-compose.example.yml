@@ -9,9 +9,15 @@
 # /:/host:ro is a read-only bind mount used only for filesystem facts
 # (dpkg database, os-release, reboot-required flag) that aren't
 # visible through the host namespaces above.
+#
+# upkeep-agent-data is the agent's persistent data directory (a folder):
+# credentials.json and the agent's SSH key for remote hosts (ssh/). Keep
+# it across upgrades and container re-creation; losing it means
+# re-enrolling and re-adding the SSH key on remote hosts. To use your own
+# key instead, mount it read-only and set SW_SSH_KEY_FILE to its path.
 services:
-  security-whatnot-agent:
-    image: ghcr.io/icondesk/security-whatnot-agent:latest
+  upkeep-agent:
+    image: ghcr.io/icondesk/upkeep-agent:latest
     restart: unless-stopped
     pid: host
     network_mode: host
@@ -22,11 +28,11 @@ services:
       - ALL
     volumes:
       - /:/host:ro
-      - sw-agent-data:/var/lib/security-whatnot
+      - upkeep-agent-data:/var/lib/upkeep
     environment:
-      SW_SERVER_URL: "https://your-security-whatnot-instance.example.com"
+      SW_SERVER_URL: "https://your-upkeep-instance.example.com"
       SW_ENROLLMENT_TOKEN: "paste-one-time-token-here"
       SW_INTERVAL: "15m"
 
 volumes:
-  sw-agent-data:
+  upkeep-agent-data:

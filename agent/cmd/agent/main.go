@@ -1,4 +1,4 @@
-// Command agent is the security-whatnot host agent: a small, read-only,
+// Command agent is the upkeep host agent: a small, read-only,
 // outbound-only fact collector. It never accepts inbound connections and
 // never executes commands on behalf of the server.
 package main
@@ -37,7 +37,7 @@ func main() {
 	if serverURL == "" {
 		log.Fatal("SW_SERVER_URL is required")
 	}
-	dataDir := envOr("SW_DATA_DIR", "/var/lib/security-whatnot")
+	dataDir := resolveDataDir()
 	interval := 15 * time.Minute
 	if v := os.Getenv("SW_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -53,28 +53,40 @@ func main() {
 		log.Fatalf("enrollment failed: %v", err)
 	}
 
-	// One target today: the host the agent runs on, visible read-only under
-	// SW_HOST_ROOT (the /:/host bind mount in Docker; "/" for a bare-metal
-	// install). Remote targets would be added to this list once remote
-	// collection is designed (see internal/target).
+	// The host the agent runs on, visible read-only under SW_HOST_ROOT
+	// (the /:/host bind mount in Docker; "/" for a bare-metal install).
 	hostRoot := envOr("SW_HOST_ROOT", "/host")
-	targets := []target.Target{target.NewLocal(hostRoot, "/proc")}
+	local := target.NewLocal(hostRoot, "/proc")
 	collect := snapshot.New()
 	collect.Agent = &collector.Agent{Version: version, Platform: platform(), IntervalSeconds: int(interval.Seconds())}
 
+	// Remote targets (hosts added in the dashboard, read over SFTP) need
+	// the agent's SSH key. Without one the agent still collects its own
+	// machine.
+	var remote *remoteRunner
+	keyPath, keyFromEnv := os.LookupEnv("SW_SSH_KEY_FILE")
+	if !keyFromEnv {
+		keyPath = filepath.Join(dataDir, "ssh", "id_ed25519")
+	}
+	if signer, err := loadOrCreateSSHKey(keyPath, !keyFromEnv); err != nil {
+		log.Printf("remote targets disabled: ssh key %s: %v", keyPath, err)
+	} else {
+		remote = newRemoteRunner(client, signer, collect, interval)
+		log.Printf("ssh public key for remote targets: %s", remote.pubLine)
+	}
+
+	ctx := context.Background()
+	var nextLocal time.Time
 	for {
+		now := time.Now()
 		rotate := false
-		for _, t := range targets {
-			snap := collect.Collect(context.Background(), t)
-			logCollectorErrors(t, snap)
-			res, err := client.PushSnapshot(creds.AgentID, creds.AgentSecret, snap)
-			if err != nil {
-				log.Printf("[%s] push failed: %v", t.Ref(), err)
-				continue
-			}
-			log.Printf("[%s] pushed snapshot: os=%s/%s, %d packages, %d listening sockets, %d services, %d users",
-				t.Ref(), snap.Host.OSFamily, snap.OS.ID, len(snap.Packages), len(snap.ListeningSockets), len(snap.Services), len(snap.Users))
-			rotate = rotate || res.RotateCredentials
+		if !now.Before(nextLocal) {
+			rotate = pushLocal(ctx, client, collect, local, creds)
+			nextLocal = now.Add(interval)
+		}
+		if remote != nil {
+			remote.poll(creds, now)
+			rotate = remote.runDue(ctx, creds, now) || rotate
 		}
 		// Credential rotation is agent-initiated: the server only asks (a
 		// push response header); nothing it sends is ever executed.
@@ -86,8 +98,49 @@ func main() {
 				log.Printf("credentials rotated and saved to %s", credPath)
 			}
 		}
-		time.Sleep(interval)
+		wake := nextLocal
+		if remote != nil && !remote.unsupported {
+			if poll := time.Now().Add(configPollInterval); poll.Before(wake) {
+				wake = poll
+			}
+		}
+		time.Sleep(time.Until(wake))
 	}
+}
+
+// pushLocal collects and pushes the agent's own machine. It returns
+// whether the server asked the agent to rotate its credential.
+func pushLocal(ctx context.Context, client *transport.Client, collect *snapshot.Collector, t target.Target, creds storedCredentials) bool {
+	snap := collect.Collect(ctx, t)
+	logCollectorErrors(t, snap)
+	res, err := client.PushSnapshot(creds.AgentID, creds.AgentSecret, snap)
+	if err != nil {
+		log.Printf("[%s] push failed: %v", t.Ref(), err)
+		return false
+	}
+	log.Printf("[%s] pushed snapshot: os=%s/%s, %d packages, %d listening sockets, %d services, %d users",
+		t.Ref(), snap.Host.OSFamily, snap.OS.ID, len(snap.Packages), len(snap.ListeningSockets), len(snap.Services), len(snap.Users))
+	return res.RotateCredentials
+}
+
+// Data directory: credentials.json and the ssh key. It must be a
+// persistent, writable volume (docker: -v upkeep-agent-data:/var/lib/upkeep).
+const (
+	defaultDataDir = "/var/lib/upkeep"
+	// legacyDataDir is where agents from before the rename kept their
+	// credentials; still used when it holds them, so an upgraded agent
+	// whose volume is mounted there doesn't re-enroll.
+	legacyDataDir = "/var/lib/security-whatnot"
+)
+
+func resolveDataDir() string {
+	if v := os.Getenv("SW_DATA_DIR"); v != "" {
+		return v
+	}
+	if _, err := os.Stat(filepath.Join(legacyDataDir, "credentials.json")); err == nil {
+		return legacyDataDir
+	}
+	return defaultDataDir
 }
 
 // logCollectorErrors surfaces failed collectors locally. They are also in

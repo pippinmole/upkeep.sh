@@ -3,8 +3,7 @@ package collector
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"strings"
 )
 
@@ -20,23 +19,23 @@ import (
 //     the already-collected inventory costs nothing. This is preferred
 //     because it describes the userland: a 64-bit kernel can run a 32-bit
 //     userland, and it is the userland's packages we match.
-//  2. procRoot/sys/kernel/arch (Linux 6.1+; what `uname -m` prints),
+//  2. procfs sys/kernel/arch (Linux 6.1+; what `uname -m` prints),
 //     mapped to Debian naming. Used on hosts without dpkg, or when the
 //     package collector failed.
 //
-// pkgs may be nil (no package source succeeded); procRoot may be "" (no
-// live procfs).
-func CollectArch(pkgs []Package, procRoot string) (string, error) {
+// pkgs may be nil (no package source succeeded); procFS may be nil (no
+// procfs).
+func CollectArch(pkgs []Package, procFS fs.FS) (string, error) {
 	for _, p := range pkgs {
 		if p.Name == "dpkg" && p.Ecosystem == "deb" && p.Arch != "" && p.Arch != "all" {
 			return p.Arch, nil
 		}
 	}
-	if procRoot == "" {
+	if procFS == nil {
 		return "", errors.New("no dpkg package and no procfs to read the kernel arch from")
 	}
-	p := filepath.Join(procRoot, "sys", "kernel", "arch")
-	b, err := os.ReadFile(p)
+	const p = "sys/kernel/arch"
+	b, err := fs.ReadFile(procFS, p)
 	if err != nil {
 		return "", fmt.Errorf("no dpkg package, and read %s: %w", p, err)
 	}

@@ -1,20 +1,13 @@
 // Package target models a host the agent collects facts from, and how it
 // reaches that host (its collection mode).
 //
-// Today every agent has exactly one target: the machine it runs on
-// ("local" mode), whose filesystem is visible read-only under a host root
-// (/host in the Docker deployment). The abstraction exists so that one
-// agent can later collect several hosts of different kinds (e.g. two
-// Windows VMs and a Debian box from one subnet agent) without restructuring
-// the collectors: collectors take a Target and ask it for what they need,
-// they never hardcode /host paths.
+// Every agent has the machine it runs on ("local" mode), whose filesystem
+// is visible read-only under a host root (/host in the Docker deployment),
+// and may have remote hosts added in the dashboard ("ssh" mode, ssh.go),
+// whose filesystem it reads over read-only SFTP. Collectors take a Target
+// and ask it for what they need; they never hardcode /host paths.
 //
-// Remote modes (ssh, winrm; DOMAIN_MODEL.md §4.2) are deliberately not
-// implemented. They require executing commands on the remote machine and
-// holding credentials for it, both of which are open product decisions
-// (DOMAIN_MODEL.md §6 Q3/Q4). When they are decided, a remote target is a
-// new type implementing Target (e.g. FS backed by read-only SFTP), plus any
-// capability interfaces below that it can honour.
+// WinRM (Windows) is reserved and not implemented (DOMAIN_MODEL.md §4.2).
 package target
 
 import (
@@ -30,8 +23,7 @@ const (
 	// ModeLocal: the agent runs on the target and reads its files directly.
 	ModeLocal Mode = "local"
 
-	// ModeSSH and ModeWinRM are reserved for remote collection. No Target
-	// implements them yet; see the package comment.
+	// ModeSSH: a remote host read over SFTP (SSH). ModeWinRM is reserved.
 	ModeSSH   Mode = "ssh"
 	ModeWinRM Mode = "winrm"
 )
@@ -69,6 +61,15 @@ type LiveProc interface {
 	ProcRoot() string
 }
 
+// ProcFiles is an optional capability: the target's procfs is readable
+// file by file, as an fs.FS rooted at its /proc. That is enough for
+// single-file kernel facts (running kernel, uptime, arch), and a remote
+// target has it; walking every process (listeners, deleted libraries)
+// still needs LiveProc.
+type ProcFiles interface {
+	ProcFS() fs.FS
+}
+
 // Local is the agent's own host.
 type Local struct {
 	fsys     fs.FS
@@ -92,6 +93,24 @@ func (l *Local) Ref() string      { return LocalRef }
 func (l *Local) Mode() Mode       { return ModeLocal }
 func (l *Local) FS() fs.FS        { return l.fsys }
 func (l *Local) ProcRoot() string { return l.procRoot }
+
+// ProcFS is the live procfs as an fs.FS (nil without one).
+func (l *Local) ProcFS() fs.FS {
+	if l.procRoot == "" {
+		return nil
+	}
+	return os.DirFS(l.procRoot)
+}
+
+// ProcFSOf returns the target's procfs files and whether it has them.
+func ProcFSOf(t Target) (fs.FS, bool) {
+	p, ok := t.(ProcFiles)
+	if !ok {
+		return nil, false
+	}
+	fsys := p.ProcFS()
+	return fsys, fsys != nil
+}
 
 // ProcRootOf returns the target's procfs root and whether it has one.
 func ProcRootOf(t Target) (string, bool) {

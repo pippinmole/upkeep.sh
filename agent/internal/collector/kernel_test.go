@@ -26,17 +26,17 @@ func TestCollectKernelRelease(t *testing.T) {
 		"6.1.0-18-amd64":        "6.1.0-18-amd64",
 		"6.12.48+deb13-amd64\n": "6.12.48+deb13-amd64",
 	} {
-		got, err := CollectKernelRelease(writeOSRelease(t, content))
+		got, err := CollectKernelRelease(os.DirFS(writeOSRelease(t, content)))
 		if err != nil || got != want {
 			t.Errorf("CollectKernelRelease(%q) = %q, %v; want %q", content, got, err, want)
 		}
 	}
 	for _, bad := range []string{"", "\n", "two words"} {
-		if _, err := CollectKernelRelease(writeOSRelease(t, bad)); err == nil {
+		if _, err := CollectKernelRelease(os.DirFS(writeOSRelease(t, bad))); err == nil {
 			t.Errorf("CollectKernelRelease(%q): want error", bad)
 		}
 	}
-	if _, err := CollectKernelRelease(t.TempDir()); err == nil || !strings.Contains(err.Error(), "osrelease") {
+	if _, err := CollectKernelRelease(os.DirFS(t.TempDir())); err == nil || !strings.Contains(err.Error(), "osrelease") {
 		t.Errorf("missing file: err = %v", err)
 	}
 }
