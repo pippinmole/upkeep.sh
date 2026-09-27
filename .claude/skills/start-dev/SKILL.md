@@ -18,13 +18,13 @@ Both are backed by scripts in `scripts/` — read them before running if you wan
 bash .claude/skills/start-dev/scripts/up.sh
 ```
 
-This brings up `postgres`/`migrate`/`api` via `docker compose -f docker-compose.dev.yml up -d`, waits for Postgres to report healthy and the API to answer on `:8080`, creates `web/.env.local` from `web/.env.example` with a freshly generated `AUTH_SECRET` if it doesn't exist yet, runs `bun install`, then execs `bun run dev` in the foreground.
+This brings up `postgres`/`migrate`/`api` via `docker compose -f docker-compose.dev.yml up -d --build` (`--build` so server changes are picked up; without it compose reuses stale images whenever they already exist, and the build cache makes it quick when nothing changed), waits for Postgres to report healthy and the API to answer on `:8080`, creates `web/.env.local` from `web/.env.example` with a freshly generated `AUTH_SECRET` if it doesn't exist yet, runs `bun install`, then execs `bun run dev` in the foreground.
 
 **Why `web` isn't started in Docker**: it used to be, but Turbopack's dev filesystem cache (`experimental.turbopackFileSystemCacheForDev`, on by default since Next 16.1) was found to serve stale compiled output indefinitely — surviving even a full dev-server restart — both under a Docker bind mount and running natively. It's now disabled in `web/next.config.ts` with a comment explaining why; don't re-enable it without first confirming edits still hot-reload. Because of this history, `web` was also removed entirely from `docker-compose.dev.yml` in favor of running it natively, which sidesteps a *separate*, since-superseded theory about Docker bind-mount file watching that turned out not to be the real cause. If you're asked to "just run it in Docker like before," push back gently and point at this — it was tried and is why things are the way they are now, not an oversight.
 
 Since `up.sh` ends by `exec`-ing the dev server, it blocks in the foreground. Run it with the Bash tool's `run_in_background: true` if you need the shell back — the dev server logs (including Turbopack recompiles) land in that background task's output.
 
-If you only need Postgres/API up (e.g. to run a test agent) without touching the web dev server, just run `docker compose -f docker-compose.dev.yml up -d` directly instead of the whole script.
+If you only need Postgres/API up (e.g. to run a test agent) without touching the web dev server, just run `docker compose -f docker-compose.dev.yml up -d --build` directly instead of the whole script.
 
 ## 2. Running a test agent
 

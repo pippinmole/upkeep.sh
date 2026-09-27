@@ -10,8 +10,8 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-echo "==> Starting postgres, migrate, api via docker compose..."
-docker compose -f docker-compose.dev.yml up -d
+echo "==> Starting postgres, migrate, api, worker via docker compose (rebuilding images from current source)..."
+docker compose -f docker-compose.dev.yml up -d --build
 
 echo "==> Waiting for postgres to report healthy..."
 for i in $(seq 1 30); do
