@@ -38,7 +38,8 @@ const MESSAGES: Record<string, string> = {
   agent_active: "The agent is still active. Revoke it first, or wait until it stops reporting.",
   host_key_changed:
     "The host presented a different key in the meantime. Check the new fingerprint.",
-  agent_no_ssh: "This agent can't reach other hosts yet. Upgrade it to the latest version.",
+  agent_no_ssh:
+    "This agent runs an older version that only monitors its own machine. Update it to the latest version first.",
   invalid_address: "Enter a hostname or an IP address, without a user or port.",
   invalid_port: "The port must be between 1 and 65535.",
   invalid_username: "Use a Linux username: lowercase letters, digits, _ . and -.",

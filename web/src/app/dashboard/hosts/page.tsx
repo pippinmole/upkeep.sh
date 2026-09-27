@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { getHosts } from "@/lib/queries";
-import { getRemoteCapableAgents } from "@/lib/queries-remote";
+import { getRemoteCollectorAgents } from "@/lib/queries-remote";
 
 import { AddHostDialog } from "./add-host-dialog";
 import { HostsTable } from "./hosts-table";
@@ -24,7 +24,7 @@ export default async function HostsPage() {
 
   const [hosts, remoteAgents] = await Promise.all([
     getHosts(session.user.id),
-    getRemoteCapableAgents(session.user.id),
+    getRemoteCollectorAgents(session.user.id),
   ]);
   const serverUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   const active = hosts.filter((h) => !h.archivedAt).length;
