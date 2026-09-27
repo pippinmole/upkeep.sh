@@ -425,7 +425,8 @@ Local targets only: on remote (SSH) targets every Docker collector is
 ```
 "docker": {
   "engine": { "version": "29.8.0", "api_version": "1.56",
-              "storage_driver": "overlayfs", "rootless": false },
+              "storage_driver": "overlayfs", "image_store": "containerd",
+              "rootless": false },
   "swarm": { "node_id": "…", "cluster_id": "…", "role": "manager" },
   "containers": [
     { "id": "8e89…", "name": "myapp-db-1", "image": "postgres:18",
@@ -438,7 +439,9 @@ Local targets only: on remote (SSH) targets every Docker collector is
       "networks": ["myapp_default"], "network_mode": "bridge",
       "privileged": false, "restart_policy": "unless-stopped",
       "mounts": [ { "type": "volume", "destination": "/var/lib/postgresql",
-                    "rw": true } ] }
+                    "rw": true },
+                  { "type": "bind", "source": "/srv/myapp/backups",
+                    "destination": "/backups", "rw": true } ] }
   ],
   "images": [
     { "id": "sha256:…", "repo_tags": ["postgres:18"],
@@ -461,11 +464,28 @@ Local targets only: on remote (SSH) targets every Docker collector is
 ```
 
 - **Never sent**: environment variables, command lines, Swarm secrets or
-  configs, volume driver options, labels outside the allowlisted
-  prefixes (`com.docker.compose.*`, `com.docker.stack.*`,
-  `com.docker.swarm.*`, `org.opencontainers.image.*`). Enforced by the
-  agent's wire types (only declared fields are serialized) and the
-  label filter.
+  configs, volume names and driver options, mount sources other than a
+  bind mount's host path, and labels outside the allowlist. Labels are
+  matched by **exact key** for Compose / stack / Swarm (the keys those
+  tools set themselves: project, service, container number, config hash,
+  stack namespace, Swarm service/task/node ids…; anyone can put a secret
+  under a Docker-owned prefix in their own compose file), and by prefix
+  only for `org.opencontainers.image.*`. The Compose
+  `project.config_files` / `project.working_dir` /
+  `project.environment_file` labels are kept: host paths, never file
+  contents. Enforced by the agent's wire types (only declared fields are
+  serialized) and `FilterDockerLabels`.
+- `mounts[].source` is set only for `type: "bind"`, where it is a host
+  path, so the dashboard can flag e.g. the Docker socket or `/`
+  bind-mounted into a container.
+- `engine.image_store` is `"containerd"` (containerd image store; then
+  `storage_driver` is the snapshotter, e.g. `overlayfs`) or
+  `"graphdriver"` (classic store; e.g. `overlay2`). `swarm.cluster_id` is
+  absent on workers (the engine doesn't tell them), so the server takes
+  it from a manager's push. `swarm_services[].replicas` is absent for
+  global services. Caps: 2000 containers / images, 500 networks, 1000
+  Swarm services, plus per-item caps (ports, mounts, layers…); hitting
+  any of them, top-level or per-item, flags that collector `truncated`.
 - `image` is the reference as configured (a tag can move); `image_id` is
   what the container actually runs, and the key for future image CVE
   matching. `layers` are the image's layer diff IDs.

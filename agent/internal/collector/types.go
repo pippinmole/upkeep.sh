@@ -68,6 +68,16 @@ type Snapshot struct {
 	// stores as-is (snapshots.facts) rather than as range tables. Each
 	// member is owned by its own collector and omitted when that isn't ok.
 	Facts *Facts `json:"facts,omitempty"`
+
+	// Docker is the Docker Engine inventory (types_docker.go), collected
+	// only by a local agent with the Docker socket mounted. Each member is
+	// owned by its own collector and omitted when that collector isn't ok:
+	// engine and swarm by "docker_engine" (swarm also omitted outside
+	// Swarm), containers by "docker_containers", images by
+	// "docker_images", networks by "docker_networks", swarm_services by
+	// "swarm_services" (managers only). The whole block is omitted when
+	// no Docker collector is ok. Added without a schema bump.
+	Docker *Docker `json:"docker,omitempty"`
 }
 
 // Agent is the snapshot's agent block. The server stores it on the agent
@@ -125,6 +135,15 @@ const (
 	CollectorLocalUsers         = "local_users"
 	CollectorDeletedLibs        = "deleted_libs"
 	CollectorUnattendedUpgrades = "unattended_upgrades"
+
+	// Docker collectors (local targets with the socket mounted; skipped
+	// with a reason otherwise). docker_engine owns docker.engine and
+	// docker.swarm.
+	CollectorDockerEngine     = "docker_engine"
+	CollectorDockerContainers = "docker_containers"
+	CollectorDockerImages     = "docker_images"
+	CollectorDockerNetworks   = "docker_networks"
+	CollectorSwarmServices    = "swarm_services"
 )
 
 // Status values for CollectorStatus.Status.

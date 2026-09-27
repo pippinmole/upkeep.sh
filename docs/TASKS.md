@@ -392,10 +392,10 @@ storage/UI, then firewall + exposure on top.
       `swarm_services` (managers only; `skipped` on workers). The agent's
       wire types are the allowlist: only declared fields are sent (never
       `Env`, command lines, Swarm secret/config references), and labels
-      only under allowlisted prefixes (`com.docker.compose.*`,
-      `com.docker.stack.*`, `com.docker.swarm.*`,
-      `org.opencontainers.image.*`), because labels routinely carry
-      secrets (e.g. reverse-proxy basic-auth hashes). SDK structs are
+      only by exact key for Compose / stack / Swarm plus the
+      `org.opencontainers.image.*` prefix (PROTOCOL.md "Never sent"),
+      because labels routinely carry secrets (e.g. reverse-proxy
+      basic-auth hashes). Mount sources only for bind mounts. SDK structs are
       mapped onto these wire types, never sent as-is. Caps + `truncated`
       like the other collectors.
 - [ ] Docker is collected **only on hosts with their own agent**
