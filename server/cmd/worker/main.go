@@ -1,7 +1,11 @@
 // Command worker runs upkeep.sh background jobs on River: the OSV
 // Debian/Ubuntu advisory sync (hourly incremental, weekly full), the CISA
 // KEV and FIRST EPSS syncs (daily), the vulnerability matcher and findings
-// reconciliation (see internal/jobs/matching.go).
+// reconciliation (see internal/jobs/matching.go), and alerting: rule
+// evaluation, digests, agent staleness and notification delivery (see
+// internal/jobs/alerting.go). Alerting env: SW_DASHBOARD_URL (links in
+// notifications), SW_ALERT_INTERVAL, SW_ALERT_JOB_WORKERS, and the dev-only
+// SW_NOTIFY_ALLOW_PRIVATE_NETWORKS (internal/netguard).
 //
 //	worker                         run the River client until SIGINT/SIGTERM
 //	worker sync osv Debian [-full] run one sync in the foreground and exit
@@ -35,6 +39,8 @@ import (
 
 	"github.com/pippinmole/upkeep.sh/server/internal/feeds"
 	"github.com/pippinmole/upkeep.sh/server/internal/jobs"
+	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
+	"github.com/pippinmole/upkeep.sh/server/internal/notify/notifiers"
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
@@ -134,6 +140,11 @@ func main() {
 		return
 	}
 
+	guard := netguard.FromEnv()
+	if guard.AllowPrivate {
+		log.Printf("WARNING: %s=true: notifications may reach private/loopback addresses over plain http. Dev only; never set this in production.",
+			netguard.EnvAllowPrivate)
+	}
 	jcfg := jobs.Config{
 		PeriodicSyncs:    envBool("SW_FEED_SYNC_ENABLED", true),
 		OSVEcosystems:    strings.Split(envOr("SW_OSV_ECOSYSTEMS", strings.Join(feeds.OSVEcosystems, ",")), ","),
@@ -142,6 +153,12 @@ func main() {
 		FeedWorkers:      envInt("SW_FEED_JOB_WORKERS", 1),
 		FindingsWorkers:  envInt("SW_FINDINGS_JOB_WORKERS", 4),
 		MatcherInterval:  envDuration("SW_MATCHER_INTERVAL", 5*time.Minute),
+		Alerting: jobs.AlertingConfig{
+			Notifiers:    notifiers.Registry(guard),
+			DashboardURL: os.Getenv("SW_DASHBOARD_URL"),
+		},
+		AlertInterval: envDuration("SW_ALERT_INTERVAL", time.Minute),
+		AlertWorkers:  envInt("SW_ALERT_JOB_WORKERS", 10),
 	}
 	client, err := jobs.NewClient(db.Pool, db, syncer, jcfg)
 	if err != nil {
