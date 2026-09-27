@@ -981,6 +981,19 @@ Recommendation: ship the **schema and protocol for many hosts per agent now**
 until there is a concrete remote use case and the Q3 security decision is
 made.
 
+**As implemented (2026-09-27, migration 0012, PROTOCOL.md §4).** Q3–Q5
+were decided (§6) and `ssh` mode is built for Linux. It turned out to need
+**no command execution**: every Linux collector reads files, so a remote
+target is the same collectors over a read-only SFTP filesystem
+(`agent/internal/target/ssh.go`), and the recommended `authorized_keys`
+entry forces `sftp-server -R` on the remote side. Walking live process
+state (listeners, deleted libraries) is not done remotely and reports
+`skipped`; kernel, uptime and arch come from single `/proc` files. The
+agent generates its own ed25519 key in its data directory and reports only
+the public half. Host keys are pinned after the user confirms the
+fingerprint the agent reported. `winrm` stays reserved; Windows and macOS
+remote collection would need the fixed read-only commands Q3 allows.
+
 ### 4.3 Enrollment and identity
 
 - **Enrollment creates an agent, not a host.** The token → `agents` row +
@@ -1040,7 +1053,10 @@ made.
   `linux-machine-id` style sketched in §4.6. Values are lowercased.
 - A machine-id that shows up later for a host (older agent upgraded, or
   a host created without one) is attached to that host if unclaimed.
-- Not built: remote hosts created in the dashboard.
+- Remote hosts created in the dashboard: built in migration 0012 (§4.2
+  "As implemented", PROTOCOL.md §4). The host and its `ssh` assignment
+  (`target_ref` = the host id) exist before the first push; its identity
+  and hostname fill in from that push.
 
 **Management (migration 0011, `web/src/app/dashboard/manage-actions.ts`).**
 Every dashboard mutation on these Go-owned tables is a server action that
@@ -1490,14 +1506,28 @@ Linux/Debian-family only. Nothing else is collected today.
    can never cause execution; the agent runs only compiled-in read-only
    probes"? If not, remote mode is out, and macOS loses
    SIP/Gatekeeper/FileVault.
+   **Resolved (2026-09-27, user):** yes, fixed read-only commands compiled
+   into the agent are allowed; the server can never cause execution.
+   Linux remote collection ended up needing none (read-only SFTP, §4.2
+   "As implemented"); the allowance is for Windows/macOS later.
 4. **Where remote-target credentials live.** Recommended: only on the agent
    (local config), with the dashboard holding just the target list.
    Alternative: encrypted in Postgres and pushed to the agent. That is more
    convenient, but the platform then holds SSH keys to customer machines.
+   **Resolved (2026-09-27, user):** private keys stay on the agent. It
+   generates an ed25519 key in its data directory (a persistent volume,
+   also holding `credentials.json`), or uses one the operator mounts
+   (`SW_SSH_KEY_FILE`); the server stores only the public key and the
+   confirmed host keys. Reinstalling with a lost volume means adding the
+   new public key on the remote hosts. A "replace agent" flow (the new
+   agent takes over the old one's remote hosts) is a follow-up in TASKS.
 5. **External port scanning for remote hosts.** Today's safety check
    (`source_ip` equals the agent's connection) can't verify a remote host's
    address. Should remote hosts simply be ineligible, or verified another
    way, for example the user proving control with a DNS TXT record?
+   **Resolved (2026-09-27, by recommendation):** ineligible. A remote
+   host's pushes carry the agent's `source_ip`; the scanner must only
+   consider `local` assignments.
 6. **Resolved: `snapshot_packages` is retired entirely** (the alternative
    was keeping raw per-snapshot package rows for N days). Nothing read it beyond the one-off 0003 backfill, and
    `host_software` ranges plus `snapshots.package_set_hashes` cover the
@@ -1551,7 +1581,11 @@ Linux/Debian-family only. Nothing else is collected today.
     Agents? Recommended: both entry points, one dialog. **Resolved by
     recommendation:** the sidebar has Hosts (machines) and Agents
     (collectors); "Add host" on Hosts and "Register agent" on Agents open
-    the same enrollment dialog.
+    the same enrollment dialog. **Revised 2026-09-27:** "Add host" now
+    asks first: "Install the agent on it" (the same enrollment panel as
+    "Register agent") or "Reach it from an existing agent" (remote host
+    over SSH: pick the agent, enter the address, authorize the agent's key
+    on the host, confirm the host key fingerprint).
 16. **Multiple agents per host.** The schema allows it (for redundancy or
     migration). Should the UI allow it, or enforce one active collector per
     host? As built, it is allowed and shown (the Hosts list lists every

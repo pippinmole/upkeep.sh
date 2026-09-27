@@ -43,6 +43,15 @@ fsync, rename) and re-enrolls only if that file is missing
 (`agent/cmd/agent/enroll.go`, `credentials.go`). The secret can later be
 replaced by rotation (section 3).
 
+`SW_DATA_DIR` (default `/var/lib/upkeep`; an agent whose credentials are
+still under the pre-rename `/var/lib/security-whatnot` keeps using that)
+is a directory, not a file: it also holds the agent's SSH key for remote
+targets (`ssh/id_ed25519`, section 4). It must be a persistent, writable
+volume (`-v upkeep-agent-data:/var/lib/upkeep`). The agent checks it can
+write there **before** spending the one-time token, so a read-only
+container without the volume fails with a clear error and the token stays
+usable.
+
 ## 2. Snapshot push
 
 Authentication: `X-Agent-ID` + `Authorization: Bearer <agent_secret>`,
@@ -486,6 +495,107 @@ again; it rotates with the old secret and persists the result. After the
 window the old secret is refused on every endpoint (`401`); the agent then
 needs a new enrollment, like a revoked one. Verified end to end with a
 real agent container (see the PR for the log).
+
+## 4. Remote targets
+
+An agent collects its own machine (`host.ref: "local"`) and any remote
+hosts added in the dashboard ("Add host" → "Reach it from an existing
+agent"; `mgmt_add_remote_host`, migration 0012). The server never
+connects to the agent or to the remote hosts: the agent pulls its target
+list and reports how reaching each one went. Only `ssh` is implemented;
+`winrm` is reserved.
+
+### Target list
+
+```
+GET /v1/agent/config
+X-Agent-ID: <agent_id>
+Authorization: Bearer <agent_secret>
+If-None-Match: "<etag from the last 200>"      (optional)
+```
+
+→ `200 OK` with an `ETag`, or `304 Not Modified` when nothing changed:
+
+```jsonc
+{
+  "version": "3f1c…",
+  "targets": [
+    { "ref": "<host uuid>", "mode": "ssh", "address": "10.0.0.12", "port": 22,
+      "username": "upkeep",
+      "host_key": "ssh-ed25519 AAAA…" }   // "" until the user confirmed one
+  ]
+}
+```
+
+The agent polls every minute (`configPollInterval`), so a new host, or a
+host key the user just confirmed, is acted on within a minute. A `404`
+means a server that predates remote targets: the agent stops asking and
+collects its own machine only.
+
+### Status report
+
+```
+POST /v1/agent/status
+X-Agent-ID / Authorization as above
+
+{ "ssh_public_key": "ssh-ed25519 AAAA… upkeep-agent",
+  "targets": [ { "ref": "<host uuid>", "error_code": "host_key_unconfirmed",
+                 "error": "…", "host_key": "ssh-ed25519 AAAA…" } ] }
+```
+
+→ `204`. Sent once at startup (so the dashboard can show the agent's
+public key and offer the agent as a remote collector: `agents.ssh_public_key`
+set) and after every round of target attempts. `error_code` is `""` for a
+target that was reached and collected, else one of `host_key_unconfirmed`,
+`host_key_mismatch`, `auth_failed`, `unreachable`, `sftp_failed`,
+`push_failed` (stored in `agent_hosts.last_error_code`, with `error` in
+`last_error` and the time in `last_attempt_at`). Keys are validated
+(`server/internal/sshkey`: known type, base64 blob naming the same type)
+and stored without comments; an invalid key or unknown code rejects the
+report with `400`.
+
+Host keys: a presented key that differs from the confirmed `host_key`
+(or with none confirmed) is stored as `host_key_pending` for the user to
+confirm (`mgmt_confirm_host_key`, which takes the key the user was shown
+and refuses if a different one is pending by then). A host-key error for
+a key that is already confirmed is a stale report from a config fetched
+before the confirmation and only records the attempt.
+
+### Collection
+
+A successful collection is an ordinary `POST /v1/snapshots` whose
+`host.ref` is the target's ref; the server maps it onto the pre-created
+host (`resolveRemoteHost`), refusing unknown refs with `422`. Rules on
+the agent (`agent/cmd/agent/remote.go`, `agent/internal/target/ssh.go`):
+
+- **No command execution.** The agent opens the `sftp` subsystem and
+  reads files; it never requests a shell or `exec`. The dashboard's setup
+  lines pin the key to `restrict,command="/usr/lib/openssh/sftp-server -R"`,
+  so the remote side enforces read-only SFTP too (verified: with that
+  line, the key can neither run a command nor write a file).
+- **Pinned host keys, confirmed by the user.** With no confirmed key the
+  agent only completes the key exchange, captures the key and aborts
+  before authenticating, then reports `host_key_unconfirmed`. With one, it
+  negotiates only that key's algorithm and refuses any other key
+  (`host_key_mismatch`, reporting the presented key).
+- **The private key stays on the agent**: `SW_DATA_DIR/ssh/id_ed25519`
+  (generated on first start, 0600), or an operator-supplied file at
+  `SW_SSH_KEY_FILE` (never generated or overwritten). Only the public half
+  is sent.
+- **Facts.** The same collectors run against the SFTP filesystem:
+  packages, OS, identity (machine-id, hostname), services, users,
+  unattended-upgrades, reboot-required, and kernel release / uptime / arch
+  from single `/proc` files (`target.ProcFiles`). Listeners, process
+  → unit mapping and deleted libraries need to walk live process state
+  (`target.LiveProc`) and are reported `skipped`; so is the public IP
+  lookup, which would describe the agent's network.
+- **Scheduling.** Each target is collected every push interval. A failed
+  attempt is retried after 1m, doubling up to the push interval, so a
+  host being set up is retried quickly without an SSH login every minute
+  forever (which would also trip fail2ban-style lockouts).
+- **Port scanning.** A remote host's pushes come from the agent's IP, so
+  `snapshots.source_ip` says nothing about the host. Remote hosts are not
+  eligible for the external port scan (DOMAIN_MODEL.md Q5).
 
 ## Types
 

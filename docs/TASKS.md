@@ -328,10 +328,18 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       listen on port N" page (`host_listeners_port_open_idx` is ready);
       retire `listening_sockets` once the exposure scanner writes to
       `host_listeners` instead.
-- [ ] Remote collection (SSH/WinRM from a subnet agent) — **blocked on
-      open questions Q3–Q5** (command execution principle, credential
-      storage, port-scan eligibility). Schema supports it; don't build
-      until decided.
+- [x] Remote collection over SSH for Linux (Q3–Q5 decided 2026-09-27;
+      migration 0012, PROTOCOL.md §4): "Add host" → "Reach it from an
+      existing agent", `GET /v1/agent/config` + `POST /v1/agent/status`,
+      read-only SFTP collection with an agent-held key, user-confirmed
+      host key pinning. Verified end to end against an OpenSSH container.
+- [ ] Remote follow-ups: a "Replace agent" option at enrollment (new
+      agent takes over the old one's remote hosts, dashboard lists hosts
+      still needing its new public key); editing a remote host's address /
+      port / user (today: delete and re-add); per-host status on the
+      host's own pages (today: Hosts list badge + dialog); listeners and
+      deleted-library facts for remote hosts (need walking remote /proc,
+      slow over SFTP); collecting several targets in parallel; WinRM.
 
 ### Cross-cutting gaps worth closing before real users
 - [ ] Tests: dpkg status parsing, OS detection and the inventory range
@@ -347,7 +355,8 @@ Today agent == host: enrollment creates a `hosts` row and the returned
 - [x] Host management UI: rename / archive / merge / delete on Hosts,
       revoke / rotate on Agents.
 - [ ] `agent/docker-compose.example.yml` references
-      `ghcr.io/icondesk/security-whatnot-agent:latest`, which doesn't
+      `ghcr.io/icondesk/upkeep-agent:latest` (so does the dashboard's
+      `docker run` line), which doesn't
       exist yet — needs a build/publish pipeline before that snippet is
       actually usable end-to-end.
 - [x] Expired-enrollment-token cleanup: hourly River `credential_cleanup`
@@ -387,7 +396,8 @@ explicit product-scope exclusions, not just "later."
 
 > Note (2026-09-26): Windows/macOS support and agent-initiated remote
 > collection are under reconsideration in
-> [DOMAIN_MODEL.md](DOMAIN_MODEL.md) (open questions Q1, Q3). Until those
-> are decided, this list stands. "Remote command execution" here means
+> [DOMAIN_MODEL.md](DOMAIN_MODEL.md) (open questions Q1, Q3). Q3 is
+> decided (2026-09-27): agent-initiated remote collection over SSH is in
+> scope (Linux, read-only SFTP). Until Q1 is decided, the rest stands. "Remote command execution" here means
 > the *server* causing execution on a host, and stays excluded either
 > way.
