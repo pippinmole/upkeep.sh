@@ -26,8 +26,9 @@ import (
 // more than one at it. Everything sent comes from the inspect, the newer
 // view, so state and started_at always describe the same moment. A
 // container removed between the list and its inspect is skipped (it's
-// gone); any other inspect failure fails the collector, see
-// dockerInspectAll.
+// gone); one whose inspect fails otherwise is reported as a partial entry
+// built from its list entry alone, with InspectError set. Only the end of
+// ctx fails the collector (see dockerInspectAll).
 //
 // Only the fields below are read. Config's Env, Cmd, Entrypoint, and the
 // inspect's Path / Args are never touched; from Config only Image and
@@ -49,14 +50,18 @@ func CollectDockerContainers(ctx context.Context, c dockerapi.Client) (container
 	for i, s := range list {
 		ids[i] = s.ID
 	}
-	inspects, found, err := dockerInspectAll(ctx, "container", ids, c.ContainerInspect)
+	inspects, errs, err := dockerInspectAll(ctx, "container", ids, c.ContainerInspect)
 	if err != nil {
 		return nil, false, err
 	}
 
 	containers = make([]DockerContainer, 0, len(list))
 	for i, s := range list {
-		if !found[i] {
+		switch {
+		case errs[i] == errDockerGone:
+			continue
+		case errs[i] != nil:
+			containers = append(containers, dockerContainerPartial(s, errs[i]))
 			continue
 		}
 		ctr, cut := dockerContainer(s, inspects[i])
@@ -64,6 +69,24 @@ func CollectDockerContainers(ctx context.Context, c dockerapi.Client) (container
 		containers = append(containers, ctr)
 	}
 	return containers, truncated, nil
+}
+
+// dockerContainerPartial is a container whose inspect failed: only what
+// the list entry carries, which holds nothing the wire type doesn't
+// declare except Command (never read) and unfiltered labels (filtered).
+func dockerContainerPartial(s container.Summary, err error) DockerContainer {
+	out := DockerContainer{
+		ID:           s.ID,
+		Image:        s.Image,
+		ImageID:      s.ImageID,
+		State:        string(s.State),
+		Labels:       FilterDockerLabels(s.Labels),
+		InspectError: dockerInspectError(err),
+	}
+	if len(s.Names) > 0 {
+		out.Name = strings.TrimPrefix(s.Names[0], "/")
+	}
+	return out
 }
 
 // dockerContainer maps one inspected container. s (its list entry) is only
@@ -92,7 +115,7 @@ func dockerContainer(s container.Summary, in container.InspectResponse) (DockerC
 	}
 	if in.HostConfig != nil {
 		out.NetworkMode = string(in.HostConfig.NetworkMode)
-		out.Privileged = in.HostConfig.Privileged
+		out.Privileged = new(in.HostConfig.Privileged)
 		out.RestartPolicy = string(in.HostConfig.RestartPolicy.Name)
 	}
 

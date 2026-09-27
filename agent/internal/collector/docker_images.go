@@ -19,7 +19,9 @@ import (
 //
 // Like containers: sorted by id and cut to MaxDockerImages before any
 // inspect; an image removed between the list and its inspect is skipped;
-// any other inspect failure fails the collector (dockerInspectAll).
+// one whose inspect fails otherwise is a partial entry from its list entry
+// alone, with InspectError set; only the end of ctx fails the collector
+// (dockerInspectAll).
 //
 // Labels come from the list entry (the image config's labels, through
 // FilterDockerLabels), so the inspect's Config, which holds the image's
@@ -41,17 +43,25 @@ func CollectDockerImages(ctx context.Context, c dockerapi.Client) (images []Dock
 	for i, s := range list {
 		ids[i] = s.ID
 	}
-	inspects, found, err := dockerInspectAll(ctx, "image", ids, c.ImageInspect)
+	inspects, errs, err := dockerInspectAll(ctx, "image", ids, c.ImageInspect)
 	if err != nil {
 		return nil, false, err
 	}
 
 	images = make([]DockerImage, 0, len(list))
 	for i, s := range list {
-		if !found[i] {
+		var (
+			img DockerImage
+			cut bool
+		)
+		switch {
+		case errs[i] == errDockerGone:
 			continue
+		case errs[i] != nil:
+			img, cut = dockerImagePartial(s, errs[i])
+		default:
+			img, cut = dockerImage(s, inspects[i])
 		}
-		img, cut := dockerImage(s, inspects[i])
 		truncated = truncated || cut
 		images = append(images, img)
 	}
@@ -71,10 +81,11 @@ func dockerImage(s image.Summary, in image.InspectResponse) (DockerImage, bool) 
 		Created: dockerTime(in.Created),
 		OS:      in.Os,
 		Arch:    in.Architecture,
+		Variant: in.Variant,
 		Labels:  FilterDockerLabels(s.Labels),
 	}
-	if out.Created == "" && s.Created > 0 {
-		out.Created = time.Unix(s.Created, 0).UTC().Format(time.RFC3339)
+	if out.Created == "" {
+		out.Created = dockerUnixTime(s.Created)
 	}
 	var tagsCut, digestsCut, layersCut bool
 	out.RepoTags, tagsCut = dockerRefs(in.RepoTags, danglingRepoTag, MaxDockerRepoTagsPerImage)
@@ -83,6 +94,31 @@ func dockerImage(s image.Summary, in image.InspectResponse) (DockerImage, bool) 
 	// the base-most layers (MaxDockerLayersPerImage).
 	out.Layers, layersCut = capList(slices.Clone(in.RootFS.Layers), MaxDockerLayersPerImage)
 	return out, tagsCut || digestsCut || layersCut
+}
+
+// dockerImagePartial is an image whose inspect failed: only what the list
+// entry carries (tags, digests, created, labels), with the same filtering
+// and caps as a full entry.
+func dockerImagePartial(s image.Summary, err error) (DockerImage, bool) {
+	out := DockerImage{
+		ID:           s.ID,
+		Created:      dockerUnixTime(s.Created),
+		Labels:       FilterDockerLabels(s.Labels),
+		InspectError: dockerInspectError(err),
+	}
+	var tagsCut, digestsCut bool
+	out.RepoTags, tagsCut = dockerRefs(s.RepoTags, danglingRepoTag, MaxDockerRepoTagsPerImage)
+	out.RepoDigests, digestsCut = dockerRefs(s.RepoDigests, danglingRepoDigest, MaxDockerRepoDigestsPerImage)
+	return out, tagsCut || digestsCut
+}
+
+// dockerUnixTime formats the list's creation time (Unix seconds), empty
+// when unset.
+func dockerUnixTime(sec int64) string {
+	if sec <= 0 {
+		return ""
+	}
+	return time.Unix(sec, 0).UTC().Format(time.RFC3339)
 }
 
 // dockerRefs drops the engine's placeholder and empty entries, then sorts,

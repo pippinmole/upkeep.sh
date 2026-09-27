@@ -105,29 +105,13 @@ func (c *Collector) collectDocker(ctx context.Context, t target.Target, isLinux 
 		status[collector.CollectorDockerEngine] = collector.OK()
 	}
 
-	// Collectors that only need a reachable engine plug in here, each
-	// setting its own member of docker and its own status from cl (with
-	// collector.DockerCallTimeout per call). They run even if
-	// docker_engine failed: the engine answered Open's ping, and their
-	// calls don't depend on /version or /info. An ok collector with
-	// nothing to report leaves its member nil (omitted), like everywhere
-	// in the snapshot.
-	if containers, truncated, err := collector.CollectDockerContainers(ctx, cl); err != nil {
-		status[collector.CollectorDockerContainers] = collector.Failed(err)
-	} else {
-		if len(containers) > 0 {
-			docker.Containers = containers
-		}
-		status[collector.CollectorDockerContainers] = collector.OKTruncated(truncated)
-	}
-	if images, truncated, err := collector.CollectDockerImages(ctx, cl); err != nil {
-		status[collector.CollectorDockerImages] = collector.Failed(err)
-	} else {
-		if len(images) > 0 {
-			docker.Images = images
-		}
-		status[collector.CollectorDockerImages] = collector.OKTruncated(truncated)
-	}
+	// The other collectors run even if docker_engine failed (except
+	// swarm_services, which needs its Swarm role): the engine answered
+	// Open's ping, and their calls don't depend on /version or /info. Each
+	// sets its own member of docker (nil when empty, like everywhere in
+	// the snapshot) and its own status. Single-call collectors go first,
+	// so the inspect fan-out of containers and images, the only part that
+	// grows with the host, can't starve them of the Docker budget.
 	if networks, truncated, err := collector.CollectDockerNetworks(ctx, cl); err != nil {
 		status[collector.CollectorDockerNetworks] = collector.Failed(err)
 	} else {
@@ -166,6 +150,23 @@ func (c *Collector) collectDocker(ctx context.Context, t target.Target, isLinux 
 			}
 			status[collector.CollectorSwarmServices] = collector.OKTruncated(truncated)
 		}
+	}
+
+	if containers, truncated, err := collector.CollectDockerContainers(ctx, cl); err != nil {
+		status[collector.CollectorDockerContainers] = collector.Failed(err)
+	} else {
+		if len(containers) > 0 {
+			docker.Containers = containers
+		}
+		status[collector.CollectorDockerContainers] = collector.OKTruncated(truncated)
+	}
+	if images, truncated, err := collector.CollectDockerImages(ctx, cl); err != nil {
+		status[collector.CollectorDockerImages] = collector.Failed(err)
+	} else {
+		if len(images) > 0 {
+			docker.Images = images
+		}
+		status[collector.CollectorDockerImages] = collector.OKTruncated(truncated)
 	}
 
 	if docker.Engine == nil && docker.Swarm == nil && docker.Containers == nil &&

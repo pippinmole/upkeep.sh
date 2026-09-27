@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,8 +15,10 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/api/types/swarm"
+	"github.com/moby/moby/client"
 
 	"github.com/pippinmole/upkeep.sh/agent/internal/collector"
+	"github.com/pippinmole/upkeep.sh/agent/internal/dockerapi"
 	"github.com/pippinmole/upkeep.sh/agent/internal/dockerapi/dockerapitest"
 )
 
@@ -84,8 +87,10 @@ func TestDockerInventoryErrors(t *testing.T) {
 	c, _ := dockerCollector(fake, nil)
 	snap := c.Collect(context.Background(), ubuntu())
 
-	if st := snap.Collectors[collector.CollectorDockerContainers]; st.Status != collector.StatusError || !strings.Contains(st.Error, "inspect boom") {
-		t.Errorf("docker_containers = %+v, want error", st)
+	// A failed inspect isn't a collector failure: the container is sent
+	// as a partial entry.
+	if st := snap.Collectors[collector.CollectorDockerContainers]; st != collector.OK() {
+		t.Errorf("docker_containers = %+v, want ok", st)
 	}
 	if st := snap.Collectors[collector.CollectorDockerNetworks]; st.Status != collector.StatusError || !strings.Contains(st.Error, "network boom") {
 		t.Errorf("docker_networks = %+v, want error", st)
@@ -93,10 +98,57 @@ func TestDockerInventoryErrors(t *testing.T) {
 	if st := snap.Collectors[collector.CollectorDockerImages]; st != collector.OKTruncated(true) {
 		t.Errorf("docker_images = %+v, want ok truncated", st)
 	}
-	if snap.Docker == nil || snap.Docker.Containers != nil || snap.Docker.Networks != nil || len(snap.Docker.Images) != collector.MaxDockerImages {
+	if snap.Docker == nil || snap.Docker.Networks != nil || len(snap.Docker.Images) != collector.MaxDockerImages ||
+		len(snap.Docker.Containers) != 1 || snap.Docker.Containers[0].InspectError != "inspect boom" {
 		t.Errorf("docker = %+v", snap.Docker)
 	}
 	if st := snap.Collectors[collector.CollectorDockerEngine]; st != collector.OK() {
 		t.Errorf("docker_engine = %+v, want ok", st)
+	}
+}
+
+// callOrder records the order of the Docker list calls.
+type callOrder struct {
+	*dockerapitest.Fake
+	calls []string
+}
+
+func (c *callOrder) Version(ctx context.Context) (client.ServerVersionResult, error) {
+	c.calls = append(c.calls, "version")
+	return c.Fake.Version(ctx)
+}
+
+func (c *callOrder) NetworkList(ctx context.Context) ([]network.Summary, error) {
+	c.calls = append(c.calls, "networks")
+	return c.Fake.NetworkList(ctx)
+}
+
+func (c *callOrder) ServiceList(ctx context.Context) ([]swarm.Service, error) {
+	c.calls = append(c.calls, "services")
+	return c.Fake.ServiceList(ctx)
+}
+
+func (c *callOrder) ContainerList(ctx context.Context) ([]container.Summary, error) {
+	c.calls = append(c.calls, "containers")
+	return c.Fake.ContainerList(ctx)
+}
+
+func (c *callOrder) ImageList(ctx context.Context) ([]image.Summary, error) {
+	c.calls = append(c.calls, "images")
+	return c.Fake.ImageList(ctx)
+}
+
+// Single-call collectors run before the inspect fan-out, so a huge host
+// can't spend the Docker budget before they get a turn.
+func TestDockerCollectorOrder(t *testing.T) {
+	fake := engineFake(swarm.Info{NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
+		Cluster: &swarm.ClusterInfo{ID: "c1"}})
+	rec := &callOrder{Fake: fake}
+	c := testCollector()
+	c.DockerSocket = "/var/run/docker.sock"
+	c.OpenDocker = func(context.Context, string) (dockerapi.Client, error) { return rec, nil }
+	c.Collect(context.Background(), ubuntu())
+	if want := []string{"version", "networks", "services", "containers", "images"}; !reflect.DeepEqual(rec.calls, want) {
+		t.Errorf("calls = %v, want %v", rec.calls, want)
 	}
 }

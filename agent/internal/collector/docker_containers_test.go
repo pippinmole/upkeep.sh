@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -115,7 +117,7 @@ func TestCollectDockerContainers(t *testing.T) {
 			},
 			Networks:      []string{"backend", "myapp_default"},
 			NetworkMode:   "myapp_default",
-			Privileged:    true,
+			Privileged:    new(true),
 			RestartPolicy: "unless-stopped",
 			Mounts: []DockerMount{
 				{Type: "bind", Source: "/srv/myapp/backups", Destination: "/backups", RW: true},
@@ -124,7 +126,7 @@ func TestCollectDockerContainers(t *testing.T) {
 			},
 		},
 		{ID: stopped, Name: "old", Image: "alpine:3.20", ImageID: "sha256:img2", State: "created",
-			NetworkMode: "bridge", RestartPolicy: "no"},
+			NetworkMode: "bridge", Privileged: new(false), RestartPolicy: "no"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		gb, _ := json.MarshalIndent(got, "", " ")
@@ -186,6 +188,8 @@ func TestCollectDockerContainersDisappeared(t *testing.T) {
 type failingInspects struct {
 	*dockerapitest.Fake
 	failID          string
+	failErr         error  // default: an engine error
+	onFail          func() // called before failing
 	calls, inFlight atomic.Int32
 	mu              sync.Mutex
 	maxInFlight     int32
@@ -207,28 +211,92 @@ func (f *failingInspects) track(id string) func() {
 func (f *failingInspects) ContainerInspect(ctx context.Context, id string) (container.InspectResponse, error) {
 	defer f.track(id)()
 	if id == f.failID {
-		return container.InspectResponse{}, errors.New("Error response from daemon: boom")
+		if f.onFail != nil {
+			f.onFail()
+		}
+		return container.InspectResponse{}, cmp.Or(f.failErr, errors.New("Error response from daemon: boom"))
 	}
 	return f.Fake.ContainerInspect(ctx, id)
 }
 
-// Any other inspect failure fails the collector: the list would otherwise
-// be missing a container that exists.
+// A failed inspect (other than a 404) keeps the container as a partial
+// entry from its list data, with the error, and the collector stays ok:
+// dropping it would read as the container having been removed.
 func TestCollectDockerContainersInspectError(t *testing.T) {
-	f := &failingInspects{Fake: &dockerapitest.Fake{ContainerInspects: map[string]container.InspectResponse{}}, failID: dockerID(5)}
-	for i := range 10 {
+	for name, failErr := range map[string]error{
+		"engine error": errors.New("Error response from daemon: boom"),
+		// One call timing out while the collector's context is live is
+		// about that container, not the run.
+		"call timeout": fmt.Errorf("boom: %w", context.DeadlineExceeded),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &failingInspects{Fake: &dockerapitest.Fake{ContainerInspects: map[string]container.InspectResponse{}},
+				failID: dockerID(5), failErr: failErr}
+			for i := range 10 {
+				id := dockerID(i)
+				f.Containers = append(f.Containers, container.Summary{ID: id})
+				f.ContainerInspects[id] = container.InspectResponse{ID: id, Name: "/full"}
+			}
+			f.Containers[5] = container.Summary{
+				ID: dockerID(5), Names: []string{"/myapp-web-1"}, Image: "nginx:1", ImageID: "sha256:i1",
+				State: container.StateRunning, Command: "nginx --token=hunter2",
+				Labels: map[string]string{"com.docker.compose.service": "web", "traefik.auth": "hunter2"},
+				Ports:  []container.PortSummary{{PrivatePort: 80, PublicPort: 8080, Type: "tcp"}},
+			}
+			got, truncated, err := CollectDockerContainers(context.Background(), f)
+			if err != nil || truncated || len(got) != 10 {
+				t.Fatalf("got %d containers, truncated %v, err %v", len(got), truncated, err)
+			}
+			want := DockerContainer{
+				ID: dockerID(5), Name: "myapp-web-1", Image: "nginx:1", ImageID: "sha256:i1", State: "running",
+				Labels:       map[string]string{"com.docker.compose.service": "web"},
+				InspectError: failErr.Error(),
+			}
+			if !reflect.DeepEqual(got[5], want) {
+				t.Errorf("partial = %+v\nwant %+v", got[5], want)
+			}
+			if got[4].Name != "full" || got[4].InspectError != "" {
+				t.Errorf("full entry = %+v", got[4])
+			}
+			b, _ := json.Marshal(got)
+			if strings.Contains(string(b), "hunter2") {
+				t.Errorf("partial entry leaks: %s", b)
+			}
+		})
+	}
+
+	f := &dockerapitest.Fake{ContainersErr: errors.New("list boom")}
+	if _, _, err := CollectDockerContainers(context.Background(), f); err == nil || !strings.Contains(err.Error(), "docker container list") {
+		t.Errorf("list error = %v", err)
+	}
+}
+
+// The collector's own context ending mid-run fails it: the inspect
+// failures then say nothing about the containers, and an ok list of
+// partial entries would be noise.
+func TestCollectDockerContainersContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := &failingInspects{Fake: &dockerapitest.Fake{ContainerInspects: map[string]container.InspectResponse{}},
+		failID: dockerID(3), failErr: context.Canceled, onFail: cancel}
+	for i := range 4 {
 		id := dockerID(i)
 		f.Containers = append(f.Containers, container.Summary{ID: id})
 		f.ContainerInspects[id] = container.InspectResponse{ID: id}
 	}
-	got, _, err := CollectDockerContainers(context.Background(), f)
-	if err == nil || !strings.Contains(err.Error(), "boom") || !strings.Contains(err.Error(), dockerID(5)) || got != nil {
-		t.Errorf("got %+v, err %v; want error naming the container", got, err)
+	if got, _, err := CollectDockerContainers(ctx, f); !errors.Is(err, context.Canceled) || got != nil {
+		t.Errorf("got %+v, err %v; want context.Canceled", got, err)
 	}
+}
 
-	f.Fake.ContainersErr = errors.New("list boom")
-	if _, _, err := CollectDockerContainers(context.Background(), f); err == nil || !strings.Contains(err.Error(), "docker container list") {
-		t.Errorf("list error = %v", err)
+func TestDockerInspectErrorBounded(t *testing.T) {
+	long := errors.New(strings.Repeat("x", DockerInspectErrorMax-1) + "é and more")
+	got := dockerInspectError(long)
+	if len(got) != DockerInspectErrorMax-1 || !utf8.ValidString(got) {
+		t.Errorf("len %d, valid %v", len(got), utf8.ValidString(got))
+	}
+	if got := dockerInspectError(errors.New("short")); got != "short" {
+		t.Errorf("short = %q", got)
 	}
 }
 

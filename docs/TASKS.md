@@ -372,7 +372,7 @@ and workers), rootless Docker and Podman's Docker-compatible API; no
 per-platform special-casing (Dokploy, Coolify…). Planned wire shape:
 PROTOCOL.md "Docker sections (planned)". Order: the collector, then
 storage/UI, then firewall + exposure on top.
-- [ ] Agent: Docker Engine API access through Docker's official Go client
+- [x] Agent: Docker Engine API access through Docker's official Go client
       (`github.com/moby/moby/client`; decided 2026-09-28,
       DECISIONS.md "Docker collection") over the socket mounted into the
       agent container (`SW_DOCKER_SOCKET`, default
@@ -382,7 +382,7 @@ storage/UI, then firewall + exposure on top.
       list/inspect, image list/inspect, network list, and on managers
       service/task/node list. Never logs, archive/export, image save,
       attach/exec, secrets or configs.
-- [ ] Agent: Docker collectors via that interface (`skipped` with a reason
+- [x] Agent: Docker collectors via that interface (`skipped` with a reason
       when the socket isn't mounted, so "no Docker" and "Docker not
       enabled" are normal states, distinct from `error`; `skipped` with
       a distinct reason on remote (SSH) targets, see below):

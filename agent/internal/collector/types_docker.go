@@ -66,6 +66,19 @@ const (
 	MaxDockerLabels = 64
 )
 
+// DockerInspectErrorMax bounds DockerContainer.InspectError and
+// DockerImage.InspectError, in bytes (cut on a rune boundary).
+//
+// A failed inspect keeps the object as a partial entry rather than
+// dropping it or failing the collector: the server stores containers and
+// images as validity ranges, so an object missing from an ok list would
+// read as removed, while a partial entry keeps its range open and the
+// dashboard shows it with its details unavailable. The collector itself
+// fails only when its context ends (the snapshot's Docker budget ran out,
+// or the agent is stopping): a timed-out run would otherwise send a list
+// of nothing but partial entries.
+const DockerInspectErrorMax = 256
+
 // Docker is the snapshot's docker block. Each member is owned by one
 // collector and omitted when that collector isn't ok; as everywhere in the
 // snapshot, a member is authoritative iff its collector's status is ok,
@@ -147,11 +160,20 @@ type DockerContainer struct {
 	// NetworkMode is HostConfig.NetworkMode: "bridge", "host", "none",
 	// "container:<id>" or a network name.
 	NetworkMode string `json:"network_mode,omitempty"`
-	Privileged  bool   `json:"privileged"`
+	// Privileged is HostConfig.Privileged; nil (absent) only on a partial
+	// entry (InspectError), where it is unknown.
+	Privileged *bool `json:"privileged,omitempty"`
 	// RestartPolicy is HostConfig.RestartPolicy.Name: "no", "always",
 	// "unless-stopped" or "on-failure".
 	RestartPolicy string        `json:"restart_policy,omitempty"`
 	Mounts        []DockerMount `json:"mounts,omitempty"` // capped at MaxDockerMountsPerContainer
+	// InspectError is set when the container was listed but its inspect
+	// failed (not a 404: that container is gone and simply absent). The
+	// entry is then partial: only ID, Name, Image, ImageID, State and
+	// Labels (from the list call) are known, and every other field is
+	// unknown, not false or empty (Privileged is absent).
+	// See DockerInspectErrorMax.
+	InspectError string `json:"inspect_error,omitempty"`
 }
 
 // DockerPort is one container port binding. A port the image exposes but
@@ -185,8 +207,14 @@ type DockerImage struct {
 	Created     string            `json:"created,omitempty"`      // RFC3339
 	OS          string            `json:"os,omitempty"`           // "linux"
 	Arch        string            `json:"arch,omitempty"`         // "amd64"
+	Variant     string            `json:"variant,omitempty"`      // CPU variant: "v7" (arm), "v8" (arm64)
 	Layers      []string          `json:"layers,omitempty"`       // RootFS.Layers diff IDs, base first
 	Labels      map[string]string `json:"labels,omitempty"`       // FilterDockerLabels
+	// InspectError is set when the image was listed but its inspect
+	// failed (not a 404). The entry is then partial: only ID, RepoTags,
+	// RepoDigests, Created and Labels (from the list call) are known; OS,
+	// Arch, Variant and Layers are unknown. See DockerInspectErrorMax.
+	InspectError string `json:"inspect_error,omitempty"`
 }
 
 // DockerNetwork is one network known to the engine.

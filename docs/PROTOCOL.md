@@ -401,10 +401,11 @@ the owning pid, which ranges deliberately don't (it would churn on every
 restart). Its `is_public` column is never set: the external scanner it
 was meant for is deferred (DECISIONS.md "Port exposure").
 
-### Docker sections (planned, not built)
+### Docker sections (agent built; server ingest not yet)
 
-TASKS.md Phase 1.6; rationale in DECISIONS.md "Docker collection". A
-sketch to build against, not a contract yet. Additive within
+TASKS.md Phase 1.6; rationale in DECISIONS.md "Docker collection". The
+agent sends these (agent/internal/collector/types_docker.go); the server
+doesn't ingest them yet and ignores the block. Additive within
 `schema_version: 1`, like the breadth sections.
 
 The agent reads the Docker Engine API over the socket mounted into its
@@ -447,7 +448,7 @@ Local targets only: on remote (SSH) targets every Docker collector is
   "images": [
     { "id": "sha256:…", "repo_tags": ["postgres:18"],
       "repo_digests": ["postgres@sha256:…"], "created": "…",
-      "os": "linux", "arch": "amd64",
+      "os": "linux", "arch": "arm", "variant": "v7",
       "layers": ["sha256:…"],
       "labels": { "org.opencontainers.image.version": "18.0" } }
   ],
@@ -507,9 +508,26 @@ Local targets only: on remote (SSH) targets every Docker collector is
   `host_port`, identical entries appear once (0.0.0.0 and :: stay
   separate). `image` is the configured reference (`Config.Image`).
   `started_at` / image `created` are RFC3339 UTC; the engine's zero time
-  is omitted, 1970-01-01 is a real value. A container or image removed
-  during collection is simply absent; any other inspect failure makes
-  the collector `error`, never a partial `ok`.
+  is omitted, 1970-01-01 is a real value.
+- `inspect_error` (containers and images): the object was listed but
+  inspecting it failed with something other than "not found". The entry
+  is partial: a container carries only `id`, `name`, `image`,
+  `image_id`, `state`, `labels`; an image only `id`, `repo_tags`,
+  `repo_digests`, `created`, `labels`. Every other field is unknown, not
+  false or empty (`privileged` is absent). The object still exists, so
+  the server keeps its validity range open and the dashboard shows it
+  with details unavailable. At most 256 bytes of error text. The
+  collector stays `ok` (`truncated` still only means a cap was hit). An
+  object removed between list and inspect (404) is simply absent. The
+  collector is `error` only when its own time budget ran out or the
+  agent was stopping mid-run; nothing from that run is authoritative.
+- `images[].variant`: the image's CPU variant (`"v7"` for `arch: "arm"`,
+  `"v8"` for `arm64`), omitted when the image declares none (usual on
+  amd64). CVE matching treats (os, arch, variant) as the platform.
+- Within the Docker block's 30s budget the single-call collectors
+  (engine, networks, swarm_services) run before the per-object inspects
+  of containers and images, so a very large host can only make those
+  last two time out.
 - `mounts[].source` is set only for `type: "bind"`, where it is a host
   path, so the dashboard can flag e.g. the Docker socket or `/`
   bind-mounted into a container.
@@ -768,5 +786,5 @@ manually; a mismatch should only ever be an additive field.
 - Port-exposure classification (TASKS.md Phase 1.6) — see
   `TODO(phase 1, exposure)` in `handler.go`. Like vulnerability matching,
   it is enqueued per snapshot, not run inline in the request handler.
-- The Docker sections above.
+- Server ingest of the Docker sections above (the agent sends them).
 - No agent self-update.

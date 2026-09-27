@@ -55,7 +55,7 @@ func TestCollectDockerImages(t *testing.T) {
 	want := []DockerImage{
 		{
 			ID: pg, RepoTags: []string{"postgres:18", "postgres:latest"}, RepoDigests: []string{"postgres@sha256:abc"},
-			Created: "2026-09-01T07:30:00Z", OS: "linux", Arch: "arm",
+			Created: "2026-09-01T07:30:00Z", OS: "linux", Arch: "arm", Variant: "v7",
 			Layers: []string{"sha256:base", "sha256:mid", "sha256:app"}, // chain order, not sorted
 			Labels: map[string]string{"org.opencontainers.image.version": "18.0"},
 		},
@@ -68,7 +68,7 @@ func TestCollectDockerImages(t *testing.T) {
 		t.Errorf("images =\n%s", gb)
 	}
 	b, _ := json.Marshal(got)
-	for _, s := range []string{"hunter2", "PGPASSWORD", "maintainer", "<none>", "v7"} {
+	for _, s := range []string{"hunter2", "PGPASSWORD", "maintainer", "<none>"} {
 		if strings.Contains(string(b), s) {
 			t.Errorf("payload contains %q: %s", s, b)
 		}
@@ -86,9 +86,25 @@ func TestCollectDockerImagesDisappearedAndErrors(t *testing.T) {
 		t.Errorf("disappeared: got %+v, truncated %v, err %v", got, truncated, err)
 	}
 
+	// A failed inspect keeps the image as a partial entry from its list
+	// data; the collector stays ok.
 	f.ImageInspectErr = errors.New("boom")
-	if got, _, err := CollectDockerImages(context.Background(), f); err == nil || !strings.Contains(err.Error(), "docker image inspect") || got != nil {
-		t.Errorf("inspect error: got %+v, err %v", got, err)
+	f.Images = []image.Summary{{ID: a, Created: 1700000000, RepoTags: []string{"<none>:<none>", "b:1", "a:1"},
+		RepoDigests: []string{"<none>@<none>"}, Labels: map[string]string{"org.opencontainers.image.source": "x", "k": "v"}}}
+	got, truncated, err = CollectDockerImages(context.Background(), f)
+	want := []DockerImage{{ID: a, RepoTags: []string{"a:1", "b:1"}, Created: "2023-11-14T22:13:20Z",
+		Labels: map[string]string{"org.opencontainers.image.source": "x"}, InspectError: "boom"}}
+	if err != nil || truncated || !reflect.DeepEqual(got, want) {
+		t.Errorf("inspect error: got %+v, truncated %v, err %v", got, truncated, err)
+	}
+	// Its list data is capped like a full entry's.
+	tags := make([]string, MaxDockerRepoTagsPerImage+1)
+	for i := range tags {
+		tags[i] = fmt.Sprintf("r:%03d", i)
+	}
+	f.Images[0].RepoTags = tags
+	if got, truncated, err := CollectDockerImages(context.Background(), f); err != nil || !truncated || len(got[0].RepoTags) != MaxDockerRepoTagsPerImage {
+		t.Errorf("partial caps: truncated %v, err %v", truncated, err)
 	}
 	f.ImagesErr = errors.New("boom")
 	if _, _, err := CollectDockerImages(context.Background(), f); err == nil || !strings.Contains(err.Error(), "docker image list") {

@@ -101,7 +101,7 @@ func TestDockerJSON(t *testing.T) {
 			Ports: []DockerPort{{HostIP: "0.0.0.0", HostPort: 5432,
 				ContainerPort: 5432, Proto: "tcp"}},
 			Networks: []string{"myapp_default"}, NetworkMode: "bridge",
-			Privileged: false, RestartPolicy: "unless-stopped",
+			Privileged: new(false), RestartPolicy: "unless-stopped",
 			Mounts: []DockerMount{
 				{Type: "volume", Destination: "/var/lib/postgresql", RW: true},
 				{Type: "bind", Source: "/var/run/docker.sock",
@@ -111,8 +111,10 @@ func TestDockerJSON(t *testing.T) {
 		Images: []DockerImage{{
 			ID: "sha256:aa", RepoTags: []string{"postgres:18"},
 			RepoDigests: []string{"postgres@sha256:bb"}, Created: "2026-09-01T00:00:00Z",
-			OS: "linux", Arch: "amd64", Layers: []string{"sha256:cc"},
+			OS: "linux", Arch: "arm64", Variant: "v8", Layers: []string{"sha256:cc"},
 			Labels: map[string]string{"org.opencontainers.image.version": "18.0"},
+		}, {
+			ID: "sha256:ee", RepoTags: []string{"app:1"}, InspectError: "boom",
 		}},
 		Networks: []DockerNetwork{{ID: "n", Name: "myapp_default", Driver: "bridge",
 			Scope: "local", Internal: false, Subnets: []string{"172.18.0.0/16"}}},
@@ -138,8 +140,9 @@ func TestDockerJSON(t *testing.T) {
 		`"mounts":[{"type":"volume","destination":"/var/lib/postgresql","rw":true},` +
 		`{"type":"bind","source":"/var/run/docker.sock","destination":"/var/run/docker.sock","rw":false}]}],` +
 		`"images":[{"id":"sha256:aa","repo_tags":["postgres:18"],"repo_digests":["postgres@sha256:bb"],` +
-		`"created":"2026-09-01T00:00:00Z","os":"linux","arch":"amd64","layers":["sha256:cc"],` +
-		`"labels":{"org.opencontainers.image.version":"18.0"}}],` +
+		`"created":"2026-09-01T00:00:00Z","os":"linux","arch":"arm64","variant":"v8","layers":["sha256:cc"],` +
+		`"labels":{"org.opencontainers.image.version":"18.0"}},` +
+		`{"id":"sha256:ee","repo_tags":["app:1"],"inspect_error":"boom"}],` +
 		`"networks":[{"id":"n","name":"myapp_default","driver":"bridge","scope":"local","internal":false,"subnets":["172.18.0.0/16"]}],` +
 		`"swarm_services":[{"id":"s","name":"web_api","image":"ghcr.io/me/api:1@sha256:dd","mode":"replicated","replicas":2,"running_tasks":1,"desired_tasks":2,` +
 		`"labels":{"com.docker.stack.namespace":"web"},` +
@@ -175,6 +178,8 @@ func TestDockerJSONOmissions(t *testing.T) {
 		"no running tasks": {SwarmService{RunningTasks: &zero, DesiredTasks: &zero}, `{"id":"","name":"","image":"","mode":"","running_tasks":0,"desired_tasks":0}`},
 		"locked swarm":     {DockerSwarm{State: "locked"}, `{"state":"locked"}`},
 		"unpublished port": {DockerPort{ContainerPort: 80, Proto: "tcp"}, `{"container_port":80,"proto":"tcp"}`},
+		"partial container": {DockerContainer{ID: "c", Name: "web", State: "running", InspectError: "boom"},
+			`{"id":"c","name":"web","image":"","image_id":"","state":"running","inspect_error":"boom"}`},
 	} {
 		got, err := json.Marshal(tc.v)
 		if err != nil {
