@@ -93,8 +93,8 @@ function checkUrl(raw: string, allowPrivate: boolean): string | null {
     host === "localhost" ||
     host.endsWith(".localhost") ||
     /^(127|10|0)\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^192\.168\./.test(host) ||
+    host.startsWith("169.254.") ||
+    host.startsWith("192.168.") ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
     /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) ||
     host === "::1" ||

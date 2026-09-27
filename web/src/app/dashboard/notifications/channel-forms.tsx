@@ -137,7 +137,13 @@ export function SchemaFields({
         }
 
         const inputType =
-          f.type === "secret" ? "password" : f.type === "email" ? "email" : f.type === "url" ? "url" : "text";
+          f.type === "secret"
+            ? "password"
+            : f.type === "email"
+              ? "email"
+              : f.type === "url"
+                ? "url"
+                : "text";
         return (
           <div key={f.key} className="flex flex-col gap-1.5">
             <Label htmlFor={id}>

@@ -145,7 +145,12 @@ function ChannelActions({ channel }: { channel: ChannelRow }) {
         </DropdownMenuContent>
       </DropdownMenu>
       {editing && (
-        <ChannelDialog key={channel.id} open={editing} onOpenChange={setEditing} channel={channel} />
+        <ChannelDialog
+          key={channel.id}
+          open={editing}
+          onOpenChange={setEditing}
+          channel={channel}
+        />
       )}
       <ConfirmDialog
         open={deleting}
@@ -242,7 +247,9 @@ export function ChannelsTable({ channels }: { channels: ChannelRow[] }) {
       data={channels}
       getRowId={(c) => c.id}
       searchPlaceholder="Search channels"
-      facets={TYPE_OPTIONS.length > 1 ? [{ columnId: "type", title: "Type", options: TYPE_OPTIONS }] : []}
+      facets={
+        TYPE_OPTIONS.length > 1 ? [{ columnId: "type", title: "Type", options: TYPE_OPTIONS }] : []
+      }
       emptyMessage="No channels match."
     />
   );

@@ -43,7 +43,7 @@ export function ChannelDialog({
   const mode = channel ? "edit" : "create";
   const [type, setType] = useState(channel?.type ?? CHANNEL_TYPES[0]?.type ?? "");
   const [name, setName] = useState(channel?.name ?? "");
-  const [values, setValues] = useState<Record<string, string>>({ ...(channel?.config ?? {}) });
+  const [values, setValues] = useState<Record<string, string>>({ ...channel?.config });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [shown, setShown] = useState<Record<string, string> | null>(null);
@@ -69,20 +69,26 @@ export function ChannelDialog({
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = channel
-        ? await updateChannel(channel.id, { name, values })
-        : await createChannel({ name, type, values });
-      if (!res.ok) {
-        setError(res.error);
-        setErrors(res.fieldErrors ?? {});
-        return;
+      let generated: Record<string, string> = {};
+      if (channel) {
+        const res = await updateChannel(channel.id, { name, values });
+        if (!res.ok) {
+          setError(res.error);
+          setErrors(res.fieldErrors ?? {});
+          return;
+        }
+      } else {
+        const res = await createChannel({ name, type, values });
+        if (!res.ok) {
+          setError(res.error);
+          setErrors(res.fieldErrors ?? {});
+          return;
+        }
+        generated = res.generated;
       }
       setErrors({});
-      if ("generated" in res && Object.keys(res.generated).length > 0) {
-        setShown(res.generated);
-      } else {
-        close(false);
-      }
+      if (Object.keys(generated).length > 0) setShown(generated);
+      else close(false);
     });
   }
 

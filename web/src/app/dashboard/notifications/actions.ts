@@ -223,7 +223,11 @@ export async function sendTestNotification(id: string): Promise<ActionResult<Tes
       [deliveryId, userId],
     );
     if (!rows[0]) break;
-    last = { status: rows[0].status, statusCode: rows[0].last_status_code, error: rows[0].last_error };
+    last = {
+      status: rows[0].status,
+      statusCode: rows[0].last_status_code,
+      error: rows[0].last_error,
+    };
     if (last.status === "delivered" || last.status === "failed") break;
   }
   refresh();
@@ -267,7 +271,9 @@ async function validateRule(
   const interval = Number(input.digestIntervalSeconds);
   if (!DIGEST_INTERVALS.includes(interval)) errors.digestIntervalSeconds = "Invalid interval";
 
-  const channelIds = Array.isArray(input.channelIds) ? [...new Set(input.channelIds.filter(isUuid))] : [];
+  const channelIds = Array.isArray(input.channelIds)
+    ? [...new Set(input.channelIds.filter(isUuid))]
+    : [];
   if (channelIds.length === 0) {
     errors.channelIds = "Pick at least one channel";
   } else {
@@ -397,7 +403,10 @@ export async function setRuleEnabled(id: string, enabled: boolean): Promise<Acti
 export async function deleteRule(id: string): Promise<ActionResult> {
   const userId = await requireUser();
   if (!isUuid(id)) return { ok: false, error: "Rule not found." };
-  const r = await pool.query(`DELETE FROM alert_rules WHERE id = $1 AND user_id = $2`, [id, userId]);
+  const r = await pool.query(`DELETE FROM alert_rules WHERE id = $1 AND user_id = $2`, [
+    id,
+    userId,
+  ]);
   if (r.rowCount === 0) return { ok: false, error: "Rule not found." };
   refresh();
   return { ok: true };
