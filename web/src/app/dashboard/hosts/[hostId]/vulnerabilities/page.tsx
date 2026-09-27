@@ -145,7 +145,10 @@ export default async function HostVulnerabilitiesPage({
             label: "Severity",
             value: filters.severity,
             allLabel: "All severities",
-            options: SEVERITIES.map((s) => ({ value: s, label: SEVERITY_LABEL[s] })),
+            options: SEVERITIES.map((s) => ({
+              value: s,
+              label: SEVERITY_LABEL[s],
+            })),
           },
           {
             name: "kev",

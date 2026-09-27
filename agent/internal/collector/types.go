@@ -1,5 +1,6 @@
 // Package collector gathers read-only facts about a host: listening
-// sockets, pending-reboot state and public IPs, and defines the snapshot
+// sockets, services, users, processes on deleted libraries, update
+// settings, pending-reboot state and public IPs, and defines the snapshot
 // wire types. Installed packages come from the pkgsource subpackage, one
 // implementation per package ecosystem. Nothing here executes commands or
 // mutates host state.
@@ -51,6 +52,22 @@ type Snapshot struct {
 	// which serves a different, security-verification purpose.
 	PublicIPv4 string `json:"public_ipv4,omitempty"`
 	PublicIPv6 string `json:"public_ipv6,omitempty"`
+
+	// UptimeSeconds is whole seconds since the host booted (/proc/uptime),
+	// owned by the "uptime" collector; omitted when it isn't ok.
+	UptimeSeconds *int64 `json:"uptime_seconds,omitempty"`
+
+	// Services is the host's service inventory (systemd units today),
+	// owned by the "systemd_services" collector. Users is its local
+	// accounts, owned by "local_users". Both are omitted when empty: a
+	// section is authoritative iff its collector is ok, never by presence.
+	Services []Service `json:"services,omitempty"`
+	Users    []User    `json:"users,omitempty"`
+
+	// Facts holds long-tail per-OS scalars and small lists that the server
+	// stores as-is (snapshots.facts) rather than as range tables. Each
+	// member is owned by its own collector and omitted when that isn't ok.
+	Facts *Facts `json:"facts,omitempty"`
 }
 
 // Agent is the snapshot's agent block. The server stores it on the agent
@@ -85,6 +102,10 @@ type OSRelease struct {
 	// the "kernel" collector; omitted when that collector isn't ok. Added
 	// without a schema bump (servers that predate it ignore it).
 	Kernel string `json:"kernel,omitempty"`
+	// Arch is the host's native architecture in Debian naming ("amd64",
+	// "arm64"), owned by the "arch" collector; omitted when it isn't ok.
+	// See CollectArch for where it comes from.
+	Arch string `json:"arch,omitempty"`
 }
 
 // Collector names used as keys in Snapshot.Collectors. Package sources add
@@ -96,6 +117,14 @@ const (
 	CollectorTCPListeners   = "tcp_listeners"
 	CollectorRebootRequired = "reboot_required"
 	CollectorPublicIP       = "public_ip"
+
+	CollectorUptime             = "uptime"
+	CollectorArch               = "arch"
+	CollectorUDPListeners       = "udp_listeners"
+	CollectorSystemdServices    = "systemd_services"
+	CollectorLocalUsers         = "local_users"
+	CollectorDeletedLibs        = "deleted_libs"
+	CollectorUnattendedUpgrades = "unattended_upgrades"
 )
 
 // Status values for CollectorStatus.Status.
@@ -109,6 +138,16 @@ type CollectorStatus struct {
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`  // set for StatusError
 	Reason string `json:"reason,omitempty"` // set for StatusSkipped
+	// Truncated (with StatusOK) means the section hit its size cap and
+	// holds only a deterministic prefix (sorted by key) of what exists.
+	// The server must then treat it as additive only: nothing missing from
+	// a truncated list may be read as removed.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// OKTruncated is OK, flagged truncated when truncated is true.
+func OKTruncated(truncated bool) CollectorStatus {
+	return CollectorStatus{Status: StatusOK, Truncated: truncated}
 }
 
 func OK() CollectorStatus { return CollectorStatus{Status: StatusOK} }
@@ -135,10 +174,11 @@ type Package struct {
 	Ecosystem     string `json:"ecosystem"` // e.g. "deb"; see pkgsource.Source.Ecosystem
 }
 
-// Socket describes one listening TCP socket found on the host, best-effort
-// mapped to the owning process.
+// Socket describes one listening socket found on the host, best-effort
+// mapped to the owning process. TCP sockets are those in LISTEN state; UDP
+// sockets are bound and unconnected (see parseProcNet).
 type Socket struct {
-	Proto       string `json:"proto"` // "tcp" or "tcp6"
+	Proto       string `json:"proto"` // "tcp", "tcp6", "udp" or "udp6"
 	LocalAddr   string `json:"local_addr"`
 	Port        int    `json:"port"`
 	PID         int    `json:"pid,omitempty"`

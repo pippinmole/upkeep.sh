@@ -62,7 +62,7 @@ for the reasoning.
 
 | Table | Written by |
 |---|---|
-| `snapshots`, `listening_sockets` | Go (ingest) |
+| `snapshots`, `listening_sockets`, `host_services`, `host_listeners`, `host_users`, `host_fact_state` | Go (ingest) |
 | `agents`, `agent_credentials` | Go (enrollment creates; ingest updates `last_seen_at` / version / platform) |
 | `hosts`, `host_identities`, `agent_hosts` | Go (ingest resolves/creates the host on an agent's push, refreshes hostname + OS summary) |
 | `software_versions`, `host_software`, `host_inventory_state` | Go (ingest diff) |

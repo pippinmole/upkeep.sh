@@ -13,8 +13,15 @@ export function HostTabs({ hostId, openVulns }: { hostId: string; openVulns: num
   const tabs = [
     { href: base, label: "Overview", exact: true },
     { href: `${base}/packages`, label: "Packages" },
-    { href: `${base}/vulnerabilities`, label: "Vulnerabilities", count: openVulns },
+    {
+      href: `${base}/vulnerabilities`,
+      label: "Vulnerabilities",
+      count: openVulns,
+    },
     { href: `${base}/history`, label: "History" },
+    { href: `${base}/services`, label: "Services" },
+    { href: `${base}/listeners`, label: "Listeners" },
+    { href: `${base}/users`, label: "Users" },
   ];
 
   return (

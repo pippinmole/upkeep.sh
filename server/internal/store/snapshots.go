@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pippinmole/upkeep.sh/server/internal/hostfacts"
 	"github.com/pippinmole/upkeep.sh/server/internal/inventory"
 )
 
@@ -50,6 +51,20 @@ type SnapshotInput struct {
 	// Inventory holds one authoritative Set per ecosystem (built by
 	// ingest.planInventory). Ecosystems not present here are not diffed.
 	Inventory []inventory.Set
+	// FactSets holds one authoritative (or additive) set per host fact
+	// kind: services, listeners, users (built by ingest.planFacts). Kinds
+	// not present here are not diffed.
+	FactSets []hostfacts.Set
+
+	// UptimeSeconds: nil when unknown (uptime collector not ok, older agent).
+	UptimeSeconds *int64
+	// Arch is the host's architecture (payload os.arch), "" when unknown.
+	// hosts.arch keeps its previous value while unknown: the architecture
+	// doesn't change, and one failed collection shouldn't erase it.
+	Arch string
+	// Facts is the validated snapshots.facts JSON (hostfacts.LinuxFacts);
+	// nil stores '{}'.
+	Facts []byte
 	// InventoryAt is the range boundary for this push: collected_at,
 	// clamped by the caller to no later than the server's clock.
 	InventoryAt time.Time
@@ -69,6 +84,7 @@ type SnapshotResult struct {
 	HostID    string
 	Host      HostResolution
 	Inventory []InventoryResult
+	Facts     []FactResult
 	// KernelChanged: this snapshot is the host's newest (by collected_at)
 	// and its kernel_release differs from the previous newest one's
 	// (including unknown <-> known), i.e. the host rebooted into another
@@ -185,18 +201,26 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 		res.KernelChanged = in.KernelRelease != deref(prevKernel)
 	}
 
+	facts := "{}"
+	if len(in.Facts) > 0 {
+		facts = string(in.Facts)
+	}
+
 	var snapshotID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO snapshots (
 			host_id, schema_version, collected_at, os_id, os_version_id,
 			os_codename, reboot_required, reboot_packages, source_ip,
-			public_ipv4, public_ipv6, collector_status, package_set_hashes, kernel_release, agent_id
+			public_ipv4, public_ipv6, collector_status, package_set_hashes, kernel_release, agent_id,
+			uptime_seconds, arch, facts
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, '')::inet,
-			NULLIF($10, '')::inet, NULLIF($11, '')::inet, $12::jsonb, $13::jsonb, NULLIF($14, ''), NULLIF($15, '')::uuid)
+			NULLIF($10, '')::inet, NULLIF($11, '')::inet, $12::jsonb, $13::jsonb, NULLIF($14, ''), NULLIF($15, '')::uuid,
+			$16, NULLIF($17, ''), $18::jsonb)
 		RETURNING id
 	`, in.HostID, in.SchemaVersion, in.CollectedAt, in.OSID, in.OSVersionID, in.OSCodename,
 		in.RebootRequired, rebootPackages, in.SourceIP,
-		in.PublicIPv4, in.PublicIPv6, collectorStatus, nullableJSON(hashes), in.KernelRelease, in.AgentID).Scan(&snapshotID)
+		in.PublicIPv4, in.PublicIPv6, collectorStatus, nullableJSON(hashes), in.KernelRelease, in.AgentID,
+		in.UptimeSeconds, in.Arch, facts).Scan(&snapshotID)
 	if err != nil {
 		return res, err
 	}
@@ -214,16 +238,33 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 			os_id       = CASE WHEN $2 AND $5 THEN NULLIF($6, '') ELSE os_id END,
 			os_version  = CASE WHEN $2 AND $5 THEN NULLIF($7, '') ELSE os_version END,
 			os_codename = CASE WHEN $2 AND $5 THEN NULLIF($8, '') ELSE os_codename END,
-			kernel      = CASE WHEN $2 THEN NULLIF($9, '') ELSE kernel END
+			kernel      = CASE WHEN $2 THEN NULLIF($9, '') ELSE kernel END,
+			arch        = CASE WHEN $2 AND $10 <> '' THEN $10 ELSE arch END
 		WHERE id = $1
 	`, in.HostID, newest, in.Host.Hostname, in.OSFamily, in.OSKnown,
-		in.OSID, in.OSVersionID, in.OSCodename, in.KernelRelease); err != nil {
+		in.OSID, in.OSVersionID, in.OSCodename, in.KernelRelease, in.Arch); err != nil {
 		return res, fmt.Errorf("update host summary: %w", err)
 	}
 
-	sockRows := make([][]any, len(in.ListeningSockets))
-	for i, sock := range in.ListeningSockets {
-		sockRows[i] = []any{snapshotID, sock.Proto, sock.LocalAddr, sock.Port, nullableInt(sock.PID), sock.ProcessName, sock.IsPublic}
+	// listening_sockets is still written per snapshot (TCP and UDP) even
+	// though host_listeners now holds the ranges: it is the only record of
+	// the owning pid, and the planned exposure scanner's is_public lives
+	// here (DOMAIN_MODEL.md §4.5 "As implemented"). Its primary key is
+	// (snapshot, proto, addr, port), and SO_REUSEPORT lets several sockets
+	// share one, so keep the first of each.
+	type sockKey struct {
+		proto, addr string
+		port        int
+	}
+	seenSock := map[sockKey]bool{}
+	sockRows := make([][]any, 0, len(in.ListeningSockets))
+	for _, sock := range in.ListeningSockets {
+		k := sockKey{sock.Proto, sock.LocalAddr, sock.Port}
+		if seenSock[k] {
+			continue
+		}
+		seenSock[k] = true
+		sockRows = append(sockRows, []any{snapshotID, sock.Proto, sock.LocalAddr, sock.Port, nullableInt(sock.PID), sock.ProcessName, sock.IsPublic})
 	}
 	if len(sockRows) > 0 {
 		if _, err := tx.CopyFrom(ctx,
@@ -241,6 +282,13 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 			return res, fmt.Errorf("apply %s inventory: %w", set.Ecosystem, err)
 		}
 		res.Inventory = append(res.Inventory, r)
+	}
+	for _, set := range in.FactSets {
+		r, err := applyFactSet(ctx, tx, in.HostID, snapshotID, in.InventoryAt, set)
+		if err != nil {
+			return res, fmt.Errorf("apply %s: %w", set.Kind, err)
+		}
+		res.Facts = append(res.Facts, r)
 	}
 
 	if in.AfterWrite != nil {

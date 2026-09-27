@@ -160,6 +160,11 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 				hostID, inv.Ecosystem, inv.Outcome, inv.Added, inv.Removed, len(inv.NewSoftwareIDs), len(inv.ResetSoftwareIDs))
 		}
 	}
+	for _, f := range res.Facts {
+		if f.Opened+f.Closed > 0 {
+			log.Printf("host %s: %s changed (+%d -%d ranges)", hostID, f.Kind, f.Opened, f.Closed)
+		}
+	}
 	if res.KernelChanged {
 		log.Printf("host %s: running kernel now %q", hostID, in.KernelRelease)
 	}
@@ -216,6 +221,19 @@ func buildSnapshotInput(payload SnapshotPayload, agentID string, collectedAt, no
 	for _, sk := range skipped {
 		log.Printf("agent %s: %s inventory not diffed: %s", agentID, sk.Ecosystem, sk.Reason)
 	}
+
+	factSets, notes := planFacts(payload)
+	in.FactSets = factSets
+	for _, n := range notes {
+		log.Printf("agent %s: %s", agentID, n)
+	}
+	in.UptimeSeconds = uptimeSeconds(payload)
+	in.Arch = hostArch(payload)
+	facts, err := linuxFacts(payload, in.OSFamily)
+	if err != nil {
+		log.Printf("agent %s: facts block dropped: %v", agentID, err)
+	}
+	in.Facts = facts
 	return in
 }
 

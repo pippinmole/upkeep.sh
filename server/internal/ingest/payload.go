@@ -1,5 +1,7 @@
 package ingest
 
+import "encoding/json"
+
 // SnapshotPayload mirrors agent/internal/collector.Snapshot. The two are
 // kept as independent types (not a shared Go module) because the wire
 // format is the actual contract — schema_version is what lets the server
@@ -33,6 +35,16 @@ type SnapshotPayload struct {
 	// handler.go). Either may be empty/absent.
 	PublicIPv4 string `json:"public_ipv4,omitempty"`
 	PublicIPv6 string `json:"public_ipv6,omitempty"`
+
+	// Added within schema_version 1 for the Linux breadth collectors; each
+	// section is authoritative only when its collector reported ok (see
+	// planFacts). Older agents omit them all.
+	UptimeSeconds *int64    `json:"uptime_seconds,omitempty"`
+	Services      []Service `json:"services,omitempty"`
+	Users         []User    `json:"users,omitempty"`
+	// Facts is validated separately (hostfacts.ValidateLinuxFacts), so a
+	// malformed block drops the facts, not the push.
+	Facts json.RawMessage `json:"facts,omitempty"`
 }
 
 type OSRelease struct {
@@ -43,6 +55,9 @@ type OSRelease struct {
 	// what `uname -r` prints), owned by the "kernel" collector. Added
 	// within schema_version 1; older agents omit it.
 	Kernel string `json:"kernel,omitempty"`
+	// Arch is the host architecture in Debian naming ("amd64"), owned by
+	// the "arch" collector. Added within schema_version 1.
+	Arch string `json:"arch,omitempty"`
 }
 
 // Agent is the snapshot's agent block (added within schema_version 1).
@@ -71,6 +86,9 @@ type CollectorStatus struct {
 	Status string `json:"status"` // "ok" | "error" | "skipped"
 	Error  string `json:"error,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Truncated: the section hit the agent's size cap and lists only a
+	// prefix; it may open ranges but must never close any.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 const (
@@ -79,6 +97,15 @@ const (
 	CollectorKernel   = "kernel"
 
 	CollectorHostIdentity = "host_identity"
+
+	CollectorTCPListeners       = "tcp_listeners"
+	CollectorUDPListeners       = "udp_listeners"
+	CollectorUptime             = "uptime"
+	CollectorArch               = "arch"
+	CollectorSystemdServices    = "systemd_services"
+	CollectorLocalUsers         = "local_users"
+	CollectorDeletedLibs        = "deleted_libs"
+	CollectorUnattendedUpgrades = "unattended_upgrades"
 )
 
 // Package is one installed package. Source, SourceVersion and Ecosystem
@@ -99,6 +126,30 @@ type Socket struct {
 	Port        int    `json:"port"`
 	PID         int    `json:"pid,omitempty"`
 	ProcessName string `json:"process_name,omitempty"`
+}
+
+// Service mirrors the agent's collector.Service.
+type Service struct {
+	Manager     string         `json:"manager"`
+	Name        string         `json:"name"`
+	DisplayName string         `json:"display_name,omitempty"`
+	StartMode   string         `json:"start_mode"`
+	State       string         `json:"state,omitempty"`
+	RunAs       string         `json:"run_as,omitempty"`
+	BinaryPath  string         `json:"binary_path,omitempty"`
+	Attrs       map[string]any `json:"attrs,omitempty"`
+}
+
+// User mirrors the agent's collector.User.
+type User struct {
+	Name       string   `json:"name"`
+	UID        int64    `json:"uid"`
+	GID        int64    `json:"gid"`
+	Home       string   `json:"home,omitempty"`
+	Shell      string   `json:"shell,omitempty"`
+	Groups     []string `json:"groups,omitempty"`
+	LoginShell bool     `json:"login_shell"`
+	Admin      bool     `json:"admin"`
 }
 
 // MinSupportedSchemaVersion is the oldest agent payload shape this server

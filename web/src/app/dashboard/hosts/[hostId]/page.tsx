@@ -4,6 +4,8 @@ import Link from "next/link";
 import { hostTitle, requireHost } from "@/lib/host-page";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
+import { SystemOverview } from "./system-overview";
+
 type Params = Promise<{ hostId: string }>;
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
@@ -14,7 +16,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 // Minimal overview: inventory freshness per package source and reboot
 // state. Vulnerability stat cards arrive with P1b.
 export default async function HostOverviewPage({ params }: { params: Params }) {
-  const { host } = await requireHost((await params).hostId);
+  const { userId, host } = await requireHost((await params).hostId);
   const snap = host.latestSnapshot;
   const base = `/dashboard/hosts/${host.id}`;
 
@@ -75,6 +77,8 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
           Registered {formatDateTime(host.createdAt)}
         </p>
       </section>
+
+      <SystemOverview userId={userId} hostId={host.id} />
     </div>
   );
 }

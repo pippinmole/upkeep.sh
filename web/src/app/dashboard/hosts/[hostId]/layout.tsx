@@ -9,6 +9,7 @@ import { getHostVulnSummary } from "@/lib/queries-vulns";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
 import { HostTabs } from "./host-tabs";
+import { SystemBadges } from "./system-badges";
 
 export default async function HostLayout({
   children,
@@ -102,6 +103,7 @@ export default async function HostLayout({
                 Running kernel unknown
               </Badge>
             ))}
+          <SystemBadges userId={userId} hostId={host.id} />
         </div>
         <p className="text-muted-foreground mt-1 text-sm">
           Last seen{" "}

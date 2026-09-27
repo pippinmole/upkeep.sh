@@ -69,8 +69,15 @@ Content-Type: application/json
     "host_identity":   { "status": "ok" },
     "deb_packages":    { "status": "ok" },
     "tcp_listeners":   { "status": "ok" },
+    "udp_listeners":   { "status": "ok" },
     "reboot_required": { "status": "ok" },
-    "public_ip":       { "status": "ok" }
+    "public_ip":       { "status": "ok" },
+    "uptime":          { "status": "ok" },
+    "arch":            { "status": "ok" },
+    "systemd_services": { "status": "ok" },
+    "local_users":     { "status": "ok" },
+    "deleted_libs":    { "status": "ok" },
+    "unattended_upgrades": { "status": "ok" }
   },
   "packages": [
     { "name": "libssl3", "version": "3.0.2-0ubuntu1.15", "arch": "amd64",
@@ -175,9 +182,23 @@ Collector names and the sections they own:
 | `kernel` | `os.kernel` | Linux with live procfs (local target) |
 | `host_identity` | `host.hostname`, `host.identity` | Linux |
 | `deb_packages` | `packages` entries with `ecosystem: "deb"` | Debian-like Linux (`ID` or `ID_LIKE` contains `debian`/`ubuntu`) |
-| `tcp_listeners` | `listening_sockets` | Linux with live procfs (local target) |
+| `tcp_listeners` | `listening_sockets` entries with `proto` `tcp`/`tcp6` | Linux with live procfs (local target) |
+| `udp_listeners` | `listening_sockets` entries with `proto` `udp`/`udp6` | Linux with live procfs (local target) |
 | `reboot_required` | `reboot_required`, `reboot_required_packages` | Debian-like Linux |
 | `public_ip` | `public_ipv4`, `public_ipv6` | local target (best-effort: `ok` with no IPs is normal) |
+| `uptime` | `uptime_seconds` | Linux with live procfs |
+| `arch` | `os.arch` | Linux |
+| `systemd_services` | `services` (`manager: "systemd"`) | Linux with systemd unit directories (else `skipped`) |
+| `local_users` | `users` | Linux |
+| `deleted_libs` | `facts.needs_restart` | Linux with live procfs |
+| `unattended_upgrades` | `facts.unattended_upgrades` | Debian-like Linux |
+
+A collector whose list hit the agent's size cap reports
+`{"status": "ok", "truncated": true}` and sends a deterministic prefix
+(sorted by key). The server treats a truncated section as **additive
+only**: it opens and replaces rows, never closes one it doesn't list.
+Caps: 1000 listeners per transport, 2000 services, 2000 users, 200
+processes × 20 libraries for `needs_restart`.
 
 Future package sources (rpm, apk, Windows programs, Homebrew…) each add
 their own `<ecosystem>_packages`-style collector and their own
@@ -247,6 +268,117 @@ lands mid-upgrade record false remove/re-add history. `half-installed`,
 `not-installed`, `config-files`, `unpacked` and `half-configured` are
 excluded.
 
+### Linux breadth sections (added within `schema_version` 1)
+
+All are file / procfs reads; the agent never executes anything. Each is
+**authoritative only when its collector is `ok`** (never inferred from
+presence: `services` and `users` are omitted when empty). The server
+folds `services`, `users` and the listeners into validity ranges
+(`host_services`, `host_users`, `host_listeners`, migration 0010) per
+kind (`services:systemd`, `users:local`, `listeners:tcp`,
+`listeners:udp`), with a set hash per (host, kind) in `host_fact_state`
+that skips unchanged pushes, and the same stale-push rule as packages. A
+kind whose collector isn't `ok` keeps its open ranges untouched. Payloads
+without `collectors` (older agents) are authoritative for TCP listeners
+only.
+
+```
+"os": { ..., "arch": "amd64" },
+"uptime_seconds": 350735,
+"listening_sockets": [
+  { "proto": "udp", "local_addr": "127.0.0.53", "port": 53, "pid": 610,
+    "process_name": "systemd-resolve" }
+],
+"services": [
+  { "manager": "systemd", "name": "ssh.service",
+    "display_name": "OpenBSD Secure Shell server",
+    "start_mode": "auto", "state": "running", "run_as": "root",
+    "binary_path": "/usr/sbin/sshd",
+    "attrs": { "unit_path": "/lib/systemd/system/ssh.service" } }
+],
+"users": [
+  { "name": "ubuntu", "uid": 1000, "gid": 1000, "home": "/home/ubuntu",
+    "shell": "/bin/bash", "groups": ["ubuntu", "adm", "sudo"],
+    "login_shell": true, "admin": true }
+],
+"facts": {
+  "needs_restart": {
+    "processes": [ { "pid": 812, "name": "sshd", "unit": "ssh.service",
+                     "libraries": ["/usr/lib/x86_64-linux-gnu/libssl.so.3"] } ],
+    "unreadable_processes": 3
+  },
+  "unattended_upgrades": {
+    "package_installed": true, "update_package_lists": "1",
+    "unattended_upgrade": "1", "enabled": true,
+    "last_apt_update": "2026-09-26T06:12:00Z",
+    "last_apt_update_source": "update-success-stamp",
+    "last_unattended_run": "2026-09-26T06:30:00Z"
+  }
+}
+```
+
+- `uptime_seconds`: whole seconds from `/proc/uptime` (not namespaced, so
+  the container's `/proc` gives the host's). Stored in
+  `snapshots.uptime_seconds`.
+- `os.arch`: Debian architecture name. From the `Architecture` of the
+  installed `dpkg` package (dpkg is Essential and built for the native
+  arch, so this is `dpkg --print-architecture`, and it describes the
+  userland that package matching is about, even with a 64-bit kernel on
+  a 32-bit userland); else `/proc/sys/kernel/arch` (`uname -m`, Linux
+  6.1+) mapped to Debian names (`x86_64` → `amd64`, `aarch64` → `arm64`,
+  …). Stored in `snapshots.arch` and, from the newest snapshot, in
+  `hosts.arch` (kept when a later push doesn't know it).
+- UDP listeners: UDP has no listen state, so a socket counts when it is
+  bound to a non-zero local port and **unconnected** (`/proc/net/udp{,6}`
+  state `07` with an all-zero remote endpoint). A connected UDP socket
+  (DNS client, state `01`) only accepts its peer's datagrams and is not
+  a listener. The agent deduplicates all sockets on (proto, address,
+  port), since `SO_REUSEPORT` lets several share one. Addresses are
+  canonical (`::`, `::ffff:127.0.0.1`), no longer zero-padded.
+- `services` (systemd, no D-Bus): unit files from `/etc/systemd/system`,
+  `/run/systemd/system`, `/usr/local/lib/systemd/system`,
+  `/lib/systemd/system`, `/usr/lib/systemd/system` (first wins, drop-ins
+  applied). `start_mode`: `masked` (symlink to `/dev/null` or empty
+  file), `auto` (linked from any `*.wants/`, `*.requires/`, `*.upholds/`,
+  i.e. started at boot), `manual` (an enabled same-named `.socket`,
+  `.timer` or `.path` starts it; `attrs.activated_by`), `static` (no
+  `[Install]` section), else `disabled`. `state` is `running` when any
+  process's `/proc/<pid>/cgroup` is `…/system.slice/…/<unit>` (works
+  across the agent's cgroup namespace), else `stopped`; omitted without
+  procfs, and there is no `failed`. `run_as` is `User=`, `root` when
+  unset, empty with `attrs.dynamic_user` for `DynamicUser=yes`.
+  Template instances are reported when wanted or running; transient
+  units (no unit file) are not. Unit files or drop-ins the agent can't
+  read (permission denied, e.g. netplan's root-only generator units)
+  don't fail the collector: the service is still reported, their paths
+  are listed in `attrs.unreadable`, and `start_mode`/`run_as` are left
+  empty when they depend on the unread file. An unlistable unit
+  directory marks the section `truncated`.
+- `users`: `/etc/passwd` + `/etc/group` (never `/etc/shadow`). `groups`
+  is the primary group then supplementary groups. `login_shell` is false
+  for `nologin`/`false`/`true`/`sync`/`shutdown`/`halt`; `admin` is uid 0
+  or membership of `sudo`, `wheel`, `adm` or `admin`.
+- `facts` is stored per snapshot in `snapshots.facts` after validation
+  against a Go struct (`hostfacts.LinuxFacts`): unknown members dropped,
+  sizes clamped, members whose collector isn't `ok` removed; a malformed
+  block is logged and stored as `{}` without failing the push.
+  - `needs_restart`: processes whose `/proc/<pid>/maps` still maps a
+    deleted shared object (`*.so*`, suffixed ` (deleted)`), with the
+    systemd unit to restart. Reading another user's maps needs
+    `CAP_SYS_PTRACE`, which the agent doesn't have: those are counted in
+    `unreadable_processes`, so the list is complete only when that is 0.
+  - `unattended_upgrades`: `APT::Periodic::Update-Package-Lists` /
+    `::Unattended-Upgrade` from all of `/etc/apt/apt.conf.d` (lexical
+    order, then `/etc/apt/apt.conf`, flat syntax only); `enabled` = a
+    non-zero interval and the package not known to be missing; last apt
+    update from the mtime of `/var/lib/apt/periodic/update-success-stamp`,
+    else of `/var/lib/apt/lists`.
+
+`listening_sockets` is still stored per snapshot (TCP and UDP rows, first
+of each primary key) in addition to the `host_listeners` ranges: it keeps
+the owning pid, which ranges deliberately don't (it would churn on every
+restart), and `is_public` for the planned exposure scanner.
+
 ### Other fields
 
 `reboot_required` / `reboot_required_packages` come from the host's
@@ -307,8 +439,13 @@ manually; a mismatch should only ever be an additive field.
 - Additive fields never require a bump. Only bump on a breaking shape
   change, and document the migration path for already-deployed agents
   before doing so (they can't be force-upgraded — it's push-only).
-- `agent`, `host`, `collectors` and the package `source` / `source_version` /
-  `ecosystem` fields were added **within `schema_version: 1`**. The
+- `agent`, `host`, `collectors`, the package `source` / `source_version` /
+  `ecosystem` fields, and the Linux breadth sections (`uptime_seconds`,
+  `os.arch`, UDP entries in `listening_sockets`, `services`, `users`,
+  `facts`, `collectors.*.truncated`) were added **within
+  `schema_version: 1`**. A server that predates the breadth sections
+  ignores them, and stores UDP entries in `listening_sockets` as it does
+  TCP (the agent's dedupe keeps its primary key unique). The
   server's decoder ignores unknown fields, so servers that predate them
   keep accepting these pushes. A newer server detects them by presence:
   no `collectors` means a pre-collectors agent (all sections
