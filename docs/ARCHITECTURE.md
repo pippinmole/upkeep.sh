@@ -33,8 +33,9 @@
     (Postgres-backed queue, no Redis; DOMAIN_MODEL.md Q10): OSV
     Debian/Ubuntu advisory sync (hourly incremental, weekly full), CISA
     KEV + FIRST EPSS (daily), the vulnerability matcher and findings
-    reconciliation (see "Vulnerability pipeline" below). Planned:
-    port-exposure scanning, alert dispatch (see [TASKS.md](TASKS.md)). A
+    reconciliation (see "Vulnerability pipeline" below), and alerting
+    (see "Alerting" below). Planned: port-exposure scanning (see
+    [TASKS.md](TASKS.md)). A
     separate process so multi-minute feed imports (Ubuntu's OSV zip is
     ~800 MB) never compete with ingest. One-shot commands run the same
     code in the foreground: `worker sync osv|kev|epss`, `worker match`
@@ -70,10 +71,11 @@ for the reasoning.
 | `software_vulnerabilities`, `software_versions` matcher columns (`match_*`, `kernel_release`, `matcher_version`, `evaluated_at`, `max_fixed_version`) | Go (worker: matcher) |
 | `river_*` | Go (River job queue; API inserts, worker runs) |
 | `findings` (kind `vulnerable_package`) | Go (worker: findings reconciliation, re-rank) |
-| `alert_events` | Go (alerting worker — not yet built) |
+| `alert_events`, `alert_dedup`, `alert_digest_items`, `agent_health`, `alert_rules.last_digest_at` | Go (worker: findings reconcile / agent health write events; alerting jobs the rest) |
+| `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
 | `users` | Next.js (signup) |
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
-| `alert_rules`, `notification_channels` | Next.js (settings — not yet built) |
+| `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Notifications settings) |
 
 Both sides **read** any table directly from Postgres. There is no caching
 layer in front of these reads today — every dashboard render is a live
@@ -172,8 +174,71 @@ findings queue:
 - Kernel CVEs are raised only for the running kernel
   (`snapshots.kernel_release`); other installed kernels are exposed by the
   `host_kernel_packages` view (DOMAIN_MODEL.md Q7).
-- `users` → `alert_rules` → `notification_channels`, and
-  `findings` → `alert_events` (delivery log, dedup, digest support).
+
+## Alerting
+
+Migration 0009. Rules decide *what* to send, channels *where*; channel
+types are plugins behind one interface.
+
+```
+findings reconcile tx ──> alert_events (outbox) + alert_evaluate (InsertTx)
+agent_health (1m)     ──> alert_events on online <-> stale changes
+                           (only written when the user has an enabled rule for the type)
+
+alerts queue:
+  alert_evaluate  (per trigger + every 1m) advisory-locked; for each pending
+                  event x enabled rule of its user: alerting.Match (types,
+                  min severity, KEV-only, host scope) -> dedup on
+                  (rule, type|subject) within the rule's window ->
+                    immediate: one notification per rule per pass
+                    digest:    alert_digest_items
+                  notification -> one notification_deliveries row per rule
+                  channel -> alert_deliver (InsertTx); events marked processed
+  alert_digest    (1m) rules whose digest interval elapsed -> one notification
+  alert_deliver   Notifier.Send through the channel type's registry entry;
+                  each attempt logged; retryable errors back off (30s .. 6h,
+                  8 attempts), notify.Permanent errors fail at once
+  alert_prune     (1h) events 30d, delivery log 90d
+```
+
+- **Never slows ingest**: ingest doesn't touch alerting; the reconcile
+  transaction only adds an `INSERT … SELECT` into the outbox, and delivery
+  is always a separate job.
+- **Notifier interface** (`server/internal/notify`): a channel type
+  declares a `Spec` (type key, label, fields; which are secret, which the
+  server generates), `Validate(config)` and `Send(ctx, config,
+  notification)`. `notify/notifiers.Registry` lists the types. The
+  `Notification` / `Event` model is channel-agnostic; its JSON is the
+  webhook body ([WEBHOOKS.md](WEBHOOKS.md)).
+- **Dashboard forms come from the same declaration**: `go test
+  ./internal/notify/notifiers -update` writes
+  `web/src/lib/notifier-types.json` (a golden test fails when it is stale);
+  the channel dialog renders any type from it, with a per-type override map
+  in `web/src/app/dashboard/notifications/channel-forms.tsx` for forms that
+  need more.
+- **Secrets**: fields declared secret live in `notification_channels.secrets`,
+  which dashboard queries never select; generated ones (the webhook
+  signing secret) are shown once on create/rotate. They are stored in
+  plaintext in Postgres (the worker needs them to sign) — see TASKS.md.
+- **Outbound requests** go through `server/internal/netguard` (SSRF guard:
+  https, ports 443/8443, public addresses only, checked on the dialed IP,
+  same-origin redirects). `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS=true` is a
+  dev-only escape hatch.
+
+### How to add a notifier (email, Slack, Discord, ntfy, …)
+
+1. `server/internal/notify/<type>`: implement `notify.Notifier` (make HTTP
+   calls with a `netguard.Guard` client; wrap unfixable errors in
+   `notify.Permanent`).
+2. Add it to `notify/notifiers.Registry`.
+3. `go test ./internal/notify/notifiers -update` to refresh the dashboard's
+   schema file.
+4. Only if the generic form can't express it: register a form component in
+   `channel-forms.tsx`.
+
+Rules, evaluation, dedup, digests, retries, "Send test" and the delivery
+log need no change; `jobs/alerting_integration_test.go` runs the pipeline
+with a fake channel type registered next to the webhook to prove it.
 
 ## Protocol
 

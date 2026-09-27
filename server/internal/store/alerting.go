@@ -38,6 +38,11 @@ func hasRuleForSQL(userCol, typeCol string) string {
 // insertFindingEvents writes finding.* events for the given transitions of
 // one host's findings, inside the reconcile transaction (the findings rows
 // are already written, so the payload is their new state).
+//
+// TODO(after PR #1 / migration 0011 merges): archived hosts must not
+// alert. Add `AND h.archived_at IS NULL` to the WHERE clause below (and
+// filter archived hosts out of the agent events' host_ids in
+// CheckAgentHealth).
 func insertFindingEvents(ctx context.Context, tx pgx.Tx, hostID string, keys, types []string, now time.Time) (int, error) {
 	if len(keys) == 0 {
 		return 0, nil
@@ -213,7 +218,7 @@ func (e eventRow) event(dashboardURL string) (notify.Event, error) {
 	if err := json.Unmarshal(e.payload, &ev); err != nil {
 		return ev, fmt.Errorf("event %d payload: %w", e.meta.ID, err)
 	}
-	ev.ID, ev.Type, ev.OccurredAt = e.meta.ID, e.meta.Type, e.at
+	ev.ID, ev.Type, ev.OccurredAt = e.meta.ID, e.meta.Type, e.at.UTC()
 	ev.URL = eventURL(dashboardURL, ev)
 	return ev, nil
 }
