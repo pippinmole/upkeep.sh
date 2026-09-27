@@ -29,6 +29,7 @@ import (
 
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
+	"github.com/pippinmole/upkeep.sh/server/internal/notify/render"
 )
 
 const (
@@ -173,14 +174,14 @@ func Render(topic, priority string, n notify.Notification) Message {
 		m.Tags = []string{"bell"}
 	case len(n.Events) == 1:
 		e := n.Events[0]
-		m.Title = eventTitle(e)
-		m.Message = eventBody(e)
+		m.Title = render.Title(e)
+		m.Message = render.Body(e)
 		m.Priority = eventPriority(e)
 		m.Tags = eventTags(e)
 		m.Click = e.URL
 	default:
 		m.Title = n.Summary
-		m.Message = listBody(n.Events)
+		m.Message = render.List(n.Events, maxListed)
 		top := 0
 		for i, e := range n.Events {
 			if p := eventPriority(e); p > m.Priority {
@@ -190,7 +191,7 @@ func Render(topic, priority string, n notify.Notification) Message {
 		if len(n.Events) > 0 {
 			m.Tags = eventTags(n.Events[top])
 		}
-		m.Click = commonURL(n.Events)
+		m.Click = render.CommonURL(n.Events)
 	}
 	if n.Kind == notify.KindDigest {
 		if !strings.HasPrefix(m.Title, "Digest: ") {
@@ -206,13 +207,9 @@ func Render(topic, priority string, n notify.Notification) Message {
 	if p, err := strconv.Atoi(priority); err == nil && p >= PriorityMin && p <= PriorityUrgent {
 		m.Priority = p
 	}
-	m.Title = truncate(m.Title, 250)
-	m.Message = truncate(m.Message, maxMessage)
+	m.Title = render.Truncate(m.Title, 250)
+	m.Message = render.Truncate(m.Message, maxMessage)
 	return m
-}
-
-func isKEVOrCritical(f *notify.Finding) bool {
-	return f.KEV || strings.EqualFold(f.Severity, "critical")
 }
 
 // eventPriority maps one event to an ntfy priority:
@@ -228,7 +225,7 @@ func eventPriority(e notify.Event) int {
 		if e.Finding == nil {
 			return PriorityDefault
 		}
-		if isKEVOrCritical(e.Finding) {
+		if render.IsKEVOrCritical(e.Finding) {
 			return PriorityUrgent
 		}
 		switch strings.ToLower(e.Finding.Severity) {
@@ -253,7 +250,7 @@ func eventTags(e notify.Event) []string {
 	switch e.Type {
 	case notify.EventFindingOpened, notify.EventFindingReopened:
 		switch {
-		case e.Finding != nil && isKEVOrCritical(e.Finding):
+		case e.Finding != nil && render.IsKEVOrCritical(e.Finding):
 			tags = append(tags, "rotating_light")
 		case e.Finding != nil && strings.EqualFold(e.Finding.Severity, "high"):
 			tags = append(tags, "warning")
@@ -277,194 +274,6 @@ func eventTags(e notify.Event) []string {
 		tags = append(tags, e.Host.Hostname)
 	}
 	return tags
-}
-
-var findingVerb = map[string]string{
-	notify.EventFindingOpened:   "opened",
-	notify.EventFindingReopened: "reopened",
-	notify.EventFindingResolved: "resolved",
-}
-
-// eventTitle, e.g. "KEV CVE-2024-3094 opened on web-1",
-// "Critical CVE-2024-1 reopened on db", `Agent "edge" stopped reporting`.
-func eventTitle(e notify.Event) string {
-	switch {
-	case e.Finding != nil:
-		f := e.Finding
-		prefix := ""
-		switch {
-		case f.KEV && e.Type != notify.EventFindingResolved:
-			prefix = "KEV "
-		case f.Severity != "" && e.Type != notify.EventFindingResolved:
-			prefix = capitalize(f.Severity) + " "
-		}
-		verb := findingVerb[e.Type]
-		if verb == "" {
-			verb = e.Type
-		}
-		s := prefix + f.VulnKey + " " + verb
-		if e.Host != nil {
-			s += " on " + hostName(*e.Host)
-		}
-		return s
-	case e.Agent != nil:
-		if e.Type == notify.EventAgentStale {
-			return fmt.Sprintf("Agent %q stopped reporting", e.Agent.Name)
-		}
-		return fmt.Sprintf("Agent %q is reporting again", e.Agent.Name)
-	}
-	return e.Type
-}
-
-func eventBody(e notify.Event) string {
-	var lines []string
-	switch {
-	case e.Finding != nil:
-		f := e.Finding
-		pkg := f.SourcePackage
-		if pkg == "" && len(f.Packages) > 0 {
-			pkg = f.Packages[0]
-		}
-		if pkg != "" {
-			line := "Package: " + pkg
-			if f.InstalledVersion != "" {
-				line += " " + f.InstalledVersion
-			}
-			if bins := otherPackages(pkg, f.Packages); bins != "" {
-				line += " (" + bins + ")"
-			}
-			lines = append(lines, line)
-		}
-		switch {
-		case e.Type == notify.EventFindingResolved:
-			lines = append(lines, "No longer present on the host.")
-		case f.FixedVersion != nil && *f.FixedVersion != "":
-			fix := "Fix: upgrade to " + *f.FixedVersion
-			if f.FixChannel != nil && *f.FixChannel != "" {
-				fix += " (" + *f.FixChannel + ")"
-			}
-			lines = append(lines, fix)
-		default:
-			lines = append(lines, "Fix: none available yet")
-		}
-		risk := []string{"Severity: " + orUnknown(f.Severity)}
-		if f.KEV {
-			risk = append(risk, "known exploited (CISA KEV)")
-		}
-		if f.EPSS != nil {
-			risk = append(risk, fmt.Sprintf("EPSS %.1f%%", *f.EPSS*100))
-		}
-		lines = append(lines, strings.Join(risk, ", "))
-	case e.Agent != nil:
-		if e.Agent.LastSeenAt != nil {
-			lines = append(lines, "Last seen "+e.Agent.LastSeenAt.UTC().Format("2006-01-02 15:04 UTC"))
-		}
-		if len(e.Agent.Hosts) > 0 {
-			names := make([]string, len(e.Agent.Hosts))
-			for i, h := range e.Agent.Hosts {
-				names[i] = hostName(h)
-			}
-			lines = append(lines, "Hosts: "+strings.Join(names, ", "))
-		}
-		if e.Type == notify.EventAgentStale {
-			lines = append(lines, "Its hosts aren't being scanned until it reports again.")
-		}
-	}
-	if len(lines) == 0 {
-		return eventTitle(e)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// listBody lists up to maxListed events, one line each.
-func listBody(events []notify.Event) string {
-	if len(events) == 0 {
-		return "No events."
-	}
-	var b strings.Builder
-	for i, e := range events {
-		if i == maxListed {
-			fmt.Fprintf(&b, "…and %d more", len(events)-maxListed)
-			break
-		}
-		b.WriteString("• " + eventTitle(e))
-		if e.Finding != nil && e.Finding.SourcePackage != "" {
-			b.WriteString(" (" + e.Finding.SourcePackage + ")")
-		}
-		b.WriteByte('\n')
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-// commonURL is the link for a multi-event message: the events' URL if they
-// all share one, else the dashboard root they point into (SW_DASHBOARD_URL
-// + "/dashboard"); "" when events carry no links.
-func commonURL(events []notify.Event) string {
-	var first string
-	same := true
-	for _, e := range events {
-		if e.URL == "" {
-			continue
-		}
-		if first == "" {
-			first = e.URL
-		} else if e.URL != first {
-			same = false
-		}
-	}
-	if first == "" || same {
-		return first
-	}
-	if i := strings.Index(first, "/dashboard/"); i >= 0 {
-		return first[:i] + "/dashboard"
-	}
-	return ""
-}
-
-func otherPackages(src string, pkgs []string) string {
-	var out []string
-	for _, p := range pkgs {
-		if p != src {
-			out = append(out, p)
-		}
-	}
-	if len(out) > 3 {
-		out = append(out[:3], fmt.Sprintf("+%d more", len(out)-3))
-	}
-	return strings.Join(out, ", ")
-}
-
-func hostName(h notify.Host) string {
-	if h.Label != nil && *h.Label != "" {
-		return *h.Label
-	}
-	return h.Hostname
-}
-
-func orUnknown(s string) string {
-	if s == "" {
-		return "unknown"
-	}
-	return s
-}
-
-func capitalize(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-// truncate cuts s to at most max bytes on a rune boundary, ending in "…".
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	cut := max - len("…")
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "…"
 }
 
 func (n *Notifier) Send(ctx context.Context, cfg notify.Config, note notify.Notification) (notify.Result, error) {
@@ -504,7 +313,7 @@ func (n *Notifier) Send(ctx context.Context, cfg notify.Config, note notify.Noti
 	res.StatusCode = resp.StatusCode
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
 	raw := strings.ToValidUTF8(string(b), string(utf8.RuneError))
-	res.Response = truncate(raw, maxResponse)
+	res.Response = render.Truncate(raw, maxResponse)
 
 	code := resp.StatusCode
 	if code >= 200 && code < 300 {
@@ -539,5 +348,5 @@ func errorText(body string) string {
 	if body == "" {
 		return "empty response"
 	}
-	return truncate(body, maxErrBody)
+	return render.Truncate(body, maxErrBody)
 }
