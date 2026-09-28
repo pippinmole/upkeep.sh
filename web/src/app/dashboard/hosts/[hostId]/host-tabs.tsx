@@ -22,6 +22,10 @@ export function HostTabs({ hostId, openVulns }: { hostId: string; openVulns: num
     { href: `${base}/services`, label: "Services" },
     { href: `${base}/listeners`, label: "Listeners" },
     { href: `${base}/users`, label: "Users" },
+    // Always shown: on hosts without Docker data the tab explains why
+    // (remote host, collection not enabled, engine unreachable).
+    { href: `${base}/containers`, label: "Containers" },
+    { href: `${base}/images`, label: "Images" },
   ];
 
   return (

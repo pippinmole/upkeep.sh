@@ -8,6 +8,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/copy-button";
 import {
+  DOCKER_SOCKET_MOUNT,
+  DockerSocketAlternatives,
+  DockerSocketGrant,
+} from "@/components/docker-socket-notes";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,7 +29,7 @@ import { Label } from "@/components/ui/label";
 // withDocker adds the opt-in Docker socket mount (DECISIONS.md "Docker
 // collection"), the same line as agent/docker-compose.example.yml.
 function dockerRunCommand(serverUrl: string, token: string, withDocker: boolean): string {
-  const socket = withDocker ? "\n  -v /var/run/docker.sock:/var/run/docker.sock \\" : "";
+  const socket = withDocker ? `\n  ${DOCKER_SOCKET_MOUNT} \\` : "";
   return `docker run -d --restart unless-stopped \\
   --pid host --network host --read-only \\
   --cap-drop ALL --security-opt no-new-privileges:true \\
@@ -37,11 +42,18 @@ function dockerRunCommand(serverUrl: string, token: string, withDocker: boolean)
 
 // One-time token generation and the agent install command. The panel owns
 // its state, so unmounting it (closing the dialog) drops the token: a
-// re-open never shows a stale/reusable secret.
-export function EnrollAgentPanel({ serverUrl }: { serverUrl: string }) {
+// re-open never shows a stale/reusable secret. defaultWithDocker pre-ticks
+// the Docker option (opened from a host's Containers / Images tab).
+export function EnrollAgentPanel({
+  serverUrl,
+  defaultWithDocker = false,
+}: {
+  serverUrl: string;
+  defaultWithDocker?: boolean;
+}) {
   const [token, setToken] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("");
-  const [withDocker, setWithDocker] = useState(false);
+  const [withDocker, setWithDocker] = useState(defaultWithDocker);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -164,50 +176,31 @@ function DockerCollectionOption({
         Collect Docker containers and images
       </label>
       <p className="text-muted-foreground text-xs">
-        Mounts the Docker socket into the agent. That is full Docker API access, which is
-        root-equivalent on the host. The agent only makes read calls, by design (containers, images,
-        networks, Swarm services; never logs, exec, secrets or environment variables).
+        <DockerSocketGrant />
       </p>
-      {checked && (
-        <details className="text-muted-foreground text-xs">
-          <summary className="hover:text-foreground cursor-pointer select-none">
-            Rootless Docker or Podman?
-          </summary>
-          <div className="mt-1 flex flex-col gap-1 leading-relaxed">
-            <p>
-              Replace the left side of the socket mount with the socket&apos;s path on the host:
-            </p>
-            <ul className="list-disc pl-4">
-              <li>
-                Rootless Docker: <code>$XDG_RUNTIME_DIR/docker.sock</code>, e.g.{" "}
-                <code>/run/user/1000/docker.sock</code>
-              </li>
-              <li>
-                Podman: enable <code>podman.socket</code> first, then{" "}
-                <code>/run/podman/podman.sock</code> (rootful) or{" "}
-                <code>$XDG_RUNTIME_DIR/podman/podman.sock</code> (rootless)
-              </li>
-            </ul>
-            <p>
-              If that socket isn&apos;t owned by root, also add{" "}
-              <code>--group-add &lt;the socket&apos;s group id&gt;</code> (
-              <code>stat -c %g &lt;socket&gt;</code>): the agent drops all capabilities, so it
-              can&apos;t bypass the socket&apos;s permissions.
-            </p>
-          </div>
-        </details>
-      )}
+      {checked && <DockerSocketAlternatives />}
     </div>
   );
 }
 
 // "Register agent" on the Agents page. The Hosts page's "Add host" offers
-// the same panel as its "install the agent on this machine" option.
-export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
+// the same panel as its "install the agent on this machine" option, and a
+// remote host's Containers / Images tabs open it to install an agent there.
+export function RegisterAgentDialog({
+  serverUrl,
+  triggerLabel = "Register agent",
+  triggerVariant = "default",
+  defaultWithDocker = false,
+}: {
+  serverUrl: string;
+  triggerLabel?: string;
+  triggerVariant?: "default" | "outline";
+  defaultWithDocker?: boolean;
+}) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button>Register agent</Button>
+        <Button variant={triggerVariant}>{triggerLabel}</Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
@@ -216,7 +209,7 @@ export function RegisterAgentDialog({ serverUrl }: { serverUrl: string }) {
             Generate a one-time enrollment token and run it on the host you want to monitor.
           </DialogDescription>
         </DialogHeader>
-        <EnrollAgentPanel serverUrl={serverUrl} />
+        <EnrollAgentPanel serverUrl={serverUrl} defaultWithDocker={defaultWithDocker} />
       </DialogContent>
     </Dialog>
   );

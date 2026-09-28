@@ -55,6 +55,11 @@ const COLLECTOR_LABELS: Record<string, string> = {
   unattended_upgrades: "Automatic updates",
   reboot_required: "Reboot-required check",
   public_ip: "Public IP lookup",
+  docker_engine: "Docker engine",
+  docker_containers: "Docker containers",
+  docker_images: "Docker images",
+  docker_networks: "Docker networks",
+  swarm_services: "Swarm services",
 };
 
 export function collectorLabel(name: string): string {

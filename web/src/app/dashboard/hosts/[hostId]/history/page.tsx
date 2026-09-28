@@ -13,10 +13,13 @@ import {
 } from "@/components/ui/table";
 import { compareDebVersions } from "@/lib/debversion";
 import { hostTitle, requireHost } from "@/lib/host-page";
+import { getHostDockerHistory } from "@/lib/queries-docker";
 import { getHostHistory, type RangeEvent } from "@/lib/queries-inventory";
 import { type ChangeEffect, getChangeEffects } from "@/lib/queries-vulns";
 import { param, parseAt, type SearchParams } from "@/lib/search-params";
 import { formatDate, formatDateTime } from "@/lib/time";
+
+import { DockerChangesTable, dockerSummary, pairDockerChanges } from "./docker-changes";
 
 const BOUNDARIES_PER_PAGE = 20;
 
@@ -155,51 +158,82 @@ export default async function HostHistoryPage({
   const { userId, host } = await requireHost(hostId);
   const before = parseAt(param(sp, "before"));
 
-  const { boundaries, nextBefore } = await getHostHistory(userId, host.id, {
-    before,
-    limit: BOUNDARIES_PER_PAGE,
-  });
+  // Two timelines, packages and Docker (containers / images), each paged
+  // the same way; the page is the newest BOUNDARIES_PER_PAGE boundaries of
+  // their union, so each side's first page covers it.
+  const [pkg, docker] = await Promise.all([
+    getHostHistory(userId, host.id, { before, limit: BOUNDARIES_PER_PAGE }),
+    getHostDockerHistory(userId, host.id, { before, limit: BOUNDARIES_PER_PAGE }),
+  ]);
+  // at strings are fixed-width UTC, so string order == time order.
+  const allAts = [
+    ...new Set([...pkg.boundaries.map((b) => b.at), ...docker.boundaries.map((b) => b.at)]),
+  ].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  const ats = allAts.slice(0, BOUNDARIES_PER_PAGE);
+  const nextBefore =
+    ats.length > 0 && (allAts.length > ats.length || pkg.nextBefore !== null || docker.more)
+      ? ats[ats.length - 1]
+      : null;
+  const pkgByAt = new Map(pkg.boundaries.map((b) => [b.at, b]));
+  const dockerByAt = new Map(docker.boundaries.map((b) => [b.at, b]));
   const base = `/dashboard/hosts/${host.id}`;
 
-  if (boundaries.length === 0) {
+  if (ats.length === 0) {
     return (
       <div className="bg-card text-muted-foreground rounded-lg border px-6 py-12 text-center text-sm">
-        {before
-          ? "No older package changes."
-          : "No package changes have been recorded for this host yet."}
+        {before ? "No older changes." : "No changes have been recorded for this host yet."}
       </div>
     );
   }
 
   // Pair every boundary's changes up front so the security effect of all
   // version changes on this page is one query.
-  const perBoundary = boundaries.map((b) => {
-    const baseline = new Set(b.baselineEcosystems);
+  const perBoundary = ats.map((at) => {
+    const b = pkgByAt.get(at);
+    const baseline = new Set(b?.baselineEcosystems ?? []);
     const baselineCount = new Map<string, number>();
     const rest: RangeEvent[] = [];
-    for (const e of b.events) {
+    for (const e of b?.events ?? []) {
       if (e.kind === "open" && baseline.has(e.ecosystem)) {
         baselineCount.set(e.ecosystem, (baselineCount.get(e.ecosystem) ?? 0) + 1);
       } else {
         rest.push(e);
       }
     }
-    return { b, baselineCount, changes: pairChanges(rest) };
+    // Docker: the first list of a kind is a baseline too (a count, not
+    // every container / image).
+    const d = dockerByAt.get(at);
+    const dockerBaseline = new Set(d?.baselineKinds ?? []);
+    const dockerBaselineCount = { containers: 0, images: 0 };
+    const dockerRest = (d?.events ?? []).filter((e) => {
+      if (e.kind !== "open" || !dockerBaseline.has(e.factKind)) return true;
+      dockerBaselineCount[e.factKind === "containers:docker" ? "containers" : "images"]++;
+      return false;
+    });
+    return {
+      at,
+      hasPackages: b !== undefined,
+      baselineCount,
+      changes: pairChanges(rest),
+      dockerBaselineCount,
+      dockerChanges: pairDockerChanges(dockerRest),
+    };
   });
   const pairs = perBoundary.flatMap((x) =>
     x.changes.filter(isPair).map((c) => ({ from: c.from.softwareId, to: c.to.softwareId })),
   );
   const effects = await getChangeEffects(userId, host.id, pairs);
 
-  const days = boundaries.map((b) => formatDate(b.at));
+  const days = ats.map((at) => formatDate(at));
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">
-        Package changes per applied inventory, newest first. Times are the snapshot&apos;s
-        collection time. Security effect compares the two versions against today&apos;s advisory
-        data, not what was known at the time.
+        Package, container and image changes per applied snapshot, newest first. Times are the
+        snapshot&apos;s collection time. Security effect compares the two package versions against
+        today&apos;s advisory data, not what was known at the time.
       </p>
-      {perBoundary.map(({ b, baselineCount, changes }, i) => {
+      {perBoundary.map((pb, i) => {
+        const { at, baselineCount, changes, dockerBaselineCount, dockerChanges } = pb;
         const counts = {
           installed: 0,
           removed: 0,
@@ -212,12 +246,12 @@ export default async function HostHistoryPage({
         const showDay = i === 0 || day !== days[i - 1];
 
         return (
-          <section key={b.at} className="flex flex-col gap-2">
+          <section key={at} className="flex flex-col gap-2">
             {showDay && <h2 className="mt-2 text-sm font-semibold">{day}</h2>}
             <div className="bg-card rounded-lg border">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                  <span className="font-medium">{formatDateTime(b.at)}</span>
+                  <span className="font-medium">{formatDateTime(at)}</span>
                   <span className="text-muted-foreground">
                     {[
                       ...[...baselineCount].map(
@@ -228,17 +262,24 @@ export default async function HostHistoryPage({
                       counts.downgraded && `${counts.downgraded} downgraded`,
                       counts.changed && `${counts.changed} changed`,
                       counts.removed && `${counts.removed} removed`,
+                      dockerBaselineCount.containers > 0 &&
+                        `initial container list: ${dockerBaselineCount.containers} containers`,
+                      dockerBaselineCount.images > 0 &&
+                        `initial image list: ${dockerBaselineCount.images} images`,
+                      ...dockerSummary(dockerChanges),
                     ]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
                 </div>
-                <Link
-                  href={`${base}/packages?at=${encodeURIComponent(b.at)}`}
-                  className="text-muted-foreground hover:text-foreground text-xs hover:underline"
-                >
-                  Inventory after this change
-                </Link>
+                {pb.hasPackages && (
+                  <Link
+                    href={`${base}/packages?at=${encodeURIComponent(at)}`}
+                    className="text-muted-foreground hover:text-foreground text-xs hover:underline"
+                  >
+                    Inventory after this change
+                  </Link>
+                )}
               </div>
               {changes.length > 0 && (
                 <Table>
@@ -293,6 +334,11 @@ export default async function HostHistoryPage({
                     })}
                   </TableBody>
                 </Table>
+              )}
+              {dockerChanges.length > 0 && (
+                <div className={changes.length > 0 ? "border-t" : undefined}>
+                  <DockerChangesTable changes={dockerChanges} />
+                </div>
               )}
             </div>
           </section>

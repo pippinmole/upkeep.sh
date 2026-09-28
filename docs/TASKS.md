@@ -398,7 +398,7 @@ storage/UI, then firewall + exposure on top.
       basic-auth hashes). Mount sources only for bind mounts. SDK structs are
       mapped onto these wire types, never sent as-is. Caps + `truncated`
       like the other collectors.
-- [ ] Docker is collected **only on hosts with their own agent**
+- [x] Docker is collected **only on hosts with their own agent**
       (DECISIONS.md "Docker collection"): remote (SSH) targets report the
       Docker collectors `skipped` with reason "remote host" (their key is
       read-only SFTP, which can't reach the socket). The dashboard must
@@ -416,9 +416,10 @@ storage/UI, then firewall + exposure on top.
       dialog lists what remote collection doesn't cover (Docker,
       listeners, port exposure), so it's clear before the choice; and the
       host header shows a "Remote (SSH)" badge next to the collecting
-      agent. (Done: the Add host list and the header's "Collected by"
-      line with the badge, `getHostCollectors`; the tab empty states
-      remain.)
+      agent. (Done: the Add host list, the header's "Collected by" line
+      with the badge, and the tabs' shared `docker-collection-state.tsx`,
+      which also covers engine unreachable, collector error and an older
+      agent build that reports no Docker status.)
 - [x] Compose example + dashboard `docker run` line: Docker collection
       is **opt-in**, one socket mount with a comment saying plainly what
       it grants (full Docker API access, i.e. root-equivalent; the agent
@@ -465,7 +466,7 @@ storage/UI, then firewall + exposure on top.
       (from any manager's push: name, image, mode/replicas, published
       ports with ingress/host mode). Per-kind set hashes in
       `host_fact_state`, never closed when the collector isn't `ok`.
-- [ ] Dashboard: host **Containers** tab (grouped by compose project or
+- [x] Dashboard: host **Containers** tab (grouped by compose project or
       Swarm stack, published ports, image, state) and **Images** tab;
       containers/images changes on the History tab; fleet
       `/dashboard/images` ("which hosts run image X / digest Y") and a
