@@ -90,8 +90,7 @@ func (s *Store) CheckAgentHealth(ctx context.Context, now time.Time) (AgentHealt
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(alertingLock)+1); err != nil {
 		return res, err
 	}
-	staleSQL := fmt.Sprintf(`a.last_seen_at < $1::timestamptz - make_interval(secs => GREATEST(%d * COALESCE(a.push_interval_seconds, %d), %d))`,
-		ActiveIntervals, int(DefaultPushInterval.Seconds()), int(MinActiveWindow.Seconds()))
+	staleSQL := staleAgentSQL("$1::timestamptz")
 	if _, err := tx.Exec(ctx, `
 		CREATE TEMP TABLE agent_health_cur ON COMMIT DROP AS
 		SELECT a.id, a.user_id, a.name, a.last_seen_at,
