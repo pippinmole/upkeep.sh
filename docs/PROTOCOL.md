@@ -401,12 +401,12 @@ the owning pid, which ranges deliberately don't (it would churn on every
 restart). Its `is_public` column is never set: the external scanner it
 was meant for is deferred (DECISIONS.md "Port exposure").
 
-### Docker sections (agent built; server ingest not yet)
+### Docker sections
 
 TASKS.md Phase 1.6; rationale in DECISIONS.md "Docker collection". The
 agent sends these (agent/internal/collector/types_docker.go); the server
-doesn't ingest them yet and ignores the block. Additive within
-`schema_version: 1`, like the breadth sections.
+stores them per migration 0013 (see "Server storage" at the end of this
+section). Additive within `schema_version: 1`, like the breadth sections.
 
 The agent reads the Docker Engine API over the socket mounted into its
 container (`SW_DOCKER_SOCKET`, default `/var/run/docker.sock`; opt-in),
@@ -547,6 +547,39 @@ Local targets only: on remote (SSH) targets every Docker collector is
   The server joins them by `cluster_id` / `node_id`. Ingress-published
   ports exist only in `swarm_services`; on each node the listener is
   owned by `dockerd`.
+
+**Server storage** (migration `0013_docker`, `server/internal/ingest/docker.go`,
+DOMAIN_MODEL.md §4.5 "Docker"). The block is decoded on its own, so a
+malformed one is logged and dropped without failing the push. Each
+section is applied only when its collector is `ok` (an absent member
+then means empty); `error`, `skipped` or missing leaves what is stored
+untouched, and payloads without a `collectors` map never carry Docker
+data. `truncated` (or a server cap) makes a section additive.
+
+| Section | Stored in | Keyed by |
+|---|---|---|
+| `containers` | `host_containers` ranges, kind `containers:docker` | host, container id |
+| `images` | `host_images` ranges, kind `images:docker`; content in `container_images` | host, image id; content by (image id, os, arch, variant) |
+| `engine`, `swarm` | `host_docker` (current state) | host |
+| `networks` | `host_docker.networks` jsonb (current state) | host |
+| `swarm_services` | `swarm_services` ranges + `swarm_clusters` bookkeeping | user, cluster id, service id |
+
+- A partial entry (`inspect_error`) keeps its range open and keeps the
+  inspect-derived fields of the range before it (for containers: ports,
+  networks, network mode, privileged, restart policy, mounts, started
+  at; for images: the platform). Fields sent on a partial entry beyond
+  the list fields are ignored.
+- Image content is keyed by platform as well as id: on the containerd
+  image store the id is the image index digest, shared by every
+  platform. Partial images aren't interned.
+- `swarm_services` is applied only when `docker_engine` is also `ok` and
+  reports `swarm.state: "active"`, `role: "manager"` and a `cluster_id`.
+  A service missing from such a push (not truncated) is closed, whichever
+  manager of the cluster sent it. A locked manager keeps its last known
+  node / cluster / role in `host_docker`.
+- The server re-applies the bind-only rule for mount sources and bounds
+  sizes, but doesn't re-filter label keys (the agent's allowlist is the
+  gate).
 
 ### Other fields
 
@@ -786,5 +819,4 @@ manually; a mismatch should only ever be an additive field.
 - Port-exposure classification (TASKS.md Phase 1.6) — see
   `TODO(phase 1, exposure)` in `handler.go`. Like vulnerability matching,
   it is enqueued per snapshot, not run inline in the request handler.
-- Server ingest of the Docker sections above (the agent sends them).
 - No agent self-update.

@@ -56,6 +56,18 @@ type SnapshotInput struct {
 	// not present here are not diffed.
 	FactSets []hostfacts.Set
 
+	// Docker (migration 0013). Container and image ranges are FactSets
+	// (kinds "containers:docker", "images:docker"); these are the rest,
+	// each nil / empty when its collector wasn't ok.
+	//   DockerImages: content of fully inspected images, interned into
+	//     container_images before the ranges are applied.
+	//   DockerEngine / DockerNetworks: the host_docker row.
+	//   SwarmServices: a manager's services for its cluster.
+	DockerImages   []ContainerImage
+	DockerEngine   *DockerEngineInput
+	DockerNetworks *DockerNetworksInput
+	SwarmServices  *SwarmServicesInput
+
 	// UptimeSeconds: nil when unknown (uptime collector not ok, older agent).
 	UptimeSeconds *int64
 	// Arch is the host's architecture (payload os.arch), "" when unknown.
@@ -85,6 +97,8 @@ type SnapshotResult struct {
 	Host      HostResolution
 	Inventory []InventoryResult
 	Facts     []FactResult
+	// SwarmServices is set when the push carried a manager's services.
+	SwarmServices *FactResult
 	// KernelChanged: this snapshot is the host's newest (by collected_at)
 	// and its kernel_release differs from the previous newest one's
 	// (including unknown <-> known), i.e. the host rebooted into another
@@ -283,12 +297,26 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 		}
 		res.Inventory = append(res.Inventory, r)
 	}
+	// Image content first: host_images references it.
+	if err := internContainerImages(ctx, tx, in.DockerImages); err != nil {
+		return res, err
+	}
 	for _, set := range in.FactSets {
 		r, err := applyFactSet(ctx, tx, in.HostID, snapshotID, in.InventoryAt, set)
 		if err != nil {
 			return res, fmt.Errorf("apply %s: %w", set.Kind, err)
 		}
 		res.Facts = append(res.Facts, r)
+	}
+	if err := applyDockerHost(ctx, tx, in.HostID, snapshotID, in.InventoryAt, in.DockerEngine, in.DockerNetworks); err != nil {
+		return res, err
+	}
+	if in.SwarmServices != nil {
+		r, err := applySwarmServices(ctx, tx, in.HostID, snapshotID, in.InventoryAt, *in.SwarmServices)
+		if err != nil {
+			return res, fmt.Errorf("apply swarm services: %w", err)
+		}
+		res.SwarmServices = &r
 	}
 
 	if in.AfterWrite != nil {

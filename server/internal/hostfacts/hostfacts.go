@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -34,6 +35,17 @@ type Table struct {
 	Name     string
 	ScopeCol string // "" = no scope; the kind covers all of a host's rows
 	Columns  []string
+	// Detail columns (optional; the table then has a detail_hash column)
+	// are the ones a partial row doesn't know: Docker objects whose
+	// inspect failed. They are part of the row's identity through
+	// Row.DetailHash, and a partial row takes them over from the key's
+	// open range instead of overwriting them with NULLs.
+	Detail []string
+	// Live columns (optional; the table then has a live_hash column) are
+	// stored on the range but never hashed into row_hash: a change updates
+	// the open range in place instead of opening a new one (a container's
+	// started_at, a service's running task count).
+	Live []string
 }
 
 var (
@@ -43,6 +55,22 @@ var (
 		Columns: []string{"transport", "proto", "local_addr", "port", "process_name"}}
 	UsersTable = Table{Name: "host_users",
 		Columns: []string{"name", "uid", "gid", "home", "shell", "groups", "login_shell", "admin"}}
+
+	// Docker (migration 0013). Containers and images belong to a host;
+	// SwarmServicesTable's rows belong to a (user, cluster) instead of a
+	// host (store.applySwarmServices).
+	ContainersTable = Table{Name: "host_containers",
+		Columns: []string{"container_id", "name", "image", "image_id", "state",
+			"compose_project", "compose_service", "swarm_stack", "swarm_service_id", "swarm_service_name", "swarm_task_id", "labels"},
+		Detail: []string{"ports", "networks", "network_mode", "privileged", "restart_policy", "mounts"},
+		Live:   []string{"started_at", "inspect_error"}}
+	HostImagesTable = Table{Name: "host_images",
+		Columns: []string{"image_id", "repo_tags", "repo_digests"},
+		Detail:  []string{"os", "arch", "variant"},
+		Live:    []string{"inspect_error"}}
+	SwarmServicesTable = Table{Name: "swarm_services",
+		Columns: []string{"service_id", "name", "image", "mode", "replicas", "swarm_stack", "labels", "ports"},
+		Live:    []string{"running_tasks", "desired_tasks"}}
 )
 
 // Row is one reported item. Key is its natural key within the table
@@ -51,7 +79,20 @@ var (
 type Row struct {
 	Key    string
 	Values []any
-	Hash   string
+	// Detail lines up with Table.Detail; ignored when Partial.
+	Detail []any
+	// Live lines up with Table.Live. On a Partial row a nil value means
+	// unknown: the stored value is kept.
+	Live []any
+	// Partial: the item exists but its detail is unknown (inspect failed).
+	Partial bool
+
+	Hash string
+	// DetailHash is the hash of Detail (tables with Detail columns). A
+	// partial row has "" (unknown) until the store gives it the open
+	// range's (WithDetailHash).
+	DetailHash string
+	LiveHash   string // hash of Live (tables with Live columns)
 }
 
 // Set is the authoritative (or, when Additive, partial) state of one kind
@@ -90,8 +131,24 @@ func NewSet(kind string, table Table, scope string, rows []Row, additive bool) S
 	h := sha256.New()
 	writeFields(h, hashVersion, kind, table.Name, scope)
 	for i := range sorted {
-		sorted[i].Hash = rowHash(table, sorted[i])
-		writeFields(h, sorted[i].Key, sorted[i].Hash)
+		r := &sorted[i]
+		if len(table.Detail) > 0 {
+			r.DetailHash = ""
+			if !r.Partial {
+				r.DetailHash = valuesHash(table.Name+"/detail", r.Key, r.Detail)
+			}
+		}
+		if len(table.Live) > 0 {
+			r.LiveHash = valuesHash(table.Name+"/live", r.Key, r.Live)
+		}
+		r.Hash = rowHash(table, *r)
+		if len(table.Detail) > 0 || len(table.Live) > 0 {
+			// Live values and partialness are part of what the set
+			// reports, so a change to either must not short-circuit.
+			writeFields(h, r.Key, r.Hash, r.LiveHash, strconv.FormatBool(r.Partial))
+		} else {
+			writeFields(h, r.Key, r.Hash)
+		}
 	}
 	set.Hash = hex.EncodeToString(h.Sum(nil))
 	return set
@@ -100,17 +157,45 @@ func NewSet(kind string, table Table, scope string, rows []Row, additive bool) S
 // rowHash is SHA-256 over the key and the JSON encoding of every value.
 // JSON gives each Go value one stable text form (maps are encoded with
 // sorted keys), and distinguishes nil from "" and 0.
+//
+// For tables with Detail columns the detail enters through DetailHash, so
+// a partial row given its predecessor's detail hash hashes exactly like
+// the full row it stands in for.
 func rowHash(t Table, r Row) string {
 	h := sha256.New()
 	writeFields(h, hashVersion, t.Name, r.Key)
-	for _, v := range r.Values {
+	writeValues(h, r.Values)
+	if len(t.Detail) > 0 {
+		writeFields(h, "detail", r.DetailHash)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func valuesHash(domain, key string, values []any) string {
+	h := sha256.New()
+	writeFields(h, hashVersion, domain, key)
+	writeValues(h, values)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func writeValues(h writer, values []any) {
+	for _, v := range values {
 		b, err := json.Marshal(v)
 		if err != nil {
 			b = []byte("!unencodable")
 		}
 		writeFields(h, string(b))
 	}
-	return hex.EncodeToString(h.Sum(nil))
+}
+
+// WithDetailHash returns r (a partial row) standing in for its open
+// range: the given detail hash (the range's detail_hash) and the row hash
+// recomputed with it. The set hash is unaffected: it describes what was
+// reported.
+func WithDetailHash(t Table, r Row, detailHash string) Row {
+	r.DetailHash = detailHash
+	r.Hash = rowHash(t, r)
+	return r
 }
 
 type writer interface{ Write([]byte) (int, error) }
@@ -125,6 +210,43 @@ func writeFields(w writer, fields ...string) {
 	}
 	b.WriteByte('\n')
 	_, _ = w.Write([]byte(b.String()))
+}
+
+// Open is what the store knows about one open range.
+type Open struct {
+	Hash       string
+	DetailHash string // tables with Detail columns
+	LiveHash   string // tables with Live columns
+}
+
+// DiffRanges is Diff for tables with Detail / Live columns. live are rows
+// whose range stays open but whose live values changed (update in place).
+// Partial rows must already carry their open range's detail hash
+// (WithDetailHash).
+func DiffRanges(open map[string]Open, set Set) (add []Row, closeKeys []string, live []Row) {
+	reported := make(map[string]bool, len(set.Rows))
+	for _, r := range set.Rows {
+		reported[r.Key] = true
+		cur, ok := open[r.Key]
+		switch {
+		case !ok:
+			add = append(add, r)
+		case cur.Hash != r.Hash:
+			add = append(add, r)
+			closeKeys = append(closeKeys, r.Key)
+		case len(set.Table.Live) > 0 && cur.LiveHash != r.LiveHash:
+			live = append(live, r)
+		}
+	}
+	if !set.Additive {
+		for k := range open {
+			if !reported[k] {
+				closeKeys = append(closeKeys, k)
+			}
+		}
+	}
+	slices.Sort(closeKeys)
+	return add, closeKeys, live
 }
 
 // Diff compares a host's open ranges for one kind (row_key -> row_hash)

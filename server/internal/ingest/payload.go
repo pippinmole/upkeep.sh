@@ -45,6 +45,9 @@ type SnapshotPayload struct {
 	// Facts is validated separately (hostfacts.ValidateLinuxFacts), so a
 	// malformed block drops the facts, not the push.
 	Facts json.RawMessage `json:"facts,omitempty"`
+	// Docker is decoded separately into Docker (decodeDocker), so a
+	// malformed block drops the Docker sections, not the push.
+	Docker json.RawMessage `json:"docker,omitempty"`
 }
 
 type OSRelease struct {
@@ -106,6 +109,14 @@ const (
 	CollectorLocalUsers         = "local_users"
 	CollectorDeletedLibs        = "deleted_libs"
 	CollectorUnattendedUpgrades = "unattended_upgrades"
+
+	// Docker (PROTOCOL.md "Docker sections"). Each owns one member of the
+	// docker block.
+	CollectorDockerEngine     = "docker_engine" // engine, swarm
+	CollectorDockerContainers = "docker_containers"
+	CollectorDockerImages     = "docker_images"
+	CollectorDockerNetworks   = "docker_networks"
+	CollectorSwarmServices    = "swarm_services"
 )
 
 // Package is one installed package. Source, SourceVersion and Ecosystem
@@ -150,6 +161,108 @@ type User struct {
 	Groups     []string `json:"groups,omitempty"`
 	LoginShell bool     `json:"login_shell"`
 	Admin      bool     `json:"admin"`
+}
+
+// Docker mirrors the agent's collector.Docker (types_docker.go). Only the
+// declared fields are read; anything else in the block is ignored.
+type Docker struct {
+	Engine        *DockerEngine     `json:"engine"`
+	Swarm         *DockerSwarm      `json:"swarm"`
+	Containers    []DockerContainer `json:"containers"`
+	Images        []DockerImage     `json:"images"`
+	Networks      []DockerNetwork   `json:"networks"`
+	SwarmServices []SwarmService    `json:"swarm_services"`
+}
+
+type DockerEngine struct {
+	Version       string `json:"version"`
+	APIVersion    string `json:"api_version"`
+	StorageDriver string `json:"storage_driver"`
+	ImageStore    string `json:"image_store"`
+	Rootless      bool   `json:"rootless"`
+}
+
+type DockerSwarm struct {
+	State     string `json:"state"` // "active" | "locked"
+	NodeID    string `json:"node_id"`
+	ClusterID string `json:"cluster_id"` // managers only
+	Role      string `json:"role"`       // "manager" | "worker"
+}
+
+type DockerContainer struct {
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Image         string            `json:"image"`
+	ImageID       string            `json:"image_id"`
+	State         string            `json:"state"`
+	StartedAt     string            `json:"started_at"`
+	Labels        map[string]string `json:"labels"`
+	Ports         []DockerPort      `json:"ports"`
+	Networks      []string          `json:"networks"`
+	NetworkMode   string            `json:"network_mode"`
+	Privileged    *bool             `json:"privileged"`
+	RestartPolicy string            `json:"restart_policy"`
+	Mounts        []DockerMount     `json:"mounts"`
+	// InspectError marks a partial entry: only ID, Name, Image, ImageID,
+	// State and Labels are known.
+	InspectError string `json:"inspect_error"`
+}
+
+type DockerPort struct {
+	HostIP        string `json:"host_ip"`
+	HostPort      int    `json:"host_port"`
+	ContainerPort int    `json:"container_port"`
+	Proto         string `json:"proto"`
+}
+
+type DockerMount struct {
+	Type        string `json:"type"`
+	Source      string `json:"source"` // bind mounts only
+	Destination string `json:"destination"`
+	RW          bool   `json:"rw"`
+}
+
+type DockerImage struct {
+	ID          string            `json:"id"`
+	RepoTags    []string          `json:"repo_tags"`
+	RepoDigests []string          `json:"repo_digests"`
+	Created     string            `json:"created"`
+	OS          string            `json:"os"`
+	Arch        string            `json:"arch"`
+	Variant     string            `json:"variant"`
+	Layers      []string          `json:"layers"`
+	Labels      map[string]string `json:"labels"`
+	// InspectError marks a partial entry: OS, Arch, Variant and Layers are
+	// unknown.
+	InspectError string `json:"inspect_error"`
+}
+
+type DockerNetwork struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Driver   string   `json:"driver"`
+	Scope    string   `json:"scope"`
+	Internal bool     `json:"internal"`
+	Subnets  []string `json:"subnets"`
+}
+
+type SwarmService struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Image        string            `json:"image"`
+	Mode         string            `json:"mode"`
+	Replicas     *int              `json:"replicas"`
+	RunningTasks *int              `json:"running_tasks"`
+	DesiredTasks *int              `json:"desired_tasks"`
+	Labels       map[string]string `json:"labels"`
+	Ports        []SwarmPort       `json:"ports"`
+}
+
+type SwarmPort struct {
+	Published   int    `json:"published"`
+	Target      int    `json:"target"`
+	Proto       string `json:"proto"`
+	PublishMode string `json:"publish_mode"`
 }
 
 // MinSupportedSchemaVersion is the oldest agent payload shape this server

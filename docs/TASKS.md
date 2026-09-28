@@ -370,7 +370,7 @@ Decided 2026-09-27 (DECISIONS.md "Port exposure" and "Docker
 collection"). Generic Docker Engine support, including Swarm (managers
 and workers), rootless Docker and Podman's Docker-compatible API; no
 per-platform special-casing (Dokploy, Coolify…). Planned wire shape:
-PROTOCOL.md "Docker sections (planned)". Order: the collector, then
+PROTOCOL.md "Docker sections". Order: the collector, then
 storage/UI, then firewall + exposure on top.
 - [x] Agent: Docker Engine API access through Docker's official Go client
       (`github.com/moby/moby/client`; decided 2026-09-28,
@@ -452,8 +452,9 @@ storage/UI, then firewall + exposure on top.
       it holds the socket); or masking known sockets (`docker.sock`,
       `containerd/*.sock`, `podman/*.sock`, `/run/user/*/docker.sock`),
       a fragile denylist. Verify on a real Ubuntu host.
-- [ ] Migration + ingest on the validity-range pattern (like
-      `host_services`): `container_images` interned fleet-wide by image
+- [x] Migration + ingest on the validity-range pattern (like
+      `host_services`; done 2026-09-28, migration 0013, DOMAIN_MODEL.md
+      §4.5 "Docker"): `container_images` interned fleet-wide by image
       ID (content-addressed: OS/arch, created, layer diff IDs, OCI
       labels); `host_images` (image present on a host, with that host's
       repo tags + repo digests); `host_containers` (keyed by container

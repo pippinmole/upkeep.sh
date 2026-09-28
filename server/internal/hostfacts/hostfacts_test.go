@@ -139,3 +139,45 @@ func TestClip(t *testing.T) {
 		}
 	}
 }
+
+func ctrRow(state string, partial bool, started any) Row {
+	r := Row{Key: "c1",
+		Values: []any{"c1", "db", "postgres", "sha256:x", state, nil, nil, nil, nil, nil, nil, map[string]string{}},
+		Live:   []any{started, nil}, Partial: partial}
+	if partial {
+		r.Live[1] = "inspect failed"
+	} else {
+		r.Detail = []any{[]string{}, []string{"n"}, "bridge", true, "always", []string{}}
+	}
+	return r
+}
+
+// Detail enters the row hash through DetailHash; a partial row given its
+// predecessor's detail hash hashes like the full row. Live values never
+// change the row hash but do change the set hash.
+func TestDetailAndLiveHashes(t *testing.T) {
+	full := NewSet("containers:docker", ContainersTable, "", []Row{ctrRow("running", false, "t1")}, false)
+	restarted := NewSet("containers:docker", ContainersTable, "", []Row{ctrRow("running", false, "t2")}, false)
+	if full.Rows[0].Hash != restarted.Rows[0].Hash || full.Hash == restarted.Hash {
+		t.Error("a live change must keep the row hash and change the set hash")
+	}
+	partial := NewSet("containers:docker", ContainersTable, "", []Row{ctrRow("running", true, nil)}, false)
+	p := partial.Rows[0]
+	if p.DetailHash != "" || p.Hash == full.Rows[0].Hash {
+		t.Errorf("partial without predecessor: detail hash %q", p.DetailHash)
+	}
+	merged := WithDetailHash(ContainersTable, p, full.Rows[0].DetailHash)
+	if merged.Hash != full.Rows[0].Hash {
+		t.Error("partial with the predecessor's detail hash must match the full row")
+	}
+	exited := WithDetailHash(ContainersTable, NewSet("containers:docker", ContainersTable, "", []Row{ctrRow("exited", true, nil)}, false).Rows[0], full.Rows[0].DetailHash)
+	if exited.Hash == full.Rows[0].Hash {
+		t.Error("a state change on a partial row must change the row hash")
+	}
+
+	open := map[string]Open{"c1": {Hash: full.Rows[0].Hash, DetailHash: full.Rows[0].DetailHash, LiveHash: full.Rows[0].LiveHash}}
+	add, closeKeys, live := DiffRanges(open, restarted)
+	if len(add) != 0 || len(closeKeys) != 0 || len(live) != 1 {
+		t.Errorf("restart diff: add=%d close=%v live=%d", len(add), closeKeys, len(live))
+	}
+}

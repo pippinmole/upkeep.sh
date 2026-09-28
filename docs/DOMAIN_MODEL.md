@@ -1227,6 +1227,44 @@ validated against `hostfacts.LinuxFacts`; `snapshots.uptime_seconds` and
 open ranges (Services / Listeners / Users host tabs) and the newest
 snapshot's facts (Overview), all scoped by `hosts.user_id`.
 
+**Docker (`migrations/0013_docker.up.sql`, P1.6).** Same range pattern,
+with two optional column groups in `hostfacts.Table`: *detail* columns
+(filled by an inspect; hashed through `detail_hash`) and *live* columns
+(stored on the range, updated in place, never in `row_hash`).
+
+- `host_containers` (kind `containers:docker`, `row_key` = container id):
+  name, image ref, `image_id`, `state`, compose project/service and Swarm
+  stack/service/task pulled out of the labels, `labels`; detail `ports`,
+  `networks`, `network_mode`, `privileged`, `restart_policy`, `mounts`;
+  live `started_at`, `inspect_error`. A state change opens a new range,
+  as for `host_services`; a restart ending in the same state only moves
+  `started_at`. A partial entry (inspect failed) takes the previous
+  range's `detail_hash`, so it doesn't change the range, and a new range
+  it opens (e.g. running → exited) copies the detail and `started_at`
+  from the one it replaces. NULL detail = never inspected.
+- `host_images` (kind `images:docker`, `row_key` = image id): repo tags
+  and digests (hashed), detail `os` / `arch` / `variant`, live
+  `inspect_error`. `container_images` holds the content fleet-wide,
+  keyed by `(image_id, os, arch, variant)` because containerd-store ids
+  are index digests shared across platforms; immutable once written,
+  only from full inspects. Join `USING (image_id, os, arch, variant)`.
+- `host_docker`: one current row per host: engine version, API version,
+  storage driver, image store, rootless, Swarm state / node / cluster /
+  role (`engine_collected_at`), and the networks list as jsonb
+  (`networks_collected_at`); each part written only from a newer push
+  whose collector was ok. Networks aren't ranges: nothing keys off their
+  history yet, and exposure needs container ports and network mode.
+- `swarm_services` ranges belong to `(user_id, cluster_id)`, not a host,
+  with `swarm_clusters` as their bookkeeping (set hash, confirmed_at,
+  last manager). Any manager's ok push diffs the whole cluster; workers'
+  never do (they aren't told the cluster id). The spec is hashed (an
+  image update opens a range); `running_tasks` / `desired_tasks` are live.
+  Clusters are per user so one user's agent can't write another's.
+
+Current rows are `removed_at IS NULL`. Why Docker data is missing comes
+from the newest snapshot's `collector_status` (`docker_*` reasons,
+PROTOCOL.md "Docker sections"); stored rows are left as last known.
+
 ### 4.6 Target schema sketch (identity and topology)
 
 ```sql

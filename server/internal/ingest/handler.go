@@ -183,6 +183,9 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 			log.Printf("host %s: %s changed (+%d -%d ranges)", hostID, f.Kind, f.Opened, f.Closed)
 		}
 	}
+	if sw := res.SwarmServices; sw != nil && sw.Opened+sw.Closed > 0 {
+		log.Printf("host %s: swarm services changed (+%d -%d ranges)", hostID, sw.Opened, sw.Closed)
+	}
 	if res.KernelChanged {
 		log.Printf("host %s: running kernel now %q", hostID, in.KernelRelease)
 	}
@@ -344,6 +347,16 @@ func buildSnapshotInput(payload SnapshotPayload, agentID string, collectedAt, no
 		log.Printf("agent %s: facts block dropped: %v", agentID, err)
 	}
 	in.Facts = facts
+
+	dp := planDocker(payload)
+	in.FactSets = append(in.FactSets, dp.sets...)
+	in.DockerImages = dp.images
+	in.DockerEngine = dp.engine
+	in.DockerNetworks = dp.networks
+	in.SwarmServices = dp.swarm
+	for _, n := range dp.notes {
+		log.Printf("agent %s: %s", agentID, n)
+	}
 	return in
 }
 
