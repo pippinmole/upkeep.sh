@@ -26,7 +26,7 @@ func SchemaJSON() []byte {
 	}{
 		Comment:    "Generated from server/internal/notify/notifiers: go test ./internal/notify/notifiers -update. Do not edit.",
 		EventTypes: notify.EventTypes,
-		Types:      Registry(&netguard.Guard{}).Specs(),
+		Types:      Registry(&netguard.Guard{}, nil).Specs(),
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
@@ -54,7 +54,7 @@ func TestSchemaFileIsCurrent(t *testing.T) {
 }
 
 func TestSpecsAreWellFormed(t *testing.T) {
-	for _, s := range Registry(&netguard.Guard{}).Specs() {
+	for _, s := range Registry(&netguard.Guard{}, nil).Specs() {
 		if s.Label == "" || len(s.Fields) == 0 {
 			t.Errorf("%s: missing label or fields", s.Type)
 		}

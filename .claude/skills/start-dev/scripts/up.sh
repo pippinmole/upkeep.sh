@@ -46,6 +46,17 @@ if [ ! -f .env.local ]; then
   echo "    Generated a fresh AUTH_SECRET."
 fi
 
+# Report emails: the dev worker (docker-compose.dev.yml) renders them through
+# this dev server with a fixed dev-only secret. A .env.local made before
+# reports existed lacks the pair, so add the values from .env.example.
+if ! grep -q '^SW_INTERNAL_RENDER_SECRET=' .env.local; then
+  echo "==> Adding the report render settings (SW_INTERNAL_RENDER_SECRET, SW_WEB_INTERNAL_URL) to web/.env.local..."
+  {
+    echo ""
+    grep -E '^SW_(INTERNAL_RENDER_SECRET|WEB_INTERNAL_URL)=' .env.example
+  } >> .env.local
+fi
+
 echo "==> Installing web dependencies (bun install, only reinstalls if the lockfile changed)..."
 bun install
 

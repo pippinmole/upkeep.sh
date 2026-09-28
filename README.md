@@ -13,6 +13,11 @@ Qualys — just the handful of things on your servers that actually matter:
    old library versions after an upgrade.
 4. **Docker inventory** — containers, images and Swarm services per host;
    *(Phase 2)* vulnerabilities in those images.
+5. **Scheduled reports** — a weekly or monthly patch list for the whole
+   estate ("patch these 3 packages now, these 2 images this week"), with
+   what changed since the last one, sent to your notification channels
+   (email, webhook, ntfy). Alerts tell you when something changes;
+   reports tell you what's still open.
 
 **Status**: early scaffold. The agent→ingest pipeline (enrollment, fact
 collection, snapshot storage) and the dashboard's auth/host-list flow
@@ -73,8 +78,13 @@ docker compose up --build -d
 `docker-compose.yml` is the production stack (Postgres + migrate + api +
 web), meant to run once on your own box via Dokploy. Required vars (see
 `.env.example`): `POSTGRES_PASSWORD`, `PUBLIC_API_URL`, `PUBLIC_WEB_URL`,
-`AUTH_SECRET` (generate with `openssl rand -base64 32`). Point Dokploy's
-domains at the `web` service (port 3000) and `api` service (port 8080).
+`AUTH_SECRET` (generate with `openssl rand -base64 32`), and
+`SW_INTERNAL_RENDER_SECRET` (the same way), which the worker uses to have
+`web` render report emails. The worker reaches `web` over the compose
+network at `SW_WEB_INTERNAL_URL` (default `http://web:3000`); change it
+only if you rename the service, and never to the public URL. Point
+Dokploy's domains at the `web` service (port 3000) and `api` service
+(port 8080).
 
 Then deploy `agent/docker-compose.example.yml` on each host you want
 monitored, with `SW_SERVER_URL` set to your platform's public API URL.

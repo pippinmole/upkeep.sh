@@ -754,14 +754,18 @@ func utf8RuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
 // PruneResult reports an alerting cleanup.
 type PruneResult struct {
-	Events, Notifications, Dedup int64
+	Events, Notifications, Dedup, Reports int64
 }
 
 // PruneAlerting deletes processed events older than eventAge (unless a
 // digest still holds them), notifications (with their deliveries and
-// attempts) older than logAge, and dedup marks older than the longest
-// possible window.
-func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logAge time.Duration) (PruneResult, error) {
+// attempts) older than logAge, dedup marks older than the longest
+// possible window, and reports older than reportAge except each
+// schedule's latest (the next run compares against it, and the dashboard
+// keeps something to show for a schedule that stopped running). A pruned
+// report's notifications.report_id and the next report's
+// previous_report_id are set NULL by their foreign keys.
+func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logAge, reportAge time.Duration) (PruneResult, error) {
 	var res PruneResult
 	tag, err := s.Pool.Exec(ctx, `
 		DELETE FROM alert_events e WHERE e.processed_at < $1
@@ -779,5 +783,15 @@ func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logA
 		return res, err
 	}
 	res.Dedup = tag.RowsAffected()
+	// "Latest" is LatestReport's order (generated_at, then id), so exactly
+	// one report per schedule survives however old it is.
+	if tag, err = s.Pool.Exec(ctx, `
+		DELETE FROM reports r WHERE r.generated_at < $1
+		  AND EXISTS (SELECT 1 FROM reports n WHERE n.schedule_id = r.schedule_id
+		              AND (n.generated_at, n.id) > (r.generated_at, r.id)) -- reports_schedule_idx
+	`, now.Add(-reportAge)); err != nil {
+		return res, err
+	}
+	res.Reports = tag.RowsAffected()
 	return res, nil
 }

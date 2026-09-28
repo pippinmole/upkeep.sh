@@ -10,3 +10,7 @@ web/src/lib/notifier-types.json text eol=lf
 # Agent fixtures mimic Linux files (/proc, /etc) and are parsed line by line,
 # so a CRLF checkout on Windows leaves a stray \r in parsed values.
 agent/**/testdata/** text eol=lf
+
+# Golden emails (internal/notify/email) are compared byte for byte, CRLF
+# line endings included, so git must never convert them.
+server/internal/notify/email/testdata/*.eml -text

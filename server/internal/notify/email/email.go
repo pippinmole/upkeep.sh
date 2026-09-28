@@ -1,9 +1,10 @@
-// Package email is the "email" channel type: a plain-text email sent
-// through the user's own SMTP server (settings are per channel; there is
-// no platform-wide SMTP config), rendered for humans like ntfy: a subject
-// line naming what happened, a short body and a link to the dashboard.
-// Format, security modes and error handling: docs/ARCHITECTURE.md
-// "Email (SMTP) channel".
+// Package email is the "email" channel type: an email sent through the
+// user's own SMTP server (settings are per channel; there is no
+// platform-wide SMTP config). Alerts, digests and tests are plain text
+// rendered for humans like ntfy: a subject line naming what happened, a
+// short body and a link to the dashboard. Reports are HTML with a
+// plain-text alternative, rendered by web (render.go). Format, security
+// modes and error handling: docs/ARCHITECTURE.md "Email (SMTP) channel".
 //
 // Connections go through netguard.Guard.DialSMTP (ports 25, 465, 587, 2525;
 // public addresses only, checked at dial time) and the stdlib net/smtp
@@ -23,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"mime/quotedprintable"
 	"net"
@@ -33,6 +35,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -83,7 +86,14 @@ type Notifier struct {
 	Guard *netguard.Guard
 	// Now is the Date header clock (tests); nil = time.Now.
 	Now func() time.Time
+	// Reports renders report emails (HTML + text) through web; nil = not
+	// configured, report emails are plain text.
+	Reports *ReportRenderer
 }
+
+// plainReportsOnce logs, once per process, that report emails are plain
+// text because the renderer isn't configured.
+var plainReportsOnce sync.Once
 
 func New(g *netguard.Guard) *Notifier { return &Notifier{Guard: g} }
 
@@ -310,10 +320,8 @@ func Render(n notify.Notification) Message {
 		b.WriteString("This is a test email from upkeep.sh.\n\n" +
 			"Your email channel works: alerts matching your rules will be delivered to this address.")
 	case n.Kind == notify.KindReport:
-		// Plain-text stand-in for reports, so the pipeline works end to
-		// end. To be replaced by the HTML report from web's internal render
-		// route (multipart/alternative; docs/tasks/phase-1-7-reports.md,
-		// React Email item).
+		// The plain-text report, used only when the worker has no
+		// ReportRenderer; otherwise web renders it (Notifier.Send).
 		subject = n.Summary
 		if n.Report != nil && n.Report.Snapshot != nil {
 			subject = reports.Title(*n.Report.Snapshot)
@@ -379,9 +387,24 @@ func header(b *strings.Builder, name, value string) error {
 }
 
 // buildMessage renders the RFC 5322 message: headers, then the body as
-// quoted-printable UTF-8 text.
-func (n *Notifier) buildMessage(s settings, note notify.Notification) ([]byte, error) {
-	m := Render(note)
+// quoted-printable UTF-8 text. With rep (a report rendered by web) it is
+// multipart/alternative instead: the text part, then the HTML part.
+func (n *Notifier) buildMessage(s settings, note notify.Notification, rep *RenderedReport) ([]byte, error) {
+	var subject, contentType, body, boundary string
+	var err error
+	if rep != nil {
+		subject = rep.Subject // already prefixed and sanitized (ReportRenderer.Render)
+		if body, boundary, err = multipartBody(rep.Text, rep.HTML); err != nil {
+			return nil, err
+		}
+		contentType = mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": boundary})
+	} else {
+		m := Render(note)
+		subject, contentType = SubjectPrefix+m.Subject, "text/plain; charset=utf-8"
+		if body, err = qpEncode(m.Body); err != nil {
+			return nil, err
+		}
+	}
 	now := time.Now
 	if n.Now != nil {
 		now = n.Now
@@ -389,9 +412,7 @@ func (n *Notifier) buildMessage(s settings, note notify.Notification) ([]byte, e
 	domain := s.from[strings.LastIndexByte(s.from, '@')+1:]
 	id := note.DeliveryID
 	if !tokenRE.MatchString(id) {
-		var r [16]byte
-		_, _ = rand.Read(r[:])
-		id = hex.EncodeToString(r[:])
+		id = randomHex(16)
 	}
 
 	var h strings.Builder
@@ -399,18 +420,20 @@ func (n *Notifier) buildMessage(s settings, note notify.Notification) ([]byte, e
 	for _, kv := range [][2]string{
 		{"From", from},
 		{"To", strings.Join(s.to, ", ")},
-		{"Subject", mime.QEncoding.Encode("utf-8", SubjectPrefix+m.Subject)},
+		{"Subject", mime.QEncoding.Encode("utf-8", subject)},
 		{"Date", now().Format(time.RFC1123Z)},
 		{"Message-ID", "<" + id + "@" + domain + ">"},
 		{"MIME-Version", "1.0"},
-		{"Content-Type", "text/plain; charset=utf-8"},
-		{"Content-Transfer-Encoding", "quoted-printable"},
-		{"Auto-Submitted", "auto-generated"},
+		{"Content-Type", contentType},
 	} {
 		if err := header(&h, kv[0], kv[1]); err != nil {
 			return nil, err
 		}
 	}
+	if rep == nil {
+		_ = header(&h, "Content-Transfer-Encoding", "quoted-printable")
+	}
+	_ = header(&h, "Auto-Submitted", "auto-generated")
 	if tokenRE.MatchString(note.Kind) {
 		_ = header(&h, "X-Upkeep-Kind", note.Kind)
 	}
@@ -418,16 +441,53 @@ func (n *Notifier) buildMessage(s settings, note notify.Notification) ([]byte, e
 		_ = header(&h, "X-Upkeep-Delivery", note.DeliveryID)
 	}
 	h.WriteString("\r\n")
+	return []byte(h.String() + body), nil
+}
 
-	var body strings.Builder
-	qp := quotedprintable.NewWriter(&body)
-	if _, err := io.WriteString(qp, strings.ToValidUTF8(m.Body, "�")); err != nil {
-		return nil, err
+// qpEncode is text as quoted-printable UTF-8 with CRLF line breaks.
+func qpEncode(text string) (string, error) {
+	var b strings.Builder
+	qp := quotedprintable.NewWriter(&b)
+	if _, err := io.WriteString(qp, strings.ToValidUTF8(text, "�")); err != nil {
+		return "", err
 	}
 	if err := qp.Close(); err != nil {
-		return nil, err
+		return "", err
 	}
-	return []byte(h.String() + body.String()), nil
+	return b.String(), nil
+}
+
+func randomHex(n int) string {
+	r := make([]byte, n)
+	_, _ = rand.Read(r)
+	return hex.EncodeToString(r)
+}
+
+// multipartBody is a multipart/alternative body (text/plain, then
+// text/html, both quoted-printable UTF-8) and its boundary. The
+// boundary is random and starts with "=_", which quoted-printable output
+// can never contain ("=" is always followed by hex digits or a line
+// break); it is still checked against both parts.
+func multipartBody(text, html string) (body, boundary string, err error) {
+	var parts [2]string
+	for i, p := range []string{text, html} {
+		if parts[i], err = qpEncode(p); err != nil {
+			return "", "", err
+		}
+	}
+	boundary = "=_upkeep_" + randomHex(16)
+	if strings.Contains(parts[0], boundary) || strings.Contains(parts[1], boundary) {
+		return "", "", errors.New("email: MIME boundary collision") // practically impossible
+	}
+	var w strings.Builder
+	for i, ct := range []string{"text/plain; charset=utf-8", "text/html; charset=utf-8"} {
+		w.WriteString("--" + boundary + "\r\n" +
+			"Content-Type: " + ct + "\r\n" +
+			"Content-Transfer-Encoding: quoted-printable\r\n\r\n" +
+			parts[i] + "\r\n")
+	}
+	w.WriteString("--" + boundary + "--\r\n")
+	return w.String(), boundary, nil
 }
 
 // ---- Delivery ----
@@ -453,7 +513,19 @@ func (n *Notifier) Send(ctx context.Context, cfg notify.Config, note notify.Noti
 	if err != nil {
 		return res, notify.Permanent(err)
 	}
-	msg, err := n.buildMessage(s, note)
+	var rep *RenderedReport
+	if note.Kind == notify.KindReport && note.Report != nil && note.Report.Snapshot != nil {
+		if n.Reports == nil {
+			plainReportsOnce.Do(func() { log.Printf("email: %v", errRenderNotConfigured) })
+		} else {
+			r, err := n.Reports.Render(ctx, note.Report.Snapshot, note.Report.URL)
+			if err != nil {
+				return res, fmt.Errorf("email: %w", err) // retried, never permanent
+			}
+			rep = &r
+		}
+	}
+	msg, err := n.buildMessage(s, note, rep)
 	if err != nil {
 		return res, notify.Permanent(err)
 	}

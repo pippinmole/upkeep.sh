@@ -9,6 +9,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -300,6 +301,69 @@ func TestReportJobs(t *testing.T) {
 	}
 	if status != store.DeliveryFailed || lastErr != "report was deleted (its schedule was deleted)" || len(fake.all()) != 3 {
 		t.Fatalf("deleted report delivery: %s / %s (%d sent)", status, lastErr, len(fake.all()))
+	}
+}
+
+// alert_prune keeps reports for a year, and each schedule's latest one
+// however old it is. The prune is global, so only rows older than a year
+// are made here: nothing a live dev database would miss.
+func TestPruneReports(t *testing.T) {
+	f := newAlertFixture(t)
+	ctx := context.Background()
+	now := time.Now()
+	day := 24 * time.Hour
+	// report inserts a report generated age ago, compared with prev.
+	report := func(scheduleID string, age time.Duration, prev *string) string {
+		t.Helper()
+		at := now.Add(-age)
+		var id string
+		if err := f.s.Pool.QueryRow(ctx, `
+			INSERT INTO reports (schedule_id, user_id, generated_at, period_start, period_end, ranking_version, snapshot, previous_report_id, trigger)
+			VALUES ($1, $2, $3, $3, $3, 1, '{}', $4, 'scheduled') RETURNING id
+		`, scheduleID, f.userID, at, prev).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	stopped := f.schedule("stopped", "Europe/London", nil) // last ran over a year ago
+	oldest := report(stopped, 500*day, nil)
+	lastOfStopped := report(stopped, 400*day, &oldest)
+	running := f.schedule("running", "Europe/London", nil)
+	expired := report(running, 370*day, nil)
+	recent := report(running, 300*day, &expired)
+	latest := report(running, 7*day, &recent)
+	// A delivery-log row pointing at a report that gets pruned (not
+	// possible with the real retentions, 90 days vs a year, but the FK
+	// must still leave the log row alone).
+	var nid string
+	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO notifications (user_id, kind, report_id) VALUES ($1, 'report', $2) RETURNING id`,
+		f.userID, expired).Scan(&nid); err != nil {
+		t.Fatal(err)
+	}
+
+	w := &AlertPruneWorker{Store: f.s}
+	if err := w.Work(ctx, &river.Job[AlertPruneArgs]{JobRow: &rivertype.JobRow{}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var ids []string
+	for _, r := range append(f.reports(stopped), f.reports(running)...) {
+		ids = append(ids, r.id)
+	}
+	if want := []string{lastOfStopped, recent, latest}; fmt.Sprint(ids) != fmt.Sprint(want) {
+		t.Fatalf("reports after prune: %v, want %v (oldest %s, expired %s)", ids, want, oldest, expired)
+	}
+	if got := f.reports(stopped)[0].prev; got != nil {
+		t.Fatalf("kept report still points at pruned previous %s", *got)
+	}
+	if got := f.reports(running)[0].prev; got != nil {
+		t.Fatalf("kept report still points at pruned previous %s", *got)
+	}
+	if got := f.reports(running)[1].prev; got == nil || *got != recent {
+		t.Fatalf("latest report's previous: %v, want %s", got, recent)
+	}
+	if n := f.count(`SELECT count(*) FROM notifications WHERE id = $1 AND report_id IS NULL`, nid); n != 1 {
+		t.Fatal("notification of a pruned report: want kept with report_id NULL")
 	}
 }
 

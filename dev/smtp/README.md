@@ -63,6 +63,22 @@ authentication" is on.
 `host.docker.internal` is how a Docker Desktop container reaches ports
 published on your machine, so this works whichever stack you start first.
 
+## Report emails
+
+To see a scheduled report as an email: in **Settings → Notification
+settings → Reports**, add a schedule that sends to this channel and click
+**Send now**. The message appears at http://localhost:8025; Mailpit's
+HTML and Text tabs show the two parts.
+
+The worker has the HTML rendered by the Next.js dev server
+(`http://host.docker.internal:3000`, see `docker-compose.dev.yml`), so
+`bun run dev` must be running, and `web/.env.local` needs the
+`SW_INTERNAL_RENDER_SECRET` and `SW_WEB_INTERNAL_URL` lines from
+`web/.env.example` (the start-dev skill's `up.sh` adds them; restart
+`bun run dev` after adding them by hand). Otherwise no report email
+arrives and the delivery log shows the render error. To iterate on the template itself, `bun run email` in `web/`
+previews it without sending anything.
+
 ## Troubleshooting
 
 - **"... is a loopback/private address: destination not allowed"**: the worker
