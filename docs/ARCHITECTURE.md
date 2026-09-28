@@ -85,7 +85,7 @@ for the reasoning.
 | `users` | Next.js (signup) |
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
 | `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Notification settings: channels) |
-| `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Settings → Notification settings: reports); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes, so the worker recomputes it |
+| `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Settings → Notification settings: reports); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes or a disabled schedule is enabled, so the worker recomputes it |
 | `reports`, `report_schedules.next_run_at` / `last_run_at` | Go (worker: `report_due`), including "Send now": like "Send test", Next.js only inserts the River job and the worker builds, stores and delivers the report |
 
 Both sides **read** any table directly from Postgres. There is no caching

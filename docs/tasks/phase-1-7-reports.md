@@ -51,13 +51,16 @@ delivery, then the email template, then the dashboard.
       changes to hosts added or archived since the previous report. (Done 2026-09-28, PR #12:
       `reports.Compare`; on a ranking-version change only total open,
       opened, resolved and stale agents are compared.)
-- [ ] Worker jobs: `report_due` (periodic, 1m; advisory-locked; builds,
+- [x] Worker jobs: `report_due` (periodic, 1m; advisory-locked; builds,
       stores, advances `next_run_at` in the schedule's timezone,
       including DST changes; inserts a `report` notification + one
       delivery per channel + `alert_deliver` jobs in the same
       transaction). A missed run (worker down) runs once when it comes
       back, not once per missed period. Integration test in
       `jobs/` with a fake channel, like `alerting_integration_test.go`.
+      (Done 2026-09-28, PR #15: `jobs/reports.go`, `store/reportruns.go`,
+      `reports.NextRun`; also `report_send_now` for "Send now";
+      `TestReportJobs`.)
 - [ ] `report` notification kind per channel:
       - **Webhook**: the full snapshot JSON, documented in WEBHOOKS.md
         with an example.
@@ -65,6 +68,9 @@ delivery, then the email template, then the dashboard.
         reporting"), headline numbers in the body and `click` to the
         report page. Priority 3; 4 when there are KEV actions.
       - **Email**: HTML + text from the render endpoint (next item).
+
+      (Webhook and ntfy done 2026-09-28, PR #15; email sends a plain-text
+      stand-in until the HTML part lands.)
 - [ ] React Email: add `react-email` to `web/` at an **exact** version
       (no `^`), the latest on npm at install time (6.11.0 on
       2026-09-28; `@react-email/components` is deprecated). Report
@@ -83,7 +89,7 @@ delivery, then the email template, then the dashboard.
       2026-09-28, PR #13: react-email 6.11.0, `src/emails/report.tsx`,
       `POST /api/internal/render/report`, `bun run email`. Open: the
       email channel's HTML part.)
-- [ ] Dashboard, **Settings → Notification settings**: a Reports
+- [x] Dashboard, **Settings → Notification settings**: a Reports
       section listing schedules (name, cadence, channels, next run, last
       run). Create/edit dialog: name, weekly/monthly, day, hour,
       timezone (defaults to the browser's), channels. A "Send now" button
@@ -92,10 +98,14 @@ delivery, then the email template, then the dashboard.
       time). No "Preview" (decided 2026-09-28, for simplicity): the
       builder is Go, so a preview would need a preview job or a worker
       HTTP endpoint. To see a report, send it now and open it from the
-      past reports list.
-- [ ] Dashboard: past reports, meaning a list per schedule and a report
+      past reports list. (Done 2026-09-28, PR #16; enabling a disabled
+      schedule also resets `next_run_at`, so it doesn't fire at once.)
+- [x] Dashboard: past reports, meaning a list per schedule and a report
       page showing a stored snapshot (the link target of emails and
-      ntfy). Deliveries show in the existing delivery log.
+      ntfy). Deliveries show in the existing delivery log. (Done
+      2026-09-28, PR #16: `/dashboard/reports/[id]`,
+      `/dashboard/settings/notifications/reports/[scheduleId]`, delivery
+      log `?notification=` filter.)
 - [ ] Retention: prune `reports` older than a year (keep the latest
       per schedule regardless), in `alert_prune`.
 - [ ] Docs: ARCHITECTURE.md "Reports" section (flow, ownership rows,
