@@ -314,6 +314,42 @@ incremental runs) and keeps only affected entries whose ecosystem maps to
 a supported release. `Ubuntu:Pro:<ver>` entries map to the same release
 with `channel = 'ubuntu-pro'`.
 
+**As built (P2a, Alpine, migration 0016).** `feeds.OSVEcosystems` is
+`Debian`, `Ubuntu`, `Alpine`; each top-level directory maps to one
+distro (`osv.DistroFor`), and the supported-release fingerprint that
+forces a full import is per distro, so enabling an Alpine branch doesn't
+reload Ubuntu. Checked 2026-09-28: `Alpine/all.zip` (~4 MB, 4,679
+records) and `Alpine/modified_id.csv` are current; the per-release
+`Alpine:v3.20/all.zip` is stale since 2024-10 like Debian's, and
+`Alpine:v3.22`+ have no per-release directory at all. Records:
+
+- Ids are `ALPINE-CVE-<cve>`, the CVE only in `upstream` (no `aliases`).
+  They are per-CVE records like `DEBIAN-CVE-*`: `vuln_key` is the CVE,
+  the matcher's per-CVE precedence applies, and their `CVSS_V3` vector
+  feeds `cves` (of 4,679 records, 153 carry only `CVSS_V4`, which `cves`
+  doesn't store, and 48 no score; the same CVE may still get a v3 score
+  from a Debian/Ubuntu record).
+- `affected[].package` is the apk **origin** (`pkg:apk/alpine/openssl?arch=source`)
+  per branch, ecosystem `Alpine:v3.22` → (`alpine`, `3.22`). Alpine has
+  no codenames, so `distro_releases.codename` = `version` = the branch,
+  which is also what `purl.ReleaseFor` interns image packages under.
+- Ranges are `ECOSYSTEM` with `introduced` (often an upstream version
+  without `-rN`, e.g. `3.0.0`, which apk orders below `3.0.0-r0`) and
+  `fixed`. There is **no unfixed tracking**: Alpine's secdb lists fixes
+  only, so every row is `fixed`. A few ranges list several `fixed`
+  events after one `introduced`; the first (lowest) closes the range.
+- secdb's `fixed: "0"` ("this branch was never affected") becomes
+  `status = 'not_affected'`. On 2026-09-28 every such record in a
+  supported branch was also withdrawn.
+- **No distro severity**: records carry CVSS only, so
+  `distro_severity` is NULL and ranking falls back to KEV/EPSS/CVSS, as
+  for an unknown priority.
+
+Live first sync (3.21-3.24 supported): 3,480 advisories (62 withdrawn,
+all CVE-keyed), 12,940 affected rows: 3.21 3,096 · 3.22 3,229 · 3.23
+3,396 · 3.24 3,219, over ~270-280 source packages per branch; 10 s,
+19 MB heap.
+
 ### 2.4 Advisory schema (replaces `vulnerabilities`)
 
 ```sql
@@ -402,7 +438,7 @@ this way here for readability.)
   transaction as any change to that key's `advisory_affected` rows and
   drained by the `advisory_rematch` job (§2.6).
 - **`advisories.vuln_key` rule**: the record's own CVE (a `CVE-` id, or
-  the CVE a `DEBIAN-CVE-`/`UBUNTU-CVE-` record wraps); else the single CVE
+  the CVE a `DEBIAN-CVE-`/`UBUNTU-CVE-`/`ALPINE-CVE-` record wraps); else the single CVE
   a DSA/DLA/USN cites; else the advisory id (a notice citing several
   CVEs). The matcher then keys *matches* by CVE wherever possible: a
   multi-CVE notice is expanded to each CVE it cites (§2.5 "As built").
@@ -521,6 +557,36 @@ from `/var/lib/ubuntu-advantage/status.json` (open question Q9).
   running kernel** (agents older than the `kernel` collector, or the
   collector failed): every installed kernel raises findings, marked
   `findings.running_kernel_unknown`, so an unknown never hides risk.
+
+**As built (P2a, comparators per ecosystem).** The predicate and
+precedence above are ecosystem-neutral; only version ordering differs.
+`matcher.Comparator` (`Validate(v)`, `Compare(a, b) (int, error)`) is
+looked up by `software_versions.ecosystem` in one table
+(`matcher/ecosystems.go`): `deb` → `debversion`, `apk` →
+`server/internal/apkversion`, a port of apk-tools' `version.c`
+(digits, one letter, `_alpha _beta _pre _rc` < none < `_cvs _svn _git
+_hg _p`, `~hash`, `-rN`; a leading-zero component compares as a
+string), tested with apk-tools' own `version.data`. An invalid version
+counts as a bad version and is skipped, never ordered by guess (13
+distinct values in the whole Alpine feed, e.g. `1999-12-14`). Adding an
+ecosystem (npm, PyPI, Go: task G) is one comparator plus its feed.
+
+- `matcher.Resolve` matches any ecosystem with a comparator by
+  (source, source version) as interned (apk: the origin from the purl's
+  `upstream` qualifier, else the binary name, `source_inferred`); the
+  kernel mapping and Ubuntu Pro channels stay deb-only.
+- `matcher.Assessed(ecosystem, distro, release)` is the single answer to
+  "is this package matched at all" (for "not assessed" counts): `deb` on
+  debian/ubuntu and `apk` on alpine, with a release. Whether that
+  release is supported (end of life) is data: join `distro_releases`.
+- The store joins `advisory_affected` on (distro, release,
+  source_package) exactly as for deb: an apk package in an Alpine 3.22
+  image is (`alpine`, `3.22`, origin).
+- `matcher.Version` 2: apk versions interned before this were stamped
+  "evaluated, nothing to match" under 1; the bump re-evaluates them.
+  deb results are unchanged.
+- Host findings (`findings.Build`) still pick the lowest installed
+  version with debversion; hosts only send deb today.
 
 ### 2.6 Materialized or computed on read?
 
@@ -655,6 +721,61 @@ version, `fix_channel`/`requires_pro`, `advisory_ids`, distro severity,
 `last_seen_at`, `resolved_at`, `reopened_at`, `reopen_count`). KEV, EPSS
 and CVSS changes don't re-match: `findings_rerank` recomputes severity
 for open findings whose `cves` row changed since the sync started.
+
+**Image findings and scores (P2a, migration 0015).** Container image
+package lists (§4.5) are in `software_versions`, and nothing in the
+matcher was host-only: `match_versions`, `advisory_rematch` and
+`matcher_sweep` evaluate image versions by (distro, release, source)
+exactly like host ones. What was host-only was the fan-out after a
+version's matches change (`HostsWithSoftware`); it now also re-scores
+every ok list holding the version (`image_software` reverse index) and
+queues `reconcile_host` for hosts having such an image
+(`HostsWithImageSoftware`).
+
+- *Findings, kind `vulnerable_image`*: one per (host, image, source
+  package, vuln_key), `dedup_key = 'img:<image_id>:<source>:<vuln_key>'`.
+  Scope: an image present on the host (open `host_images` range,
+  inspected, so its platform key is known) that at least one current
+  container on the host uses (open `host_containers` range, any state,
+  same `image_id`). An image with no container gets a score only. The
+  package list is `image_sbom_effective(host owner)`: the server's list,
+  else the owner's agent list, never another user's. Grouping, snapshot
+  columns, severity and lifecycle are the package ones
+  (`findings.BuildImage` shares `findings.Build`'s grouping; one
+  `findings.Reconcile` over both kinds in the same `reconcile_host`
+  transaction), plus `image_id`/`image_os`/`image_arch`/`image_variant`,
+  `image_refs` (repo tags on the host, digests when untagged) and
+  `container_names`. Kernel binaries inside an image never raise
+  (containers run the host's kernel). The lowest installed version per
+  group is chosen with the ecosystem's comparator
+  (`matcher.ComparatorFor`). `reconcile_host` snoozes while an in-scope
+  list has unevaluated versions, as for host packages.
+- *Triggers*: a list written (`WriteImageSBOM` with
+  `jobs.EnqueueAfterImageSBOM` queues `reconcile_image{key}` in its
+  transaction: score the key's lists, snoozing until matched, then
+  `reconcile_host` for every host having the key); a version's matches
+  changed (above); ingest opened/closed a container or image range
+  (`SnapshotResult.ImageUseChanged`); KEV/EPSS/CVSS changes
+  (`findings_rerank` re-ranks both kinds and re-scores lists matched to
+  the changed CVEs).
+- *Scores*: `image_sbom_scores` per list (so identical for every user
+  seeing it): worst bucket, counts per bucket, top `severity_key`, KEV
+  count, fixable count, max CVSS, package count and `not_assessed_count`
+  (packages outside `matcher.Assessed(ecosystem, distro, release)`, the
+  single Go list of assessed ecosystems). Computed in Go
+  (`findings.ScoreOf`, the finding grouping) because buckets come from
+  `severity.Assess`; never written while versions are unevaluated.
+  `image_score_sweep` (worker start + matcher cadence) scores lists whose
+  score is missing, older than the list, or from an older
+  `matcher.Version` (coverage changes bump it).
+- *Read model*: `image_scores(user)` per `container_images` key: list
+  status (`ok` / `unavailable` / `error` with reason / `none` = never
+  attempted), source, and the effective list's score, with `scored`
+  false until a current score exists. Clean = ok, scored, 0 vulns, 0 not
+  assessed; no list is never clean. Inlined by the planner; callers
+  restrict to the user's hosts' images (fleet) or one host's
+  (`store.FleetImageScores`, `HostImageScores`, `ImageScoreOf`, and the
+  SQL examples in the migration).
 
 ---
 
@@ -923,6 +1044,29 @@ package changes across fleet".
   distinct vulns, KEV findings and hosts, reboot pending (newest
   snapshot), findings by severity, fix available / Pro-only / no fix,
   top 5 vulnerabilities. No "recent package changes" feed yet.
+- Overview with container images (P2a): host numbers and image numbers
+  are shown side by side, never summed (an image is fixed by rebuilding
+  or re-pulling it, a host package by upgrading the host). The host
+  cards and bars count `vulnerable_package` only and say "Host
+  packages". The **Container images** section
+  (`web/src/lib/queries-overview-images.ts`,
+  `web/src/components/overview/image-section.tsx`) starts from the
+  user's current `host_images` on non-archived hosts (inspected keys)
+  joined to `image_scores(user)`: images with vulnerabilities of images
+  scored; open `vulnerable_image` findings with image, host and KEV
+  counts and severity bars; the 5 most vulnerable images a current
+  container uses (the list's `top_severity_key`, then vuln count) with
+  `ImageScoreCell`, hosts and containers; and one line of images not
+  scored (`imageScoreState`: local/private = needs the agent, other
+  `unavailable` = no SBOM, `error` = fetch failing, none / scoring =
+  waiting). No current image or container at all: a single line linking
+  to Images instead of the section. "Most urgent vulnerabilities" groups
+  open findings of both kinds by `vuln_key` (same `severity_key`
+  ranking) and badges where each is: "Host package" (packages, hosts)
+  and/or "Image" (the image or image count, packages, hosts). The CVE
+  link goes to the CVE page when a host package is affected, else to
+  the single image's Vulnerabilities tab filtered to the CVE (the CVE
+  page lists host findings only).
 - Severity colours live in one component
   (`web/src/components/vuln/badges.tsx`).
 
@@ -936,6 +1080,60 @@ package changes across fleet".
   `pg_trgm` only if substring search is wanted.
 - Nothing here needs caching at MVP scale. The existing DECISIONS.md
   guidance applies if it ever does.
+
+### 3.8 Container images (P2a, as built)
+
+**Image detail: `/dashboard/images/-/<image id>`** (folder
+`web/src/app/dashboard/images/-/[imageId]`; key and URL rules in
+`web/src/lib/image-key.ts`). The key is `container_images`'
+(image_id, os, arch, variant): `?platform=linux/arm64/v8` selects it,
+else the platform the image has on `?host=`, else the user's first (a
+platform switcher lists the others). `?tab=vulnerabilities` switches tabs.
+Tenancy: every read starts from the user's current `host_images`
+(`getImagePlatforms`, 404 otherwise), and package lists are only read
+through `image_sbom_effective(user)`, never by list id.
+
+- *Header* (`queries-image.ts`): tags and digests across the user's
+  hosts, platform, created, distro (`image_sbom_state.distro_name` /
+  release), list source + tool + generated_at, the score from
+  `image_scores(user)`, and every host with the image and the containers
+  using it (score only when none).
+- *Packages tab* (`queries-image-packages.ts`): every package of the
+  effective list, server-driven DataTable (`?q` name/source/path, facets
+  `?ecosystem=` and `?status=vulnerable,not-assessed,pending,no-known`,
+  `?sort=status|name|ecosystem`, paging). Not assessed = outside
+  `matcher.Assessed` (mirrored in `web/src/lib/assessed.ts`) or a distro
+  release with `distro_releases.supported` false: never "no
+  vulnerabilities".
+- *Vulnerabilities tab* (`queries-image-vulns.ts`):
+  `software_vulnerabilities` through the list, one row per (source
+  package, vuln_key) like `findings.BuildImage` (kernel binaries
+  skipped), so images no container uses work too; per row the user's
+  `vulnerable_image` findings (host, open since / resolved). Facets
+  severity, KEV, fix; sort severity (default), vuln, package, EPSS, CVSS.
+- *Severity per row*: Go stores buckets on findings and only totals per
+  list, so the web assesses matches with a SQL mirror of
+  `severity.Assess` (`web/src/lib/severity-sql.ts`); rows add up to
+  `image_sbom_scores`, and keys equal `findings.severity_key` where
+  findings exist (checked on real data). The representative row of a
+  group is the lowest match version in text order (Go uses the
+  ecosystem comparator; equal in practice).
+- *States instead of empty tables* (`list-state.tsx`): not inspected on
+  any host (no platform), no package list yet, local image (no repo
+  digest) needs the agent, `unavailable` with its reason verbatim
+  ("private or local image, needs the agent", "registry has no SBOM
+  attestation for this image", ...), error with the retry time, release
+  not assessed (distro not imported, release out of support or unknown),
+  matching in progress (list ok, score not current).
+
+**Score columns** (`components/image/score-cell.tsx`, `ImageScoreCell`):
+worst bucket with its count, KEV count, total and max CVSS, or the state
+label; linked to the detail page. Host Images and Containers tabs join
+`image_scores(user)` per row; the fleet Images page shows each
+repository's most urgent image (`getRepoScores`, "worst of N images"),
+and the repository page links each image to its detail page.
+Notification links for `vulnerable_image` findings point at the detail
+page's Vulnerabilities tab filtered to the CVE (`store.ImageFindingURL`).
 
 ---
 
@@ -1305,6 +1503,35 @@ a plain set, replaced as a whole when re-generated, not ranges.
   with `source_inferred`, as host ingest does. Names use OSV's form:
   npm `@scope/name`, PyPI PEP 503 normalised, Go module path, Maven
   `group:artifact`; versions are verbatim (Go keeps its `v`).
+- **Findings and scores (migration 0015, §2.6 "Image findings and
+  scores").** A host gets `vulnerable_image` findings for an image only
+  while a current container on it uses the image; every image gets a
+  score (`image_sbom_scores`, `image_scores(user)`). A container or
+  image range opening or closing at ingest queues `reconcile_host`.
+- **Server lists from registry attestations (`image_sbom` worker,
+  `internal/imagesbom`).** Repo digests come from the key's open
+  `host_images` rows (any host); each is tried until one yields an SBOM
+  (`internal/registry`: BuildKit attestation manifest for the platform,
+  else OCI referrers; SPDX preferred over CycloneDX). The key's
+  `image_id` must be the index, platform manifest or config digest of
+  what the registry serves, else the digest is not used ("registry image
+  doesn't match this image"). `internal/sbom` reads the document: tool
+  = the scanner, not BuildKit (`docker-scout` for Docker Official
+  Images, `syft` elsewhere); `generated_at` = the document's creation
+  time; OS from an OPERATING-SYSTEM package / CycloneDX
+  `operating-system` component, else the majority of distro purls'
+  qualifiers (Scout's `os_name`/`os_version`/`os_distro`, Syft's
+  `distro=`); `release` via `purl.ReleaseFor` with `distro_releases`.
+  Docker Scout writes no `upstream` qualifier: a binary's source is its
+  SPDX `GENERATED_FROM` relationship, folded into `upstream`, and deb
+  entries that are only a source package (their dpkg evidence names only
+  other packages: `glibc`, `gcc-14`) are dropped. `paths`: Scout's
+  "evident-by" files / Syft's `sourceInfo`, only the package database for
+  distro packages. Failures on the server row: `unavailable` with
+  `store.SBOMReason*` (no attestation, private or local, fetching
+  disabled; also too large, mismatch, unreadable) and no timer; `error`
+  with `next_attempt_at` (30 min × 2^attempts, capped at 24 h, never
+  before a registry's Retry-After).
 
 ### 4.6 Target schema sketch (identity and topology)
 

@@ -1,0 +1,97 @@
+import type { DataTableServerState } from "@/components/data-table/data-table";
+import { tableStateFromParams } from "@/components/data-table/url-params";
+import type { ImageKey } from "@/lib/image-key";
+import {
+  IMAGE_PACKAGE_SORTS,
+  IMAGE_PACKAGE_STATUSES,
+  IMAGE_VULN_FIXES,
+  IMAGE_VULN_SORTS,
+  PACKAGES_TABLE,
+  VULNS_TABLE,
+} from "@/lib/image-tables";
+import { getImageEcosystems, getImagePackages } from "@/lib/queries-image-packages";
+import { getImageVulns } from "@/lib/queries-image-vulns";
+import type { SearchParams } from "@/lib/search-params";
+import { SEVERITIES } from "@/lib/severity";
+
+import { ImagePackagesTable } from "./packages-table";
+import { ImageVulnsTable } from "./vulns-table";
+
+// The two tabs' Server Components: URL state -> allowlisted filters ->
+// SQL -> one page for the client table.
+
+function facet<T extends string>(
+  state: DataTableServerState,
+  id: string,
+  allowed: readonly T[],
+): T[] | null {
+  const raw = state.columnFilters.find((f) => f.id === id)?.value;
+  const vals = Array.isArray(raw) ? raw.filter((v): v is T => allowed.includes(v as T)) : [];
+  return vals.length ? vals : null;
+}
+
+function sortOf<T extends string>(state: DataTableServerState, allowed: readonly T[], fallback: T) {
+  const s = state.sorting[0];
+  return s && allowed.includes(s.id as T)
+    ? { id: s.id as T, desc: s.desc }
+    : { id: fallback, desc: true };
+}
+
+export async function PackagesTab({
+  userId,
+  imageKey,
+  sp,
+}: {
+  userId: string;
+  imageKey: ImageKey;
+  sp: SearchParams;
+}) {
+  const state = tableStateFromParams(sp, PACKAGES_TABLE);
+  const ecosystems = await getImageEcosystems(userId, imageKey);
+  const { rows, total } = await getImagePackages(userId, imageKey, {
+    q: state.globalFilter || null,
+    ecosystems: facet(
+      state,
+      "ecosystem",
+      ecosystems.map((e) => e.ecosystem),
+    ),
+    statuses: facet(state, "status", IMAGE_PACKAGE_STATUSES),
+    sort: sortOf(state, IMAGE_PACKAGE_SORTS, "status"),
+    page: state.pagination.pageIndex + 1,
+    pageSize: state.pagination.pageSize,
+  });
+  return <ImagePackagesTable rows={rows} total={total} state={state} ecosystems={ecosystems} />;
+}
+
+export async function VulnsTab({
+  userId,
+  imageKey,
+  sp,
+  notAssessed,
+}: {
+  userId: string;
+  imageKey: ImageKey;
+  sp: SearchParams;
+  notAssessed: number;
+}) {
+  const state = tableStateFromParams(sp, VULNS_TABLE);
+  const severities = facet(state, "severity", SEVERITIES);
+  const kev = facet(state, "kev", ["1"]) !== null;
+  const fix = facet(state, "fix", IMAGE_VULN_FIXES);
+  const { rows, total } = await getImageVulns(userId, imageKey, {
+    q: state.globalFilter || null,
+    severities,
+    kev,
+    fix,
+    sort: sortOf(state, IMAGE_VULN_SORTS, "severity"),
+    page: state.pagination.pageIndex + 1,
+    pageSize: state.pagination.pageSize,
+  });
+  const filtered = state.globalFilter || severities || kev || fix;
+  const empty = filtered
+    ? "No vulnerabilities match these filters."
+    : notAssessed > 0
+      ? `No known vulnerabilities in the assessed packages (${notAssessed} not assessed).`
+      : "No known vulnerabilities.";
+  return <ImageVulnsTable rows={rows} total={total} state={state} emptyMessage={empty} />;
+}

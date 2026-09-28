@@ -112,14 +112,22 @@ Event types and the objects they carry:
 
 | `type` | Objects | Notes |
 |---|---|---|
-| `finding.opened` | `host`, `finding` | a vulnerable package finding appeared |
+| `finding.opened` | `host`, `finding` | a vulnerable package (host or container image) finding appeared |
 | `finding.reopened` | `host`, `finding` | a resolved finding matched again |
-| `finding.resolved` | `host`, `finding` | upgraded, removed, advisory withdrawn, or kernel no longer running; `finding.status` is `resolved` |
+| `finding.resolved` | `host`, `finding` | upgraded, removed, advisory withdrawn, kernel no longer running, or (images) no container uses the image any more; `finding.status` is `resolved` |
 | `agent.stale` | `agent` | silent for more than `max(3 × push interval, 120 s)` (the dashboard's "stale") |
 | `agent.recovered` | `agent` | a stale agent pushed again |
 
 `agent` is `{ "id", "name", "last_seen_at", "hosts": [{ "id", "hostname", "label" }] }`.
 Future event families (e.g. port exposure) add their own object.
+
+`finding.kind` is `vulnerable_package` (a package installed on the host)
+or `vulnerable_image` (a package in a container image that a container on
+the host uses; one finding per host, image, source package and CVE).
+Image findings add `image_id` (the image's content id), `image_refs` (its
+repo tags on the host, or repo digests when untagged) and `containers`
+(names of the containers using it), and their `url` points at the host's
+Images tab. Alert rules can be limited to either kind.
 
 `finding.severity` is the dashboard's bucket (`critical`, `high`, `medium`,
 `unknown`, `low`, `negligible`); `fix_channel` is `standard`, `ubuntu-pro`

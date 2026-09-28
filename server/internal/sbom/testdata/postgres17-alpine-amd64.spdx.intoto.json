@@ -1,0 +1,510 @@
+{
+ "_type": "https://in-toto.io/Statement/v0.1",
+ "predicateType": "https://spdx.dev/Document",
+ "subject": [
+  {
+   "name": "pkg:docker/postgres@17.11-alpine3.24?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/postgres@17-alpine3.24?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/postgres@17.11-alpine?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/postgres@17-alpine?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/amd64/postgres@17.11-alpine3.24?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/amd64/postgres@17-alpine3.24?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/amd64/postgres@17.11-alpine?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/amd64/postgres@17-alpine?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  },
+  {
+   "name": "pkg:docker/oisupport/staging-amd64@d02795b2d1a82d3ac2e71cb21dda91812966de1058badf01df4bcd2e9aafc64b?platform=linux%2Famd64",
+   "digest": {
+    "sha256": "aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+   }
+  }
+ ],
+ "predicate": {
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "sbom",
+  "documentNamespace": "https://docker.com/docker-scout/fs/sbom-409d81d2-72a1-4103-aba4-7395e0f79b79",
+  "creationInfo": {
+   "creators": [
+    "Organization: Docker, Inc",
+    "Tool: docker-scout-1.18.1",
+    "Tool: buildkit-0.16.0-tianon"
+   ],
+   "created": "2026-09-17T21:31:34Z"
+  },
+  "packages": [
+   {
+    "name": "sbom",
+    "SPDXID": "SPDXRef-DocumentRoot",
+    "supplier": "NOASSERTION",
+    "downloadLocation": "NOASSERTION",
+    "filesAnalyzed": false,
+    "licenseConcluded": "NOASSERTION",
+    "licenseDeclared": "NOASSERTION",
+    "primaryPackagePurpose": "FILE"
+   },
+   {
+    "name": ".postgresql-rundeps",
+    "SPDXID": "SPDXRef-Package-f43d2cc702cc6d7cb829cbc78f41ada9",
+    "versionInfo": "20260917.213131",
+    "supplier": "NOASSERTION",
+    "originator": "NOASSERTION",
+    "downloadLocation": "NOASSERTION",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "description": "virtual meta package",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:apk/alpine/.postgresql-rundeps@20260917.213131?os_name=alpine&os_version=3.24"
+     }
+    ]
+   },
+   {
+    "name": "alpine-baselayout-data",
+    "SPDXID": "SPDXRef-Package-f5759f82580cf6154f5efea542fbb4c8",
+    "versionInfo": "3.7.2-r1",
+    "supplier": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "originator": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "downloadLocation": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/master/main/alpine-baselayout",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "licenseDeclared": "GPL-2.0-only",
+    "description": "Alpine base dir structure and init scripts",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:apk/alpine/alpine-baselayout-data@3.7.2-r1?os_name=alpine&os_version=3.24"
+     }
+    ]
+   },
+   {
+    "name": "alpine-baselayout",
+    "SPDXID": "SPDXRef-Package-c921941b4e6f0a8e3f20be2b540e8cb9",
+    "versionInfo": "3.7.2-r1",
+    "supplier": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "originator": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "downloadLocation": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/master/main/alpine-baselayout",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "licenseDeclared": "GPL-2.0-only",
+    "description": "Alpine base dir structure and init scripts",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:apk/alpine/alpine-baselayout@3.7.2-r1?os_name=alpine&os_version=3.24"
+     }
+    ]
+   },
+   {
+    "name": "libssl3",
+    "SPDXID": "SPDXRef-Package-0f136e3f14eb33bae4880ecfae64687c",
+    "versionInfo": "3.5.8-r0",
+    "supplier": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "originator": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "downloadLocation": "https://www.openssl.org/",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "licenseDeclared": "Apache-2.0",
+    "description": "SSL shared libraries",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:apk/alpine/libssl3@3.5.8-r0?os_name=alpine&os_version=3.24"
+     }
+    ]
+   },
+   {
+    "name": "musl",
+    "SPDXID": "SPDXRef-Package-25a458b871ec49870440509b31beac33",
+    "versionInfo": "1.2.6-r2",
+    "supplier": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "originator": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "downloadLocation": "https://musl.libc.org/",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "licenseDeclared": "MIT",
+    "description": "the musl c library (libc) implementation",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:apk/alpine/musl@1.2.6-r2?os_name=alpine&os_version=3.24"
+     }
+    ]
+   },
+   {
+    "name": "openssl",
+    "SPDXID": "SPDXRef-Package-91932a7786f1cc7c626197d1302ff152",
+    "versionInfo": "3.5.8-r0",
+    "supplier": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "originator": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "downloadLocation": "https://www.openssl.org/",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "licenseDeclared": "Apache-2.0",
+    "description": "Crypto library from openssl",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:apk/alpine/openssl@3.5.8-r0?os_name=alpine&os_version=3.24"
+     }
+    ]
+   },
+   {
+    "name": "stdlib",
+    "SPDXID": "SPDXRef-Package-f88d42327d68e6736fabb65bad8506c1",
+    "versionInfo": "1.24.6",
+    "supplier": "NOASSERTION",
+    "originator": "NOASSERTION",
+    "downloadLocation": "NOASSERTION",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:golang/stdlib@1.24.6"
+     }
+    ]
+   }
+  ],
+  "files": [
+   {
+    "fileName": "etc/crontabs/root",
+    "SPDXID": "SPDXRef-File-0e820ef21020b655998fbfbd92e7b985",
+    "checksums": [
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "575d810a9fae5f2f0671c9b2c0ce973e46c7207fbe5cb8d1b0d1836a6a0470e3"
+     },
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "bdf9356a9516238c8b2468613517749098b17ef6"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "etc/fstab",
+    "SPDXID": "SPDXRef-File-816a3ef77b62ade41c3f936c958aa555",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "d50ee135ef10a434b9df582ea8276b5c1ce803fa"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "a3efca2e8d62785c87517283092b4c800d88612b6f3f06b80a4c2f39d8e68841"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "etc/group",
+    "SPDXID": "SPDXRef-File-8cd4f87abbd9addd26d3a8c86730f48b",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "d433233a567fb03af47a313c18b02e53094f5bfd"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "96e5294cea7cfbbb31f2f93f23d4828afbd8d00a6a5fc85dfd1276d7fee3a3a0"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:4ece9a32c307dbfc879fbd2c64ff04d734f92c3cfe543fbbfcf51f559be3952f"
+   },
+   {
+    "fileName": "etc/modprobe.d/aliases.conf",
+    "SPDXID": "SPDXRef-File-22fa764d37e41ea6a99f5651d6823dfb",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "5946e1e930583552bb7b863eb94bcbb3feef8aa9"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "3ebaba946f213670170c7d69949f690a3854553bd0b1560f1d980cba4c83a942"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "etc/ssl/ct_log_list.cnf",
+    "SPDXID": "SPDXRef-File-ffc09b6666de47ba78f9ab48b7494011",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "a2587c4e97408b64274e5e052b74e3754892c13a"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "f1c1803d13d1d0b755b13b23c28bd4e20e07baf9f2b744c9337ba5866aa0ec3b"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "etc/ssl/ct_log_list.cnf.dist",
+    "SPDXID": "SPDXRef-File-b3c8003fc2ae98965d15bb9ce0ddb9d3",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "a2587c4e97408b64274e5e052b74e3754892c13a"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "f1c1803d13d1d0b755b13b23c28bd4e20e07baf9f2b744c9337ba5866aa0ec3b"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "lib/apk/db/installed",
+    "SPDXID": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "checksums": [
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "d7547813da119795e412a5d2603e049cc172f67ba4777c3446fa3bc918a4419d"
+     },
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "20e7fca062b8a5f3b229d940fcb0c1578a504e5c"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:f3b07e8a357c707bed4f36d7e89173727f890be5fbc8e1c1eb7feb6c1d9deb38"
+   },
+   {
+    "fileName": "lib/ld-musl-x86_64.so.1",
+    "SPDXID": "SPDXRef-File-344b813e6f850fbad5e9ca606f3ec003",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "1c36e90298092e128f24de888da03bc09dce6b8a"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "38d022ce7425ff105ccfb53598f606e6e5f5f0a34bfbc793d65e6f34c9d72806"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "sbin/ldconfig",
+    "SPDXID": "SPDXRef-File-38134b13b861d2675f1dce4f1b5aaae0",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "d898c515712978717db5021dc371e15661028bf1"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "7065021e04a5060957b5c6907af671a7028230d91927fb0c25892cadd9312b7c"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "usr/lib/libssl.so.3",
+    "SPDXID": "SPDXRef-File-92cad65b667f587557112562154a0a27",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "09161087d6c7697ab3dae18d7cc2b622629b0f11"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "3bb7fa63a3d6fb71884976bcda01c2fb2cf4145774cfa480ee8a509103c7093a"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:e2de96513ba9eb53b431787ec8a65cdde380ac4772a3e4c4b714dcfde2a102b5"
+   },
+   {
+    "fileName": "usr/local/bin/gosu",
+    "SPDXID": "SPDXRef-File-766e3daf50ae3286a3551d01568f65b2",
+    "checksums": [
+     {
+      "algorithm": "SHA1",
+      "checksumValue": "2baaa133bea09fddfac495ead5720400a7252ee7"
+     },
+     {
+      "algorithm": "SHA256",
+      "checksumValue": "52c8749d0142edd234e9d6bd5237dff2d81e71f43537e2f4f66f75dd4b243dd0"
+     }
+    ],
+    "licenseConcluded": "NOASSERTION",
+    "copyrightText": "",
+    "comment": "layerID: sha256:43f9814c9a3b143548b1ebbd9d05484da68959f1b2dc5cf2228343fc7134b6fb"
+   }
+  ],
+  "relationships": [
+   {
+    "spdxElementId": "SPDXRef-DOCUMENT",
+    "relatedSpdxElement": "SPDXRef-DocumentRoot",
+    "relationshipType": "DESCRIBES"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-f43d2cc702cc6d7cb829cbc78f41ada9",
+    "relatedSpdxElement": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-f5759f82580cf6154f5efea542fbb4c8",
+    "relatedSpdxElement": "SPDXRef-File-816a3ef77b62ade41c3f936c958aa555",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-f5759f82580cf6154f5efea542fbb4c8",
+    "relatedSpdxElement": "SPDXRef-File-8cd4f87abbd9addd26d3a8c86730f48b",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-f5759f82580cf6154f5efea542fbb4c8",
+    "relatedSpdxElement": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-c921941b4e6f0a8e3f20be2b540e8cb9",
+    "relatedSpdxElement": "SPDXRef-File-0e820ef21020b655998fbfbd92e7b985",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-c921941b4e6f0a8e3f20be2b540e8cb9",
+    "relatedSpdxElement": "SPDXRef-File-22fa764d37e41ea6a99f5651d6823dfb",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-c921941b4e6f0a8e3f20be2b540e8cb9",
+    "relatedSpdxElement": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-0f136e3f14eb33bae4880ecfae64687c",
+    "relatedSpdxElement": "SPDXRef-File-92cad65b667f587557112562154a0a27",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-0f136e3f14eb33bae4880ecfae64687c",
+    "relatedSpdxElement": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-25a458b871ec49870440509b31beac33",
+    "relatedSpdxElement": "SPDXRef-File-344b813e6f850fbad5e9ca606f3ec003",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-25a458b871ec49870440509b31beac33",
+    "relatedSpdxElement": "SPDXRef-File-38134b13b861d2675f1dce4f1b5aaae0",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-25a458b871ec49870440509b31beac33",
+    "relatedSpdxElement": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-91932a7786f1cc7c626197d1302ff152",
+    "relatedSpdxElement": "SPDXRef-File-ffc09b6666de47ba78f9ab48b7494011",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-91932a7786f1cc7c626197d1302ff152",
+    "relatedSpdxElement": "SPDXRef-File-b3c8003fc2ae98965d15bb9ce0ddb9d3",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-91932a7786f1cc7c626197d1302ff152",
+    "relatedSpdxElement": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-f88d42327d68e6736fabb65bad8506c1",
+    "relatedSpdxElement": "SPDXRef-File-766e3daf50ae3286a3551d01568f65b2",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-f5759f82580cf6154f5efea542fbb4c8",
+    "relatedSpdxElement": "SPDXRef-Package-c921941b4e6f0a8e3f20be2b540e8cb9",
+    "relationshipType": "GENERATED_FROM"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-0f136e3f14eb33bae4880ecfae64687c",
+    "relatedSpdxElement": "SPDXRef-Package-91932a7786f1cc7c626197d1302ff152",
+    "relationshipType": "GENERATED_FROM"
+   }
+  ]
+ }
+}

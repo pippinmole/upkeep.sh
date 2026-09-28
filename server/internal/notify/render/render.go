@@ -77,7 +77,20 @@ func Body(e notify.Event) string {
 			}
 			lines = append(lines, line)
 		}
+		if f.ImageID != "" {
+			img := f.ImageID
+			if len(f.ImageRefs) > 0 {
+				img = strings.Join(f.ImageRefs, ", ")
+			}
+			line := "Image: " + img
+			if len(f.Containers) > 0 {
+				line += " (containers: " + strings.Join(f.Containers, ", ") + ")"
+			}
+			lines = append(lines, line)
+		}
 		switch {
+		case e.Type == notify.EventFindingResolved && f.ImageID != "":
+			lines = append(lines, "No longer present in an image a container on the host uses.")
 		case e.Type == notify.EventFindingResolved:
 			lines = append(lines, "No longer present on the host.")
 		case f.FixedVersion != nil && *f.FixedVersion != "":

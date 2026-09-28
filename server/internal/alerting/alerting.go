@@ -39,6 +39,7 @@ type Rule struct {
 	DigestInterval   time.Duration
 	LastDigestAt     *time.Time
 	CreatedAt        time.Time
+	FindingKinds     []string // findings.kind of finding events (alert_rules.finding_kinds); nil = any
 }
 
 // EventMeta is what rule matching needs to know about an alert_events row.
@@ -50,6 +51,9 @@ type EventMeta struct {
 	HostIDs      []string
 	SeverityRank *int // finding events only
 	KEV          bool
+	// FindingKind is the finding's kind (finding events; "" = unknown,
+	// e.g. an event written before kinds were recorded: not filtered).
+	FindingKind string
 }
 
 // IsFindingEvent: severity / KEV filters apply only to these.
@@ -66,6 +70,9 @@ func Match(r Rule, e EventMeta) bool {
 			return false
 		}
 		if r.KEVOnly && !e.KEV {
+			return false
+		}
+		if r.FindingKinds != nil && e.FindingKind != "" && !slices.Contains(r.FindingKinds, e.FindingKind) {
 			return false
 		}
 	}
@@ -198,8 +205,16 @@ func describe(e notify.Event) string {
 		if e.Finding.KEV {
 			kev = ", KEV"
 		}
+		in := e.Finding.SourcePackage
+		if e.Finding.ImageID != "" {
+			img := e.Finding.ImageID
+			if len(e.Finding.ImageRefs) > 0 {
+				img = e.Finding.ImageRefs[0]
+			}
+			in += " (image " + img + ")"
+		}
 		return fmt.Sprintf("%s finding %s in %s%s (%s%s)", verb,
-			e.Finding.VulnKey, e.Finding.SourcePackage, host, e.Finding.Severity, kev)
+			e.Finding.VulnKey, in, host, e.Finding.Severity, kev)
 	case e.Agent != nil:
 		if e.Type == notify.EventAgentStale {
 			return fmt.Sprintf("Agent %q stopped reporting", e.Agent.Name)

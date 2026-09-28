@@ -1,6 +1,14 @@
 import { cache } from "react";
 
 import { pool } from "./db";
+import type { ImageKey } from "./image-key";
+import type { ImageScore } from "./image-score";
+import {
+  IMAGE_SCORE_COLUMNS,
+  type ImageScoreDbRow,
+  mapImageScore,
+  RELEASE_JOIN,
+} from "./queries-image-scores";
 
 // Fleet-level Docker reads (TASKS.md Phase 1.6; migration 0013,
 // DOMAIN_MODEL.md §4.5 "Docker"): the fleet Images page and the Swarm
@@ -33,14 +41,14 @@ export const UNTAGGED_REPO = "_untagged";
 // ports ("host:5000/app:1") stay in the repository.
 const REFS_CTE = `
 imgs AS (
-  SELECT hi.host_id, hi.image_id, hi.repo_tags, hi.repo_digests,
+  SELECT hi.host_id, hi.image_id, hi.repo_tags, hi.repo_digests, hi.os, hi.arch, hi.variant,
          concat_ws('/', nullif(hi.os, ''), nullif(hi.arch, ''), nullif(hi.variant, '')) AS platform
   FROM hosts h
   JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
   WHERE h.user_id = $1 AND h.archived_at IS NULL
 ),
 refs AS (
-  SELECT i.host_id, i.image_id, i.platform, r.repo, r.tag,
+  SELECT i.host_id, i.image_id, i.os, i.arch, i.variant, i.platform, r.repo, r.tag,
          ARRAY(SELECT split_part(d, '@', 2) FROM unnest(i.repo_digests) d
                WHERE split_part(d, '@', 1) = r.repo) AS digests
   FROM imgs i
@@ -165,6 +173,63 @@ export async function getFleetImages(
   };
 }
 
+// The most urgent image of each repository (image_scores(user), highest
+// top severity key, then most vulnerabilities) and how many inspected image
+// keys the repository has: the fleet Images page's score column.
+export type RepoScore = {
+  key: ImageKey;
+  keys: number;
+  hasRepoDigest: boolean;
+  score: ImageScore | null;
+};
+
+export async function getRepoScores(
+  userId: string,
+  repos: string[],
+): Promise<Map<string, RepoScore>> {
+  if (repos.length === 0) return new Map();
+  const { rows } = await pool.query<
+    ImageScoreDbRow & {
+      repo: string;
+      image_id: string;
+      os: string;
+      arch: string;
+      variant: string;
+      keys: string;
+      has_digest: boolean;
+    }
+  >(
+    `WITH ${REFS_CTE},
+     k AS (
+       SELECT r.repo, r.image_id, r.os, r.arch, r.variant,
+              bool_or(cardinality(r.digests) > 0) AS has_digest
+       FROM refs r
+       WHERE r.repo = ANY($2) AND r.os IS NOT NULL
+       GROUP BY 1, 2, 3, 4, 5
+     )
+     SELECT DISTINCT ON (k.repo) k.repo, k.image_id, k.os, k.arch, k.variant, k.has_digest,
+            count(*) OVER (PARTITION BY k.repo) AS keys, ${IMAGE_SCORE_COLUMNS}
+     FROM k
+     LEFT JOIN image_scores($1) s
+       ON s.image_id = k.image_id AND s.os = k.os AND s.arch = k.arch AND s.variant = k.variant
+     ${RELEASE_JOIN}
+     ORDER BY k.repo, s.top_severity_key DESC NULLS LAST, s.vuln_count DESC NULLS LAST,
+              s.list_status = 'ok' DESC, k.image_id`,
+    [userId, repos],
+  );
+  return new Map(
+    rows.map((r) => [
+      r.repo,
+      {
+        key: { imageId: r.image_id, os: r.os, arch: r.arch, variant: r.variant },
+        keys: Number(r.keys),
+        hasRepoDigest: r.has_digest,
+        score: mapImageScore(r),
+      },
+    ]),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // One repository: which hosts have it
 // ---------------------------------------------------------------------------
@@ -185,6 +250,8 @@ export type RepoHostImage = {
   label: string | null;
   imageId: string;
   platform: string; // '' = never inspected on this host
+  // The image key's platform; null = never inspected on this host.
+  key: ImageKey | null;
   tags: string[]; // tags in this repository on this host
   digests: string[]; // manifest digests in this repository
   otherRefs: string[]; // tags from other repositories on the same image
@@ -204,6 +271,9 @@ export async function getRepoImages(userId: string, repo: string): Promise<RepoH
     label: string | null;
     image_id: string;
     platform: string;
+    os: string | null;
+    arch: string | null;
+    variant: string | null;
     tags: string[];
     digests: string[];
     other_refs: string[];
@@ -215,6 +285,7 @@ export async function getRepoImages(userId: string, repo: string): Promise<RepoH
      mine AS (SELECT DISTINCT host_id, image_id FROM refs WHERE repo = $2)
      SELECT h.id AS host_id, h.hostname, h.label, hi.image_id,
             concat_ws('/', nullif(hi.os, ''), nullif(hi.arch, ''), nullif(hi.variant, '')) AS platform,
+            hi.os, hi.arch, hi.variant,
             ARRAY(SELECT substring(t FROM ':([^:/]+)$') FROM unnest(hi.repo_tags) t
                   WHERE regexp_replace(t, ':[^:/]+$', '') = $2 ORDER BY 1) AS tags,
             ARRAY(SELECT split_part(d, '@', 2) FROM unnest(hi.repo_digests) d
@@ -247,6 +318,10 @@ export async function getRepoImages(userId: string, repo: string): Promise<RepoH
     label: r.label,
     imageId: r.image_id,
     platform: r.platform,
+    key:
+      r.os !== null && r.arch !== null && r.variant !== null
+        ? { imageId: r.image_id, os: r.os, arch: r.arch, variant: r.variant }
+        : null,
     tags: r.tags,
     digests: r.digests,
     otherRefs: r.other_refs,

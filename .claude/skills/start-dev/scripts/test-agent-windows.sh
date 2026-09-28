@@ -9,6 +9,8 @@
 #   the dpkg-based package collector to find anything; check with `wsl -l -v`)
 #   interval defaults to 30s — short, since this is for one-off testing,
 #   not a real deployment (real deployments use SW_INTERVAL=15m or so).
+# Env: SW_TEST_USER_EMAIL = the dashboard account to enroll into (required
+#   when the dev DB has more than one user; see enroll-token.sh).
 set -euo pipefail
 
 DISTRO="${1:-Ubuntu}"
@@ -57,14 +59,10 @@ echo "    a bare binary run see the WSL distro's own real filesystem at that pat
 wsl -d "$DISTRO" -u root -- bash -lc 'test -L /host && [ "$(readlink /host)" = "/" ] || ln -sfn / /host'
 
 echo "==> Generating a fresh one-time enrollment token..."
-# Mirrors exactly what web/src/app/dashboard/actions.ts's createEnrollmentToken()
-# does server-side — same token shape, same table, same 1-hour expiry. This is
-# a convenience for local testing, not a bypass of anything: it's the same
-# INSERT the real "Register agent" button in the dashboard runs.
-TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))")"
-docker exec security-whatnot-dev-postgres-1 psql -U swuser -d security_whatnot -c \
-  "INSERT INTO enrollment_tokens (token, user_id, expires_at) VALUES ('$TOKEN', (SELECT id FROM users LIMIT 1), now() + interval '1 hour');" \
-  >/dev/null
+# Same INSERT the dashboard's "Register agent" button runs; enroll-token.sh
+# picks the account (SW_TEST_USER_EMAIL, or the only user) so the host shows
+# up for the user you sign in as.
+TOKEN="$(bash .claude/skills/start-dev/scripts/enroll-token.sh)"
 
 echo "==> Running the agent in WSL (Ctrl-C to stop; it will keep pushing every $INTERVAL)..."
 wsl -d "$DISTRO" -- bash -lc "cd ~/sw-agent-test && SW_SERVER_URL=http://localhost:8080 SW_ENROLLMENT_TOKEN=$TOKEN SW_DATA_DIR=\$HOME/sw-agent-test/data SW_INTERVAL=$INTERVAL ./agent"

@@ -18,8 +18,11 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
-// OSVEcosystems are the OSV bucket directories this product imports.
-var OSVEcosystems = []string{"Debian", "Ubuntu"}
+// OSVEcosystems are the OSV bucket directories this product imports. Each
+// is a top-level directory (all.zip + modified_id.csv); the per-release
+// ones ("Debian:12", "Alpine:v3.20") went stale in 2024-10 and are not
+// read. Every directory maps to one distro (osv.DistroFor).
+var OSVEcosystems = []string{"Debian", "Ubuntu", "Alpine"}
 
 // OSVStats summarizes one OSV sync (also stored in feed_sync_state.stats).
 type OSVStats struct {
@@ -41,7 +44,8 @@ type OSVStats struct {
 	PeakHeapMB    uint64  `json:"peak_heap_mb"` // runtime HeapSys at the end (approximate peak)
 }
 
-// SyncOSV brings one ecosystem directory ("Debian" / "Ubuntu") up to date.
+// SyncOSV brings one ecosystem directory ("Debian", "Ubuntu", "Alpine") up
+// to date.
 //
 // It runs a full all.zip import when forced, on first run, when the
 // supported release set changed since the last full import, or when that
@@ -74,7 +78,7 @@ func (s *Syncer) SyncOSV(ctx context.Context, dir string, forceFull bool) (stats
 		return stats, err
 	}
 	rels := osv.NewReleases(releases)
-	fingerprint := rels.Fingerprint()
+	fingerprint := rels.Fingerprint(osv.DistroFor(dir))
 
 	reason := ""
 	switch {

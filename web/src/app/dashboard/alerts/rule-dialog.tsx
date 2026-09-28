@@ -30,6 +30,8 @@ import {
   durationLabel,
   EVENT_TYPES,
   eventTypeLabel,
+  FINDING_KINDS,
+  ALL_FINDING_KINDS,
   isFindingEvent,
   SEVERITY_FLOORS,
 } from "@/lib/notifiers";
@@ -92,6 +94,7 @@ export function RuleDialog({
     eventTypes: rule?.eventTypes ?? ["finding.opened"],
     minSeverityRank: rule?.minSeverityRank ?? 5,
     kevOnly: rule?.kevOnly ?? false,
+    findingKinds: rule?.findingKinds ?? ALL_FINDING_KINDS,
     hostScope: rule?.hostIds ? "selected" : "all",
     hostIds: rule?.hostIds ?? [],
     channelIds: rule?.channels.map((c) => c.id) ?? (channels.length === 1 ? [channels[0].id] : []),
@@ -192,8 +195,25 @@ export function RuleDialog({
                 />
                 Known exploited (KEV) only
               </label>
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <Label>Findings in</Label>
+                <div className="flex gap-4 text-sm">
+                  {FINDING_KINDS.map((k) => (
+                    <label key={k.kind} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="accent-primary size-4"
+                        checked={v.findingKinds.includes(k.kind)}
+                        onChange={() => set("findingKinds", toggle(v.findingKinds, k.kind))}
+                      />
+                      {k.label}
+                    </label>
+                  ))}
+                </div>
+                <Err msg={errors.findingKinds} />
+              </div>
               <p className="text-muted-foreground text-xs sm:col-span-2">
-                Severity and KEV filters apply to finding events only.
+                Severity, KEV and finding kind filters apply to finding events only.
               </p>
             </div>
           )}

@@ -1,4 +1,4 @@
-// Package feeds runs the advisory and enrichment syncs: OSV Debian/Ubuntu
+// Package feeds runs the advisory and enrichment syncs: OSV Debian/Ubuntu/Alpine
 // into advisories/advisory_affected, and CISA KEV + FIRST EPSS into cves.
 // Each sync is a plain function call; server/internal/jobs schedules them
 // on River, and `worker sync ...` runs them directly.

@@ -259,9 +259,12 @@ func TestDockerIngestContainers(t *testing.T) {
 	// +1: db's inspect fails, same state: the range stays as it was
 	// (privileged, ports, mounts, started_at kept); inspect_error is set in
 	// place.
-	e.push(h, 1, map[string]any{"docker_containers": stOK()}, map[string]any{
+	res := e.push(h, 1, map[string]any{"docker_containers": stOK()}, map[string]any{
 		"containers": []any{partialContainer(cDB, "running"), webContainer("2026-03-01T00:00:00Z")},
 	})
+	if res.ImageUseChanged() { // live columns only: no image findings reconcile
+		t.Errorf("in-place update reported as an image use change: %+v", res.Facts)
+	}
 	db1 := db0
 	db1.InspErr = "inspect: boom"
 	e.wantContainers(h, db1, web0)
@@ -302,9 +305,12 @@ func TestDockerIngestContainers(t *testing.T) {
 
 	// +7: db comes back fully inspected after a partial-only history: its
 	// detail is known again. ok and empty images closes both images.
-	res := e.push(h, 7, map[string]any{"docker_containers": stOK(), "docker_images": stOK()}, map[string]any{
+	res = e.push(h, 7, map[string]any{"docker_containers": stOK(), "docker_images": stOK()}, map[string]any{
 		"containers": []any{dbContainer("running", "2026-03-01T00:07:00Z"), webContainer("2026-03-01T00:05:00Z")},
 	})
+	if !res.ImageUseChanged() { // queues reconcile_host (jobs.EnqueueAfterIngest)
+		t.Errorf("ranges opened/closed but ImageUseChanged is false: %+v", res.Facts)
+	}
 	for _, f := range res.Facts {
 		if f.Kind == KindDockerImages && f.Closed != 2 {
 			t.Errorf("images result %+v, want 2 closed", f)
@@ -318,7 +324,7 @@ func TestDockerIngestContainers(t *testing.T) {
 	res = e.push(h, 8, map[string]any{"docker_containers": stOK()}, map[string]any{
 		"containers": []any{webContainer("2026-03-01T00:05:00Z"), dbContainer("running", "2026-03-01T00:07:00Z")},
 	})
-	if len(res.Facts) != 1 || res.Facts[0].Outcome != store.InventoryUnchanged {
+	if len(res.Facts) != 1 || res.Facts[0].Outcome != store.InventoryUnchanged || res.ImageUseChanged() {
 		t.Errorf("identical push: %+v", res.Facts)
 	}
 }

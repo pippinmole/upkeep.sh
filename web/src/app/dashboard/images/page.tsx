@@ -16,8 +16,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ImageScoreCell } from "@/components/image/score-cell";
 import { auth } from "@/lib/auth";
-import { getDockerCoverage, getFleetImages, tagDrifts } from "@/lib/queries-docker-fleet";
+import { imageHref } from "@/lib/image-key";
+import {
+  getDockerCoverage,
+  getFleetImages,
+  getRepoScores,
+  type RepoScore,
+  tagDrifts,
+} from "@/lib/queries-docker-fleet";
 import { pageParam, param, type SearchParams } from "@/lib/search-params";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +35,34 @@ export const metadata: Metadata = {
 
 const PAGE_SIZE = 50;
 const MAX_TAGS = 6;
+
+// The repository's most urgent image, linked to its detail page; the
+// repository page lists every image with its own score.
+function RepoScoreCell({ sc }: { sc: RepoScore | undefined }) {
+  if (!sc) {
+    return (
+      <span
+        className="text-muted-foreground text-xs"
+        title="No host has inspected these images yet"
+      >
+        Not inspected
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <ImageScoreCell
+        score={sc.score}
+        inspected
+        hasRepoDigest={sc.hasRepoDigest}
+        href={imageHref(sc.key.imageId, { platform: sc.key })}
+      />
+      {sc.keys > 1 && (
+        <span className="text-muted-foreground text-xs">worst of {sc.keys} images</span>
+      )}
+    </div>
+  );
+}
 
 export default async function FleetImagesPage({
   searchParams,
@@ -48,6 +84,10 @@ export default async function FleetImagesPage({
     getFleetImages(userId, filters),
     getDockerCoverage(userId),
   ]);
+  const scores = await getRepoScores(
+    userId,
+    rows.map((r) => r.repo),
+  );
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
@@ -80,6 +120,7 @@ export default async function FleetImagesPage({
             <TableRow>
               <TableHead>Repository</TableHead>
               <TableHead>Tags</TableHead>
+              <TableHead>Vulnerabilities</TableHead>
               <TableHead className="text-right">Image IDs</TableHead>
               <TableHead className="text-right">Hosts</TableHead>
               <TableHead className="text-right">Running containers</TableHead>
@@ -88,7 +129,7 @@ export default async function FleetImagesPage({
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-muted-foreground h-24 text-center">
+                <TableCell colSpan={6} className="text-muted-foreground h-24 text-center">
                   {filters.q
                     ? "No images match this search."
                     : "No Docker images have been reported by your hosts yet."}
@@ -150,6 +191,9 @@ export default async function FleetImagesPage({
                           )}
                         </div>
                       )}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <RepoScoreCell sc={scores.get(r.repo)} />
                     </TableCell>
                     <TableCell className="text-right align-top tabular-nums">
                       {r.imageIds}

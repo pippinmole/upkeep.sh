@@ -17,7 +17,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { durationLabel, eventTypeLabel, isFindingEvent, SEVERITY_FLOORS } from "@/lib/notifiers";
+import {
+  durationLabel,
+  eventTypeLabel,
+  FINDING_KINDS,
+  isFindingEvent,
+  SEVERITY_FLOORS,
+} from "@/lib/notifiers";
 import type { ChannelRow, RuleRow, ScopeHost } from "@/lib/queries-notifications";
 
 import { deleteRule, setRuleEnabled } from "@/app/dashboard/notification-actions";
@@ -86,6 +92,13 @@ function filtersText(r: RuleRow, hosts: ScopeHost[]): string {
       parts.push(SEVERITY_FLOORS.find((s) => s.rank === r.minSeverityRank)?.label ?? "");
     }
     if (r.kevOnly) parts.push("KEV only");
+    if (r.findingKinds.length < FINDING_KINDS.length) {
+      parts.push(
+        FINDING_KINDS.filter((k) => r.findingKinds.includes(k.kind))
+          .map((k) => k.label)
+          .join(", "),
+      );
+    }
   }
   if (r.hostIds) {
     const names = r.hostIds.map((id) => {

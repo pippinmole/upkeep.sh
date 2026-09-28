@@ -5,11 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
 
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -28,6 +24,7 @@ import { type NavGroup, NavItem } from "./types";
 export function NavGroup({ title, items }: NavGroup) {
   const { setOpenMobile } = useSidebar();
   const pathname = usePathname();
+  const navUrls = items.flatMap((item) => (item.items ? item.items.map((i) => i.url) : [item.url]));
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{title}</SidebarGroupLabel>
@@ -38,7 +35,7 @@ export function NavGroup({ title, items }: NavGroup) {
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton
                   asChild
-                  isActive={checkIsActive(pathname, item, true)}
+                  isActive={checkIsActive(pathname, item, navUrls)}
                   tooltip={item.title}
                 >
                   <Link href={item.url} onClick={() => setOpenMobile(false)}>
@@ -54,7 +51,7 @@ export function NavGroup({ title, items }: NavGroup) {
             <Collapsible
               key={item.title}
               asChild
-              defaultOpen={checkIsActive(pathname, item, true)}
+              defaultOpen={checkIsActive(pathname, item, navUrls)}
               className="group/collapsible"
             >
               <SidebarMenuItem>
@@ -70,19 +67,11 @@ export function NavGroup({ title, items }: NavGroup) {
                   <SidebarMenuSub>
                     {item.items.map((subItem) => (
                       <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton
-                          asChild
-                          isActive={checkIsActive(pathname, subItem)}
-                        >
-                          <Link
-                            href={subItem.url}
-                            onClick={() => setOpenMobile(false)}
-                          >
+                        <SidebarMenuSubButton asChild isActive={checkIsActive(pathname, subItem)}>
+                          <Link href={subItem.url} onClick={() => setOpenMobile(false)}>
                             {subItem.icon && <subItem.icon />}
                             <span>{subItem.title}</span>
-                            {subItem.badge && (
-                              <NavBadge>{subItem.badge}</NavBadge>
-                            )}
+                            {subItem.badge && <NavBadge>{subItem.badge}</NavBadge>}
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
@@ -102,7 +91,11 @@ const NavBadge = ({ children }: { children: ReactNode }) => (
   <Badge className="rounded-full px-1 py-0 text-xs">{children}</Badge>
 );
 
-function checkIsActive(href: string, item: NavItem, mainNav = false): boolean {
+// navUrls turns on prefix matching (main nav): an item stays active on its
+// sub-pages, e.g. /dashboard/hosts/<id> keeps Hosts active. An item whose
+// url is a prefix of another nav url (Overview's /dashboard) only matches
+// exactly, so it doesn't light up on every page under it.
+function checkIsActive(href: string, item: NavItem, navUrls?: string[]): boolean {
   const currentPath = normalizePath(href);
 
   if (item.items) {
@@ -114,7 +107,13 @@ function checkIsActive(href: string, item: NavItem, mainNav = false): boolean {
     return true;
   }
 
-  return mainNav && itemPath !== "/" && currentPath.startsWith(`${itemPath}/`);
+  const prefix = `${itemPath}/`;
+  return (
+    !!navUrls &&
+    itemPath !== "/" &&
+    currentPath.startsWith(prefix) &&
+    !navUrls.some((url) => normalizePath(url).startsWith(prefix))
+  );
 }
 
 function normalizePath(url: string): string {

@@ -21,6 +21,9 @@ var testReleases = NewReleases([]Release{
 	{"ubuntu", "jammy", "22.04", true},
 	{"ubuntu", "noble", "24.04", true},
 	{"ubuntu", "questing", "25.10", false},
+	{"alpine", "3.20", "3.20", false},
+	{"alpine", "3.22", "3.22", true},
+	{"alpine", "3.24", "3.24", true},
 })
 
 func load(t *testing.T, name, source string) (Advisory, bool) {
@@ -267,7 +270,11 @@ func TestParseEcosystem(t *testing.T) {
 		{"Ubuntu:Nvidia-BlueField:22.04:LTS", "", "", "", false},
 		{"Ubuntu:22.04:LTS:for:NVIDIA:BlueField", "", "", "", false},
 		{"Debian", "", "", "", false},
-		{"Alpine:v3.20", "", "", "", false},
+		{"Alpine:v3.20", "alpine", "3.20", ChannelStandard, true},
+		{"Alpine:v3.9", "alpine", "3.9", ChannelStandard, true},
+		{"Alpine:3.20", "", "", "", false},
+		{"Alpine:vedge", "", "", "", false},
+		{"Alpine", "", "", "", false},
 	}
 	for _, c := range cases {
 		d, v, ch, ok := ParseEcosystem(c.in)

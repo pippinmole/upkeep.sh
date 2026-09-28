@@ -57,9 +57,16 @@ type Binary struct {
 }
 
 // Resolve maps an interned binary version to what the matcher compares.
+// Ecosystems without a comparator (ecosystems.go) are not matched. For
+// assessed ecosystems other than deb it is the source package and its
+// version as interned (apk: the origin); the kernel mapping below is
+// Debian/Ubuntu-specific.
 func Resolve(b Binary) Target {
-	if b.Ecosystem != "deb" || b.Source == "" || b.SourceVersion == "" {
+	if _, ok := ComparatorFor(b.Ecosystem); !ok || b.Source == "" || b.SourceVersion == "" {
 		return Target{}
+	}
+	if b.Ecosystem != "deb" {
+		return Target{Source: b.Source, Version: b.SourceVersion}
 	}
 	if b.SourceInferred {
 		// Older agents send no Source: field, so the source was defaulted to

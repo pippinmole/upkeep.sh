@@ -272,4 +272,10 @@ type Finding struct {
 	EPSS             *float64 `json:"epss"`
 	Status           string   `json:"status"`
 	FirstSeenAt      string   `json:"first_seen_at,omitempty"`
+	// Kind vulnerable_image only: the image (container_images key id), its
+	// repo tags on the host (digests when untagged) and the containers
+	// using it, as of the transition.
+	ImageID    string   `json:"image_id,omitempty"`
+	ImageRefs  []string `json:"image_refs,omitempty"`
+	Containers []string `json:"containers,omitempty"`
 }

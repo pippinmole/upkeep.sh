@@ -5,8 +5,11 @@ import type { FilterFn } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper, type DataTableFeatures } from "@/components/data-table/features";
+import { ImageScoreCell } from "@/components/image/score-cell";
 import { Badge } from "@/components/ui/badge";
+import { imageHref } from "@/lib/image-key";
 import type { HostImageRow } from "@/lib/queries-docker";
+import { SEVERITIES } from "@/lib/severity";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
 const USE_OPTIONS = [
@@ -16,6 +19,15 @@ const USE_OPTIONS = [
 ];
 const use = (i: HostImageRow) =>
   i.running > 0 ? "running" : i.containers > 0 ? "stopped" : "unused";
+
+// Sort key for the score column: worst bucket, then vulnerability count;
+// images without a score sort below every scored one.
+function scoreRank(i: HostImageRow): number {
+  const s = i.score;
+  if (!s?.scored || s.vulns === null) return -1;
+  const bucket = s.worst ? SEVERITIES.length - SEVERITIES.indexOf(s.worst) : 0;
+  return bucket * 1_000_000 + s.vulns;
+}
 
 const shortId = (id: string) => (id.startsWith("sha256:") ? id.slice(7, 19) : id.slice(0, 12));
 
@@ -94,6 +106,27 @@ const columns = col.columns([
         <span className="text-muted-foreground" title="Not inspected on this host yet">
           Unknown
         </span>
+      );
+    },
+  }),
+  col.accessor((i) => i.score?.worst ?? "", {
+    id: "score",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Vulnerabilities" />,
+    // Most urgent first: worst bucket (SEVERITIES order), then count.
+    sortFn: (a, b) => scoreRank(a.original) - scoreRank(b.original),
+    cell: ({ row }) => {
+      const i = row.original;
+      const platform =
+        i.os !== null && i.arch !== null && i.variant !== null
+          ? { os: i.os, arch: i.arch, variant: i.variant }
+          : null;
+      return (
+        <ImageScoreCell
+          score={i.score}
+          inspected={platform !== null}
+          hasRepoDigest={i.repoDigests.length > 0}
+          href={platform ? imageHref(i.imageId, { platform }) : null}
+        />
       );
     },
   }),

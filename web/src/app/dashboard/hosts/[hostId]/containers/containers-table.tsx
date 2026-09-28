@@ -1,3 +1,4 @@
+import { ImageScoreCell } from "@/components/image/score-cell";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -7,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { imageHref } from "@/lib/image-key";
 import type { ContainerPort, HostContainerRow } from "@/lib/queries-docker";
 import { formatDateTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -288,6 +290,18 @@ function ContainerRow({ c }: { c: HostContainerRow }) {
       <TableCell>
         <ImageCell c={c} />
       </TableCell>
+      <TableCell>
+        {c.imageId ? (
+          <ImageScoreCell
+            score={c.imageScore}
+            inspected={c.imagePlatform !== null}
+            hasRepoDigest={c.imageDigests.length > 0}
+            href={c.imagePlatform ? imageHref(c.imageId, { platform: c.imagePlatform }) : null}
+          />
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </TableCell>
       {known ? (
         <>
           <TableCell>
@@ -348,6 +362,7 @@ export function ContainersTable({ rows }: { rows: HostContainerRow[] }) {
                   <TableHead>Name</TableHead>
                   <TableHead>State</TableHead>
                   <TableHead>Image</TableHead>
+                  <TableHead>Image vulnerabilities</TableHead>
                   <TableHead>Published ports</TableHead>
                   <TableHead>Networks</TableHead>
                   <TableHead>Restart</TableHead>

@@ -39,6 +39,14 @@ func TestMatch(t *testing.T) {
 		{"host scope, event without hosts", with(func(r *Rule) { r.HostIDs = []string{"h1"} }),
 			EventMeta{UserID: "u", Type: notify.EventAgentStale}, false},
 		{"empty (non-nil) scope matches nothing", with(func(r *Rule) { r.HostIDs = []string{} }), opened, false},
+		{"finding kind selected", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_image"} }),
+			EventMeta{UserID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, true},
+		{"finding kind not selected", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_package"} }),
+			EventMeta{UserID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, false},
+		{"finding kind unknown on the event", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_package"} }),
+			opened, true},
+		{"finding kinds don't apply to agent events", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_image"} }),
+			stale, true},
 	}
 	for _, c := range cases {
 		if got := Match(c.rule, c.ev); got != c.want {

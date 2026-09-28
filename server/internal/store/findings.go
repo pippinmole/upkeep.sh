@@ -23,6 +23,7 @@ var ErrUnevaluated = errors.New("host has package versions not yet evaluated by 
 type ReconcileResult struct {
 	HostFound                        bool
 	RunningKernel                    string // "" = unknown
+	Images                           int    // images in the vulnerable_image scope with a package list
 	Opened, Reopened, Kept, Resolved int
 	// AlertEvents is the number of finding.* alert_events written (only
 	// for users with an enabled rule for that event type).
@@ -35,9 +36,12 @@ type ReconcileResult struct {
 type AfterReconcile func(ctx context.Context, tx pgx.Tx, res ReconcileResult) error
 
 // ReconcileHostFindings makes the host's vulnerable_package findings match
-// its current inventory's matches (findings.Build + findings.Reconcile) in
-// one transaction, holding the host row lock (the same lock snapshot
-// ingest takes), so it always sees a complete inventory.
+// its current inventory's matches (findings.Build) and its
+// vulnerable_image findings match the package lists of the images its
+// containers use (findings.BuildImage, imagefindings.go), with one
+// findings.Reconcile over both, in one transaction, holding the host row
+// lock (the same lock snapshot ingest takes), so it always sees a complete
+// inventory.
 func (s *Store) ReconcileHostFindings(ctx context.Context, hostID string) (ReconcileResult, error) {
 	return s.ReconcileHostFindingsTx(ctx, hostID, nil)
 }
@@ -53,8 +57,8 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 	}
 	defer tx.Rollback(ctx)
 
-	var locked string
-	err = tx.QueryRow(ctx, `SELECT id FROM hosts WHERE id = $1 FOR NO KEY UPDATE`, hostID).Scan(&locked)
+	var userID string
+	err = tx.QueryRow(ctx, `SELECT user_id FROM hosts WHERE id = $1 FOR NO KEY UPDATE`, hostID).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return res, nil // host deleted since the job was queued
 	}
@@ -62,6 +66,15 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 		return res, err
 	}
 	res.HostFound = true
+
+	// Images in the vulnerable_image scope, with the owner's effective
+	// package list (imagefindings.go).
+	images, err := loadHostImages(ctx, tx, hostID, userID)
+	if err != nil {
+		return res, err
+	}
+	res.Images = len(images)
+	sbomIDs := sbomIDsOf(images)
 
 	var pending bool
 	if err := tx.QueryRow(ctx, `
@@ -71,6 +84,11 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 			WHERE hs.host_id = $1 AND hs.removed_at IS NULL AND sv.matcher_version IS NULL)
 	`, hostID).Scan(&pending); err != nil {
 		return res, err
+	}
+	if !pending {
+		if pending, err = imageListsPending(ctx, tx, sbomIDs); err != nil {
+			return res, err
+		}
 	}
 	if pending {
 		return res, ErrUnevaluated
@@ -87,7 +105,7 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 	res.RunningKernel = deref(kernel)
 
 	rows, err := tx.Query(ctx, `
-		SELECT sv.id, sv.name, sv.match_source, sv.match_version, COALESCE(sv.kernel_release, ''),
+		SELECT sv.id, sv.ecosystem, sv.name, sv.match_source, sv.match_version, COALESCE(sv.kernel_release, ''),
 		       sw.vuln_key, sw.advisory_ids, sw.fixed_version, COALESCE(sw.fix_channel, ''),
 		       COALESCE(sw.fix_advisory_id, ''), sw.distro_severity
 		FROM host_software hs
@@ -102,7 +120,7 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 	vulnKeys := map[string]bool{}
 	for rows.Next() {
 		var m findings.HostMatch
-		if err := rows.Scan(&m.SoftwareID, &m.Package, &m.Source, &m.Version, &m.KernelRelease,
+		if err := rows.Scan(&m.SoftwareID, &m.Ecosystem, &m.Package, &m.Source, &m.Version, &m.KernelRelease,
 			&m.Match.VulnKey, &m.Match.AdvisoryIDs, &m.Match.FixedVersion, &m.Match.FixChannel,
 			&m.Match.FixAdvisoryID, &m.Match.Severity); err != nil {
 			rows.Close()
@@ -114,17 +132,22 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 	if err := rows.Err(); err != nil {
 		return res, err
 	}
+	imageMatches, err := loadListMatches(ctx, tx, sbomIDs, vulnKeys)
+	if err != nil {
+		return res, err
+	}
 
 	cves, err := loadCVEs(ctx, tx, vulnKeys)
 	if err != nil {
 		return res, err
 	}
 	desired := findings.Build(matches, res.RunningKernel, cves)
+	desired = append(desired, buildImageFindings(images, imageMatches, cves)...)
 
 	rows, err = tx.Query(ctx, `
 		SELECT id::text, dedup_key, status, first_seen_at, reopened_at, reopen_count
-		FROM findings WHERE host_id = $1 AND kind = $2
-	`, hostID, findings.KindVulnerablePackage)
+		FROM findings WHERE host_id = $1 AND kind = ANY($2)
+	`, hostID, findings.VulnKinds)
 	if err != nil {
 		return res, err
 	}
@@ -209,46 +232,53 @@ func loadCVEs(ctx context.Context, tx pgx.Tx, keys map[string]bool) (map[string]
 	return out, rows.Err()
 }
 
-var findingCols = []string{"dedup_key", "vuln_key", "source_package", "installed_version",
+var findingCols = []string{"kind", "dedup_key", "vuln_key", "source_package", "installed_version",
 	"fixed_version", "fix_channel", "requires_pro", "fix_advisory_id", "advisory_ids",
 	"distro_severity", "severity", "severity_rank", "severity_key", "is_kev", "epss_score",
 	"epss_percentile", "cvss_v3_score", "software_ids", "packages", "kernel_release",
-	"running_kernel_unknown", "first_seen_at", "reopened_at", "reopen_count"}
+	"running_kernel_unknown", "first_seen_at", "reopened_at", "reopen_count",
+	"image_id", "image_os", "image_arch", "image_variant", "image_refs", "container_names"}
 
 func writeFindings(ctx context.Context, tx pgx.Tx, hostID string, plan findings.Plan, now time.Time) error {
 	if len(plan.Upserts) > 0 {
 		if _, err := tx.Exec(ctx, `
 			CREATE TEMP TABLE findings_stage (
-				dedup_key text, vuln_key text, source_package text, installed_version text,
+				kind text, dedup_key text, vuln_key text, source_package text, installed_version text,
 				fixed_version text, fix_channel text, requires_pro boolean, fix_advisory_id text,
 				advisory_ids text[], distro_severity text, severity text, severity_rank int,
 				severity_key bigint, is_kev boolean, epss_score float8, epss_percentile float8,
 				cvss_v3_score float8, software_ids bigint[], packages text[], kernel_release text,
 				running_kernel_unknown boolean, first_seen_at timestamptz, reopened_at timestamptz,
-				reopen_count int
+				reopen_count int, image_id text, image_os text, image_arch text, image_variant text,
+				image_refs text[], container_names text[]
 			) ON COMMIT DROP
 		`); err != nil {
 			return err
 		}
 		stage := make([][]any, len(plan.Upserts))
 		for i, u := range plan.Upserts {
-			stage[i] = []any{u.DedupKey, u.VulnKey, u.Source, u.InstalledVersion,
+			var (
+				imgID, imgOS, imgArch, imgVariant any
+				refs, containers                  = []string{}, []string{}
+			)
+			if im := u.Image; im != nil {
+				imgID, imgOS, imgArch, imgVariant = im.ID, im.OS, im.Arch, im.Variant
+				refs, containers = orEmpty(im.Refs), orEmpty(im.Containers)
+			}
+			stage[i] = []any{u.Kind, u.DedupKey, u.VulnKey, u.Source, u.InstalledVersion,
 				u.FixedVersion, nilIfEmpty(u.FixChannel), u.RequiresPro(), nilIfEmpty(u.FixAdvisoryID),
 				u.AdvisoryIDs, u.DistroSeverity, u.Severity.Bucket.String(), int(u.Severity.Bucket),
 				int64(u.Severity.Key), u.CVE.KEV, u.CVE.EPSS, u.CVE.EPSSPercentile, u.CVE.CVSS,
 				u.SoftwareIDs, u.Packages, nilIfEmpty(u.KernelRelease), u.RunningKernelUnknown,
-				u.FirstSeenAt, u.ReopenedAt, u.ReopenCount}
+				u.FirstSeenAt, u.ReopenedAt, u.ReopenCount,
+				imgID, imgOS, imgArch, imgVariant, refs, containers}
 		}
 		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"findings_stage"}, findingCols, pgx.CopyFromRows(stage)); err != nil {
 			return fmt.Errorf("stage findings: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO findings (host_id, kind, status, last_seen_at, resolved_at, details, `+strings.Join(findingCols, ", ")+`)
-			SELECT $1, $2, 'open', $3, NULL, '{}', dedup_key, vuln_key, source_package, installed_version,
-			       fixed_version, fix_channel, requires_pro, fix_advisory_id, advisory_ids,
-			       distro_severity, severity, severity_rank, severity_key, is_kev, epss_score,
-			       epss_percentile, cvss_v3_score, software_ids, packages, kernel_release,
-			       running_kernel_unknown, first_seen_at, reopened_at, reopen_count
+			INSERT INTO findings (host_id, status, last_seen_at, resolved_at, details, `+strings.Join(findingCols, ", ")+`)
+			SELECT $1, 'open', $2, NULL, '{}', `+strings.Join(findingCols, ", ")+`
 			FROM findings_stage
 			ON CONFLICT (host_id, dedup_key) DO UPDATE SET
 				kind = EXCLUDED.kind, status = 'open', last_seen_at = EXCLUDED.last_seen_at,
@@ -264,8 +294,11 @@ func writeFindings(ctx context.Context, tx pgx.Tx, hostID string, plan findings.
 				packages = EXCLUDED.packages, kernel_release = EXCLUDED.kernel_release,
 				running_kernel_unknown = EXCLUDED.running_kernel_unknown,
 				first_seen_at = EXCLUDED.first_seen_at, reopened_at = EXCLUDED.reopened_at,
-				reopen_count = EXCLUDED.reopen_count
-		`, hostID, findings.KindVulnerablePackage, now); err != nil {
+				reopen_count = EXCLUDED.reopen_count,
+				image_id = EXCLUDED.image_id, image_os = EXCLUDED.image_os,
+				image_arch = EXCLUDED.image_arch, image_variant = EXCLUDED.image_variant,
+				image_refs = EXCLUDED.image_refs, container_names = EXCLUDED.container_names
+		`, hostID, now); err != nil {
 			return fmt.Errorf("upsert findings: %w", err)
 		}
 	}
@@ -285,7 +318,7 @@ type RerankResult struct {
 	Checked, Updated int
 }
 
-// RerankFindings recomputes severity for open vulnerable_package findings
+// RerankFindings recomputes severity for open findings (both kinds)
 // whose CVE's enrichment (KEV, EPSS, CVSS) changed at or after since
 // (cves.updated_at), and updates the ones whose ranking inputs or result
 // changed. It never changes the open/resolved lifecycle. A zero since
@@ -300,9 +333,9 @@ func (s *Store) RerankFindings(ctx context.Context, since time.Time) (RerankResu
 			       c.is_kev, c.epss_score::float8, c.epss_percentile::float8, c.cvss_v3_score::float8
 			FROM findings f
 			JOIN cves c ON c.id = f.vuln_key
-			WHERE f.status = 'open' AND f.kind = $1 AND c.updated_at >= $2 AND f.id::text > $3
+			WHERE f.status = 'open' AND f.kind = ANY($1) AND c.updated_at >= $2 AND f.id::text > $3
 			ORDER BY f.id::text LIMIT 5000
-		`, findings.KindVulnerablePackage, since, after)
+		`, findings.VulnKinds, since, after)
 		if err != nil {
 			return res, err
 		}
@@ -358,6 +391,13 @@ func (s *Store) RerankFindings(ctx context.Context, since time.Time) (RerankResu
 			return res, nil
 		}
 	}
+}
+
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func eqF(a, b *float64) bool {

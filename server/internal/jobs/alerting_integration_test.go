@@ -477,6 +477,46 @@ func TestEvaluateScopeAndKEV(t *testing.T) {
 	}
 }
 
+// alert_rules.finding_kinds (migration 0015): a rule created without it
+// gets both kinds; a narrowed rule only sees events of its kinds.
+func TestEvaluateFindingKinds(t *testing.T) {
+	f := newAlertFixture(t)
+	ctx := context.Background()
+	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
+	both := f.rule("both", ruleOpts{types: []string{notify.EventFindingOpened}}, ch)
+	images := f.rule("images", ruleOpts{types: []string{notify.EventFindingOpened}}, ch)
+	pkgs := f.rule("packages", ruleOpts{types: []string{notify.EventFindingOpened}}, ch)
+	f.exec(`UPDATE alert_rules SET finding_kinds = '{vulnerable_image}' WHERE id = $1`, images)
+	f.exec(`UPDATE alert_rules SET finding_kinds = '{vulnerable_package}' WHERE id = $1`, pkgs)
+	var kinds []string
+	if err := f.s.Pool.QueryRow(ctx, `SELECT finding_kinds FROM alert_rules WHERE id = $1`, both).Scan(&kinds); err != nil ||
+		len(kinds) != 2 {
+		t.Fatalf("default finding_kinds = %v (%v), want both", kinds, err)
+	}
+	for _, bad := range []string{`'{}'`, `'{public_port}'`} {
+		if _, err := f.s.Pool.Exec(ctx, `UPDATE alert_rules SET finding_kinds = `+bad+` WHERE id = $1`, both); err == nil {
+			t.Errorf("finding_kinds = %s accepted", bad)
+		}
+	}
+
+	sev := 5
+	now := time.Now().UTC()
+	f.event(notify.EventFindingOpened, "finding:pkg", &sev, false, now) // kind vulnerable_package
+	f.exec(`INSERT INTO alert_events (user_id, type, subject, host_ids, severity_rank, is_kev, payload)
+	        VALUES ($1, 'finding.opened', 'finding:img', ARRAY[$2::uuid], 5, false,
+	                '{"finding": {"kind": "vulnerable_image", "vuln_key": "CVE-1", "image_id": "sha256:x", "severity": "high"}}')`,
+		f.userID, f.hostID)
+	r, err := f.s.EvaluateAlerts(ctx, now, store.AlertOptions{})
+	if err != nil || r.Events != 2 || r.Matched != 4 {
+		t.Fatalf("evaluate: %+v %v (want 2 events, 4 matches)", r, err)
+	}
+	for id, want := range map[string]int{both: 2, images: 1, pkgs: 1} {
+		if n := f.count(`SELECT coalesce(sum(event_count), 0) FROM notifications WHERE rule_id = $1`, id); n != want {
+			t.Errorf("rule %s: %d events notified, want %d", id, n, want)
+		}
+	}
+}
+
 // Outbox writes only happen for users with a matching enabled rule, and
 // reconcile's hook sees how many were written.
 func TestAgentHealthEvents(t *testing.T) {

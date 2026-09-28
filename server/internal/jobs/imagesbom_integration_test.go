@@ -39,6 +39,7 @@ func TestEnqueueAfterImageSBOMIsTransactional(t *testing.T) {
 		ctx := context.Background()
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM river_job WHERE kind = 'match_versions' AND args->'ids' @> (
 			SELECT to_jsonb(array_agg(id)) FROM software_versions WHERE distro = $1)`, tag)
+		_, _ = s.Pool.Exec(ctx, `DELETE FROM river_job WHERE kind = 'reconcile_image' AND args->>'image_id' = $1`, key.ImageID)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM image_sbom_state WHERE image_id = $1`, key.ImageID)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM container_images WHERE image_id = $1`, key.ImageID)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM software_versions WHERE distro = $1`, tag)
@@ -102,5 +103,14 @@ func TestEnqueueAfterImageSBOMIsTransactional(t *testing.T) {
 		SELECT to_jsonb(min(id)) FROM software_versions WHERE distro = $1)`, tag).Scan(&total)
 	if total != 1 {
 		t.Fatalf("after rewrite: %d jobs, want 1", total)
+	}
+	// Every committed write queues reconcile_image for its key (score the
+	// list, then reconcile the hosts having the image); the rolled-back
+	// one didn't.
+	var reconciles int
+	_ = s.Pool.QueryRow(ctx, `SELECT count(*) FROM river_job WHERE kind = 'reconcile_image' AND args->>'image_id' = $1`,
+		key.ImageID).Scan(&reconciles)
+	if reconciles != 2 {
+		t.Fatalf("reconcile_image jobs: %d, want 2", reconciles)
 	}
 }

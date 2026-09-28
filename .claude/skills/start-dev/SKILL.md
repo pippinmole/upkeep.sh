@@ -50,6 +50,18 @@ bash .claude/skills/start-dev/scripts/test-agent-mac.sh [interval]
 
 Both scripts print progress as they go and leave the agent running in the foreground, pushing a new snapshot every `interval`. Ctrl-C to stop. Each run mints a brand-new host identity (enrollment always creates a new row — there's no "re-enroll the same host" concept in this codebase yet), so expect a fresh row to show up in `/dashboard/agents` each time you run one of these, not an update to a previous test host.
 
+### Which account the test host lands in
+
+The dashboard only shows a user their own hosts, so the enrollment token must belong to the account you sign in with. Both scripts get the token from `scripts/enroll-token.sh`, which uses `SW_TEST_USER_EMAIL` if set, else the only user if there is exactly one, and otherwise **stops and lists the users** instead of guessing (a `LIMIT 1` used to enroll into a leftover test account, so hosts silently never appeared). Ask the user which account they sign in with, or read it from the dev DB, then run e.g.:
+
+```
+SW_TEST_USER_EMAIL=admin@admin.com bash .claude/skills/start-dev/scripts/test-agent-mac.sh
+```
+
+### Docker data (macOS script)
+
+`test-agent-mac.sh` mounts the Docker socket read-only by default, so the agent's Docker collectors report Docker Desktop's real containers and images; the Images pages and image vulnerabilities need them. `SW_TEST_DOCKER=0` turns it off. The socket is root on the Docker VM, which is fine for a local test agent only. Without it the agent reports "Docker not enabled" and the Images page stays empty.
+
 ### Verifying it worked
 
 Query the DB directly rather than guessing from the agent's log output alone — a `pushed snapshot: N packages, M sockets` log line only means the HTTP call returned success, not that the data is well-formed (the `snapshots.reboot_packages` `NOT NULL` constraint has bitten this exact flow before). Something like:
