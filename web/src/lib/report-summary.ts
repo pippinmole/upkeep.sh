@@ -13,9 +13,14 @@ function count(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** What the summary reads: listings load only these parts of a snapshot. */
+export type ReportSummaryInput = Pick<ReportSnapshot, "headline"> & {
+  coverage: Pick<ReportSnapshot["coverage"], "stale_agents">;
+};
+
 // Distinct hosts behind the stale agents (an agent can report for more than
 // one host, and a host can in principle appear under two agents).
-export function staleHostCount(snapshot: ReportSnapshot): number {
+export function staleHostCount(snapshot: ReportSummaryInput): number {
   const ids = new Set<string>();
   for (const agent of snapshot.coverage.stale_agents) {
     for (const host of agent.hosts) ids.add(host.id);
@@ -23,7 +28,7 @@ export function staleHostCount(snapshot: ReportSnapshot): number {
   return ids.size;
 }
 
-export function reportSummary(snapshot: ReportSnapshot): string {
+export function reportSummary(snapshot: ReportSummaryInput): string {
   const h = snapshot.headline;
   const parts: string[] = [];
   if (h.patch_now > 0) parts.push(count(h.patch_now, "urgent action", "urgent actions"));

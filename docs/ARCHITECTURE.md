@@ -306,7 +306,11 @@ and a priority (Automatic, or a fixed 1–5 that overrides the mapping).
   EPSS; for agents last seen + hosts), then `Rule: <name>`. Several events
   (a batch or a digest) → the notification's `Summary` as the title and a
   bulleted list of up to 10 events ("…and N more"). Digests are titled
-  `Digest: …`. "Send test" sends a fixed test message. The body is kept
+  `Digest: …`. "Send test" sends a fixed test message. A scheduled
+  report is titled with its summary line (`Monday patch list: 1 urgent
+  action, 2 to patch this week, …`, or `…: all clear`) and its body lists
+  the estate size and the headline numbers with their change since the
+  previous report (`Open findings: 42 (+12, +40%)`). The body is kept
   under 3500 bytes (ntfy turns messages over 4 KB into attachments).
 - **Priority** (Automatic), highest event wins:
 
@@ -319,14 +323,20 @@ and a priority (Automatic, or a fixed 1–5 that overrides the mapping).
   | finding resolved, agent recovered | 2 low |
   | agent stale | 4 high |
   | "Send test" | 3 default |
+  | report with something to patch now (KEV) | 4 high |
+  | any other report | 3 default |
 
-  Digests are capped at 4 (the user chose a roundup over being paged).
+  Digests are capped at 4 (the user chose a roundup over being paged);
+  a report is never urgent for the same reason. A channel's fixed
+  priority overrides all of these.
   Tags: an emoji for the top event (`rotating_light` KEV/critical,
   `warning` high, `mag` other findings, `white_check_mark` resolved /
   recovered, `electric_plug` stale), plus `kev`, the severity and the
-  host name.
+  host name. Reports: `clipboard`, plus `kev` when there is something to
+  patch now.
 - **click**: the event's dashboard link (only when `SW_DASHBOARD_URL` is
   set); for several events, their shared link, else the `/dashboard` root.
+  For a report, its page (`/dashboard/reports/<id>`).
 - **Errors**: non-2xx fails the attempt with ntfy's error text (its JSON
   `error`, else the truncated body) in the delivery log. 408/425/429/5xx
   are retried with backoff; other 4xx (bad topic, 401/403 token) and 3xx
@@ -390,6 +400,9 @@ platform-wide SMTP config ([decisions/email-notifier-smtp.md](decisions/email-no
   (`internal/notify/render`): event detail lines, or a bulleted list of up
   to 50 events, then `Open in upkeep.sh: <link>` (when `SW_DASHBOARD_URL`
   is set) and `Rule: <name>`. "Send test" sends a fixed test message.
+  A report is, for now, the same plain text as its ntfy push (subject
+  `[upkeep.sh] ` + the summary line, body the headline numbers and the
+  report link); the HTML report is planned (see Reports).
 - **Header injection**: addresses, host, username and password with CR/LF
   (or other control characters, for addresses and host) are rejected by
   validation; event text in the subject has control characters replaced;
@@ -426,21 +439,52 @@ with a fake channel type registered next to the webhook to prove it.
 
 ## Reports (planned)
 
-Not built yet ([tasks/phase-1-7-reports.md](tasks/phase-1-7-reports.md);
-[decisions/scheduled-reports.md](decisions/scheduled-reports.md) and [decisions/report-email-html.md](decisions/report-email-html.md)). Planned
-shape:
+In progress ([tasks/phase-1-7-reports.md](tasks/phase-1-7-reports.md);
+[decisions/scheduled-reports.md](decisions/scheduled-reports.md) and [decisions/report-email-html.md](decisions/report-email-html.md)).
+The worker side is built except the HTML email; the dashboard is not yet:
 
 ```
-report_due (1m)  schedules with next_run_at <= now -> build snapshot
-                 (one read tx) -> reports row -> report notification +
-                 one notification_deliveries row per channel -> alert_deliver
-alert_deliver    email: POST snapshot to web's internal render route
-                 (React Email -> {subject, html, text}), then SMTP;
-                 webhook: snapshot JSON; ntfy: summary + report link
+alerts queue (server/internal/jobs/reports.go):
+  report_due       (1m) advisory-locked pass over enabled schedules:
+                   next_run_at NULL -> computed from now, not run;
+                   next_run_at <= now -> run once, next_run_at -> the first
+                   occurrence after now (a run missed while the worker was
+                   down runs once, not once per missed period)
+  report_send_now  "Send now": web inserts the River job (args
+                   {"schedule_id"}); runs the schedule even when disabled,
+                   trigger manual, next_run_at untouched
+  both -> runReport: previous report + inputs in one REPEATABLE READ tx ->
+                   reports.Build + reports.Compare -> one write tx: reports
+                   row, last_run_at (+ next_run_at), a 'report'
+                   notification (report_id) + one notification_deliveries
+                   row per enabled schedule channel + alert_deliver (InsertTx)
+  alert_deliver    loads the snapshot through notifications.report_id (a
+                   report deleted with its schedule fails the delivery
+                   permanently) and builds the report link at send time;
+                   webhook: snapshot JSON; ntfy: summary + headline + link;
+                   email: plain-text headline + link for now, planned:
+                   POST snapshot to web's internal render route
+                   (React Email -> {subject, html, text}), then SMTP
 ```
 
-This is the first place the worker depends on `web` at runtime. A
-failed render is retried like a failed send.
+- **Timing**: `reports.NextRun` keeps the local hour in the schedule's
+  IANA timezone across DST: a time that doesn't exist (spring forward)
+  runs when the clocks go forward, a time that happens twice (fall back)
+  runs at the first occurrence. A timezone the worker doesn't know leaves
+  the schedule as it is (logged once per worker process).
+- **Run once**: the write transaction locks the schedule row and re-checks
+  `next_run_at` (scheduled) or looks for a manual report generated since
+  the job was created (Send now retried), so overlapping passes or a
+  retried job don't send twice; a report stored meanwhile by another run
+  (so the comparison would be against the wrong previous report) makes
+  the job build it again. A schedule with no enabled channel still gets
+  its report stored, for the dashboard.
+- **Summary line**: `"{schedule name}: {summary}"`
+  (`reports.Title`; the email subject in `web/src/lib/report-summary.ts`
+  must match it), stored as the notification's `summary`.
+
+With the HTML email, this is the first place the worker depends on `web`
+at runtime. A failed render is retried like a failed send.
 
 Schema: migration 0017 (`report_schedules`, `report_schedule_channels`,
 `reports`, and `notifications.report_id` for the `report` kind). The

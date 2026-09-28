@@ -39,6 +39,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify/render"
+	"github.com/pippinmole/upkeep.sh/server/internal/reports"
 )
 
 const (
@@ -308,6 +309,19 @@ func Render(n notify.Notification) Message {
 		}
 		b.WriteString("This is a test email from upkeep.sh.\n\n" +
 			"Your email channel works: alerts matching your rules will be delivered to this address.")
+	case n.Kind == notify.KindReport:
+		// Plain-text stand-in for reports, so the pipeline works end to
+		// end. To be replaced by the HTML report from web's internal render
+		// route (multipart/alternative; docs/tasks/phase-1-7-reports.md,
+		// React Email item).
+		subject = n.Summary
+		if n.Report != nil && n.Report.Snapshot != nil {
+			subject = reports.Title(*n.Report.Snapshot)
+			b.WriteString(subject + "\n\n" + render.ReportHeadline(*n.Report.Snapshot))
+			link = n.Report.URL
+		} else {
+			b.WriteString(subject)
+		}
 	case len(n.Events) == 1:
 		e := n.Events[0]
 		subject = render.Title(e)
@@ -330,7 +344,11 @@ func Render(n notify.Notification) Message {
 	if n.Rule != nil && n.Rule.Name != "" {
 		b.WriteString("\n\nRule: " + n.Rule.Name)
 	}
-	b.WriteString("\n\n-- \nSent by upkeep.sh. Change what you're alerted about under Alerts in the dashboard.\n")
+	if n.Kind == notify.KindReport {
+		b.WriteString("\n\n-- \nSent by upkeep.sh. Change your reports under Settings > Notification settings in the dashboard.\n")
+	} else {
+		b.WriteString("\n\n-- \nSent by upkeep.sh. Change what you're alerted about under Alerts in the dashboard.\n")
+	}
 	return Message{Subject: render.Truncate(sanitizeHeader(subject), maxSubject), Body: b.String()}
 }
 

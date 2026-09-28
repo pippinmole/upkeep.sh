@@ -2,7 +2,7 @@ import { SettingsNav } from "./settings-nav";
 
 // Settings: account-wide configuration, one route per section (listed in
 // components/layout/settings-sections.ts). Only notification channels live
-// here for now.
+// here for now (channels and report schedules).
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">

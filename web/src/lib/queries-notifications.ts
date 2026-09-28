@@ -146,7 +146,9 @@ export type DeliveryRow = {
   id: string;
   createdAt: string;
   updatedAt: string;
-  kind: "alert" | "digest" | "test";
+  kind: "alert" | "digest" | "test" | "report";
+  // Report notifications: the stored report (null once its schedule is deleted).
+  reportId: string | null;
   ruleName: string | null;
   summary: string;
   eventCount: number;
@@ -161,13 +163,19 @@ export type DeliveryRow = {
 };
 
 // The most recent deliveries (the log keeps 90 days; the page shows the
-// newest `limit`).
-export async function getDeliveries(userId: string, limit = 500): Promise<DeliveryRow[]> {
+// newest `limit`), or only those of one notification (the report page links
+// here). notificationId must be a UUID; the caller checks.
+export async function getDeliveries(
+  userId: string,
+  limit = 500,
+  notificationId: string | null = null,
+): Promise<DeliveryRow[]> {
   const { rows } = await pool.query<{
     id: string;
     created_at: Date;
     updated_at: Date;
     kind: DeliveryRow["kind"];
+    report_id: string | null;
     rule_name: string | null;
     summary: string;
     event_count: number;
@@ -186,7 +194,7 @@ export async function getDeliveries(userId: string, limit = 500): Promise<Delive
       duration_ms: number;
     }[];
   }>(
-    `SELECT d.id, d.created_at, d.updated_at, n.kind, r.name AS rule_name, n.summary, n.event_count,
+    `SELECT d.id, d.created_at, d.updated_at, n.kind, n.report_id, r.name AS rule_name, n.summary, n.event_count,
             d.channel_id, d.channel_name, d.channel_type, d.status, d.attempts,
             d.last_status_code, d.last_error,
             COALESCE((SELECT json_agg(json_build_object('attempt', a.attempt, 'attempted_at', a.attempted_at,
@@ -195,16 +203,17 @@ export async function getDeliveries(userId: string, limit = 500): Promise<Delive
      FROM notification_deliveries d
      JOIN notifications n ON n.id = d.notification_id
      LEFT JOIN alert_rules r ON r.id = n.rule_id
-     WHERE d.user_id = $1
+     WHERE d.user_id = $1 AND ($3::uuid IS NULL OR d.notification_id = $3)
      ORDER BY d.created_at DESC, d.id
      LIMIT $2`,
-    [userId, limit],
+    [userId, limit, notificationId],
   );
   return rows.map((r) => ({
     id: r.id,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
     kind: r.kind,
+    reportId: r.report_id,
     ruleName: r.rule_name,
     summary: r.summary,
     eventCount: r.event_count,

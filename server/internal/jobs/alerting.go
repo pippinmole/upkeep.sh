@@ -231,6 +231,8 @@ func (w *AlertDeliverWorker) Work(ctx context.Context, job *river.Job[AlertDeliv
 		return err
 	}
 	switch {
+	case d.ReportDeleted:
+		return fail("report was deleted (its schedule was deleted)")
 	case d.ChannelID == nil:
 		return fail("channel was deleted")
 	case !d.ChannelEnabled && d.Kind != notify.KindTest:
@@ -239,6 +241,11 @@ func (w *AlertDeliverWorker) Work(ctx context.Context, job *river.Job[AlertDeliv
 	n, ok := w.Cfg.Notifiers.Get(d.ChannelType)
 	if !ok {
 		return fail("unknown channel type " + d.ChannelType)
+	}
+	if r := d.Notification.Report; r != nil {
+		// Built at send time: the snapshot has no URLs (the dashboard's base
+		// URL can change after a report is stored).
+		r.URL = store.ReportURL(w.Cfg.DashboardURL, r.ID)
 	}
 
 	start := time.Now()

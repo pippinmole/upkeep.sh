@@ -263,7 +263,7 @@ function hostActionSection(
 // "db-1 was added since the last report: 1 of the 1 to patch now, 9 of the
 // 42 open findings." Archived hosts are compared with the previous report,
 // which is where their share was counted.
-function attribution(s: ReportSnapshot): string[] {
+function attribution(s: ReportSnapshot, cap: number): string[] {
   const c = s.changes;
   if (!c) return [];
   const lines: string[] = [];
@@ -281,7 +281,7 @@ function attribution(s: ReportSnapshot): string[] {
     ...c.hosts_added.map((h) => ({ h, added: true })),
     ...c.hosts_archived.map((h) => ({ h, added: false })),
   ];
-  for (const { h, added } of hosts.slice(0, ATTRIBUTION_CAP)) {
+  for (const { h, added } of hosts.slice(0, cap)) {
     const parts = added
       ? share(h.contribution, (k) => s.headline[k])
       : share(h.contribution, (k) => c.metrics[k]?.previous ?? null);
@@ -292,10 +292,8 @@ function attribution(s: ReportSnapshot): string[] {
         : `${h.name} ${what}.`,
     );
   }
-  if (hosts.length > ATTRIBUTION_CAP) {
-    lines.push(
-      `…and ${hosts.length - ATTRIBUTION_CAP} more hosts added or archived, ${MORE_TEXT}.`,
-    );
+  if (hosts.length > cap) {
+    lines.push(`…and ${hosts.length - cap} more hosts added or archived, ${MORE_TEXT}.`);
   }
   return lines;
 }
@@ -354,7 +352,13 @@ function coverageSection(s: ReportSnapshot, f: Fmt): Section {
   };
 }
 
-export function reportEmailModel(s: ReportSnapshot, reportUrl: string | null): ReportEmailModel {
+// The dashboard's report page reuses the headline, change notes and section
+// texts with attributionCap = Infinity (it renders the items itself, uncapped).
+export function reportEmailModel(
+  s: ReportSnapshot,
+  reportUrl: string | null,
+  attributionCap = ATTRIBUTION_CAP,
+): ReportEmailModel {
   const f = formatters(s.schedule.timezone);
   const c = s.changes;
 
@@ -373,7 +377,7 @@ export function reportEmailModel(s: ReportSnapshot, reportUrl: string | null): R
         "How actions are ranked into tiers changed since the last report, so tier numbers aren't compared.",
       );
     }
-    changeNotes.push(...attribution(s));
+    changeNotes.push(...attribution(s, attributionCap));
   }
 
   const nf = s.no_fix;

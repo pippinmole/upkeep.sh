@@ -43,6 +43,8 @@ import (
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/pippinmole/upkeep.sh/server/internal/reports"
 )
 
 // FieldType is how the dashboard renders and validates a config field.
@@ -194,6 +196,7 @@ const (
 	KindAlert  = "alert"  // immediate: one evaluation pass's matches for a rule
 	KindDigest = "digest" // a rule's matches over its digest interval
 	KindTest   = "test"   // "send test" from the dashboard
+	KindReport = "report" // a scheduled estate report (Report is set)
 )
 
 // Notification is one message to deliver, identical for every channel.
@@ -208,6 +211,20 @@ type Notification struct {
 	// use it as the message title).
 	Summary string  `json:"summary"`
 	Events  []Event `json:"events"`
+	// Report is set for KindReport only (events is then empty).
+	Report *Report `json:"report,omitempty"`
+}
+
+// Report is the stored report a KindReport notification delivers. The
+// notifications row keeps only its id (notifications.report_id);
+// alert_deliver loads the snapshot from the reports row and builds the
+// URL at send time, so every channel and retry sends the stored report.
+type Report struct {
+	ID string `json:"id"` // reports.id
+	// URL is the report page (SW_DASHBOARD_URL + /dashboard/reports/<id>);
+	// omitted when SW_DASHBOARD_URL is unset.
+	URL      string            `json:"url,omitempty"`
+	Snapshot *reports.Snapshot `json:"snapshot,omitempty"`
 }
 
 // RuleRef names the rule that produced a notification (nil for tests).

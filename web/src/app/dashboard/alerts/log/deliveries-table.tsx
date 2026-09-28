@@ -1,12 +1,14 @@
 "use client";
 
 import { ChevronRight, RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
+import { reportHref } from "@/components/notifications/links";
 import { DeliveryError } from "@/components/response-body";
 import { Button } from "@/components/ui/button";
 import { channelType } from "@/lib/notifiers";
@@ -24,6 +26,7 @@ const KIND_OPTIONS = [
   { value: "alert", label: "Alert" },
   { value: "digest", label: "Digest" },
   { value: "test", label: "Test" },
+  { value: "report", label: "Report" },
 ];
 
 function Attempts({ d }: { d: DeliveryRow }) {
@@ -125,11 +128,20 @@ const columns = col.columns([
   col.accessor("summary", {
     header: "Summary",
     enableSorting: false,
-    cell: ({ row }) => (
-      <span className="block max-w-96 truncate" title={row.original.summary}>
-        {row.original.summary}
-      </span>
-    ),
+    cell: ({ row }) =>
+      row.original.reportId ? (
+        <Link
+          href={reportHref(row.original.reportId)}
+          className="block max-w-96 truncate underline-offset-4 hover:underline"
+          title={row.original.summary}
+        >
+          {row.original.summary}
+        </Link>
+      ) : (
+        <span className="block max-w-96 truncate" title={row.original.summary}>
+          {row.original.summary}
+        </span>
+      ),
   }),
   col.accessor("attempts", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Attempts" />,

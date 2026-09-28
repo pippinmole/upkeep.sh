@@ -30,6 +30,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify/render"
+	"github.com/pippinmole/upkeep.sh/server/internal/reports"
 )
 
 const (
@@ -172,6 +173,8 @@ func Render(topic, priority string, n notify.Notification) Message {
 		m.Message = "Your ntfy channel works. Alerts matching your rules will arrive here."
 		m.Priority = PriorityDefault
 		m.Tags = []string{"bell"}
+	case n.Kind == notify.KindReport:
+		m = renderReport(topic, n)
 	case len(n.Events) == 1:
 		e := n.Events[0]
 		m.Title = render.Title(e)
@@ -209,6 +212,28 @@ func Render(topic, priority string, n notify.Notification) Message {
 	}
 	m.Title = render.Truncate(m.Title, 250)
 	m.Message = render.Truncate(m.Message, maxMessage)
+	return m
+}
+
+// renderReport: the report's summary line as the title
+// ("Monday patch list: 1 urgent action, …", reports.Title), the headline
+// numbers with their changes as the body, and click to the report page.
+// Priority 3, or 4 when there is something to patch now (KEV): a report is
+// a scheduled roundup of state, not a new event, so it never pages at 5.
+func renderReport(topic string, n notify.Notification) Message {
+	m := Message{Topic: topic, Title: n.Summary, Priority: PriorityDefault, Tags: []string{"clipboard"}}
+	if n.Report == nil || n.Report.Snapshot == nil {
+		m.Message = "The report is no longer available."
+		return m
+	}
+	s := *n.Report.Snapshot
+	m.Title = reports.Title(s)
+	m.Message = render.ReportHeadline(s)
+	m.Click = n.Report.URL
+	if s.Headline.PatchNow > 0 {
+		m.Priority = PriorityHigh
+		m.Tags = append(m.Tags, "kev")
+	}
 	return m
 }
 
