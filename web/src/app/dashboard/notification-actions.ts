@@ -14,12 +14,14 @@ import {
   isFindingEvent,
   validateChannelValues,
 } from "@/lib/notifiers";
-import { enqueueAlertDelivery } from "@/lib/river";
+import { type CleanSchedule, type ScheduleInput, validateSchedule } from "@/lib/report-schedules";
+import { enqueueAlertDelivery, enqueueReportSendNow } from "@/lib/river";
 
-// Alert rules (/dashboard/alerts) and notification channels
-// (/dashboard/settings/notifications): notification_channels, alert_rules
-// and alert_rule_channels are Next.js-owned tables (docs/ARCHITECTURE.md
-// "Who owns what"). Every action re-checks the session and scopes every
+// Alert rules (/dashboard/alerts), notification channels and report
+// schedules (/dashboard/settings/notifications): notification_channels,
+// alert_rules, alert_rule_channels, report_schedules (except next_run_at /
+// last_run_at) and report_schedule_channels are Next.js-owned tables
+// (docs/ARCHITECTURE.md "Who owns what"). Every action re-checks the session and scopes every
 // statement by user_id; ids from the client are never trusted on their own.
 
 export type ActionResult<T = object> =
@@ -424,5 +426,180 @@ export async function deleteRule(id: string): Promise<ActionResult> {
   ]);
   if (r.rowCount === 0) return { ok: false, error: "Rule not found." };
   refresh();
+  return { ok: true };
+}
+
+// ---- Report schedules ----
+
+// Past reports and the report pages hang off a schedule, so both are
+// refreshed with it.
+function refreshReports() {
+  refresh();
+  revalidatePath("/dashboard/reports", "layout");
+}
+
+async function validateScheduleFor(
+  userId: string,
+  input: ScheduleInput,
+): Promise<{ schedule?: CleanSchedule; fieldErrors: Record<string, string> }> {
+  const res = validateSchedule(input);
+  if (!res.schedule) return res;
+  const { rows } = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM notification_channels WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+    [userId, res.schedule.channelIds],
+  );
+  if (Number(rows[0].n) !== res.schedule.channelIds.length) {
+    return { fieldErrors: { channelIds: "Unknown channel" } };
+  }
+  return res;
+}
+
+// The schedule and its channels in one transaction. next_run_at is the
+// worker's: it is NULL on insert and reset to NULL when the timing changes,
+// so the worker recomputes it; otherwise neither next_run_at nor
+// last_run_at is written here.
+async function writeSchedule(
+  userId: string,
+  id: string | null,
+  s: CleanSchedule,
+): Promise<string | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const params = [
+      userId,
+      s.name,
+      s.enabled,
+      s.cadence,
+      s.weekday,
+      s.dayOfMonth,
+      s.hour,
+      s.timezone,
+    ];
+    // In an UPDATE, column references on the right-hand side read the old
+    // row, so the CASE compares the stored timing with the new one.
+    const res = id
+      ? await client.query<{ id: string }>(
+          `UPDATE report_schedules
+           SET name = $2, enabled = $3, cadence = $4, weekday = $5, day_of_month = $6, hour = $7,
+               timezone = $8,
+               next_run_at = CASE
+                 WHEN (cadence, weekday, day_of_month, hour, timezone)
+                      IS DISTINCT FROM ($4::text, $5::int, $6::int, $7::int, $8::text)
+                 THEN NULL ELSE next_run_at END,
+               updated_at = now()
+           WHERE id = $9 AND user_id = $1 RETURNING id`,
+          [...params, id],
+        )
+      : await client.query<{ id: string }>(
+          `INSERT INTO report_schedules (user_id, name, enabled, cadence, weekday, day_of_month, hour, timezone)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+          params,
+        );
+    const scheduleId = res.rows[0]?.id;
+    if (!scheduleId) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query(
+      `DELETE FROM report_schedule_channels WHERE schedule_id = $1 AND user_id = $2`,
+      [scheduleId, userId],
+    );
+    // The composite FKs refuse a channel of another user even if the
+    // ownership check above were bypassed.
+    await client.query(
+      `INSERT INTO report_schedule_channels (schedule_id, channel_id, user_id)
+       SELECT $1, unnest($2::uuid[]), $3`,
+      [scheduleId, s.channelIds, userId],
+    );
+    await client.query("COMMIT");
+    return scheduleId;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createReportSchedule(
+  input: ScheduleInput,
+): Promise<ActionResult<{ id: string }>> {
+  const userId = await requireUser();
+  const { schedule, fieldErrors } = await validateScheduleFor(userId, input);
+  if (!schedule) return { ok: false, error: "Please fix the highlighted fields.", fieldErrors };
+  const id = await writeSchedule(userId, null, schedule);
+  refreshReports();
+  return id ? { ok: true, id } : { ok: false, error: "Could not create the schedule." };
+}
+
+export async function updateReportSchedule(
+  id: string,
+  input: ScheduleInput,
+): Promise<ActionResult> {
+  const userId = await requireUser();
+  if (!isUuid(id)) return { ok: false, error: "Schedule not found." };
+  const { schedule, fieldErrors } = await validateScheduleFor(userId, input);
+  if (!schedule) return { ok: false, error: "Please fix the highlighted fields.", fieldErrors };
+  const done = await writeSchedule(userId, id, schedule);
+  refreshReports();
+  return done ? { ok: true } : { ok: false, error: "Schedule not found." };
+}
+
+export async function setReportScheduleEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<ActionResult> {
+  const userId = await requireUser();
+  if (!isUuid(id)) return { ok: false, error: "Schedule not found." };
+  const r = await pool.query(
+    `UPDATE report_schedules SET enabled = $3, updated_at = now() WHERE id = $1 AND user_id = $2`,
+    [id, userId, enabled === true],
+  );
+  if (r.rowCount === 0) return { ok: false, error: "Schedule not found." };
+  refreshReports();
+  return { ok: true };
+}
+
+export async function deleteReportSchedule(id: string): Promise<ActionResult> {
+  const userId = await requireUser();
+  if (!isUuid(id)) return { ok: false, error: "Schedule not found." };
+  // Channel links and past reports cascade; the delivery log keeps its rows
+  // (notifications.report_id -> NULL).
+  const r = await pool.query(`DELETE FROM report_schedules WHERE id = $1 AND user_id = $2`, [
+    id,
+    userId,
+  ]);
+  if (r.rowCount === 0) return { ok: false, error: "Schedule not found." };
+  refreshReports();
+  return { ok: true };
+}
+
+// "Send now": queue a real report run (trigger 'manual') for the worker.
+// It is stored, delivered to the schedule's channels and becomes the
+// previous report for the next comparison. Disabled schedules can still be
+// sent by hand. Doesn't wait: building and delivering take a few seconds.
+export async function sendReportNow(id: string): Promise<ActionResult> {
+  const userId = await requireUser();
+  if (!isUuid(id)) return { ok: false, error: "Schedule not found." };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const s = await client.query(
+      `SELECT 1 FROM report_schedules WHERE id = $1 AND user_id = $2 FOR SHARE`,
+      [id, userId],
+    );
+    if (s.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, error: "Schedule not found." };
+    }
+    await enqueueReportSendNow(client, id);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
   return { ok: true };
 }

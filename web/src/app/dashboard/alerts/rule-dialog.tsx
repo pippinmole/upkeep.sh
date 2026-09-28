@@ -14,6 +14,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { NotificationSettingsLink } from "@/components/notifications/links";
+import {
+  ChannelCheckList,
+  CheckList,
+  FieldError as Err,
+  toggle,
+} from "@/components/notifications/shared";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -24,7 +30,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  channelType,
   DEDUP_WINDOWS,
   DIGEST_INTERVALS,
   durationLabel,
@@ -38,43 +43,6 @@ import {
 import type { ChannelRow, RuleRow, ScopeHost } from "@/lib/queries-notifications";
 
 import { createRule, type RuleInput, updateRule } from "@/app/dashboard/notification-actions";
-
-function Err({ msg }: { msg?: string }) {
-  return msg ? <p className="text-destructive text-xs">{msg}</p> : null;
-}
-
-function CheckList<T>({
-  items,
-  selected,
-  onToggle,
-  id,
-  label,
-}: {
-  items: T[];
-  selected: string[];
-  onToggle: (key: string) => void;
-  id: (t: T) => string;
-  label: (t: T) => React.ReactNode;
-}) {
-  return (
-    <div className="max-h-40 overflow-y-auto rounded-md border p-2">
-      {items.map((t) => (
-        <label key={id(t)} className="flex items-center gap-2 py-1 text-sm">
-          <input
-            type="checkbox"
-            className="accent-primary size-4"
-            checked={selected.includes(id(t))}
-            onChange={() => onToggle(id(t))}
-          />
-          {label(t)}
-        </label>
-      ))}
-    </div>
-  );
-}
-
-const toggle = (list: string[], v: string) =>
-  list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
 export function RuleDialog({
   open,
@@ -262,20 +230,10 @@ export function RuleDialog({
                 No channels yet: add one in <NotificationSettingsLink /> first.
               </p>
             ) : (
-              <CheckList
-                items={channels}
+              <ChannelCheckList
+                channels={channels}
                 selected={v.channelIds}
                 onToggle={(c) => set("channelIds", toggle(v.channelIds, c))}
-                id={(c) => c.id}
-                label={(c) => (
-                  <span>
-                    {c.name}{" "}
-                    <span className="text-muted-foreground">
-                      ({channelType(c.type)?.label ?? c.type}
-                      {!c.enabled && ", disabled"})
-                    </span>
-                  </span>
-                )}
               />
             )}
             <Err msg={errors.channelIds} />

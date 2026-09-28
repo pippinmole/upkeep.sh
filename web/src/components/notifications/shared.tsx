@@ -13,7 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { DeliveryRow } from "@/lib/queries-notifications";
+import { channelType } from "@/lib/notifiers";
+import type { ChannelRow, DeliveryRow } from "@/lib/queries-notifications";
 import { cn } from "@/lib/utils";
 
 export const DELIVERY_STATUS_OPTIONS: { value: DeliveryRow["status"]; label: string }[] = [
@@ -96,6 +97,73 @@ export function ConfirmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function FieldError({ msg }: { msg?: string }) {
+  return msg ? <p className="text-destructive text-xs">{msg}</p> : null;
+}
+
+export const toggle = (list: string[], v: string) =>
+  list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+
+// A scrollable list of checkboxes (rule events, hosts, channels).
+export function CheckList<T>({
+  items,
+  selected,
+  onToggle,
+  id,
+  label,
+}: {
+  items: T[];
+  selected: string[];
+  onToggle: (key: string) => void;
+  id: (t: T) => string;
+  label: (t: T) => ReactNode;
+}) {
+  return (
+    <div className="max-h-40 overflow-y-auto rounded-md border p-2">
+      {items.map((t) => (
+        <label key={id(t)} className="flex items-center gap-2 py-1 text-sm">
+          <input
+            type="checkbox"
+            className="accent-primary size-4"
+            checked={selected.includes(id(t))}
+            onChange={() => onToggle(id(t))}
+          />
+          {label(t)}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// Channel picker shared by alert rules and report schedules.
+export function ChannelCheckList({
+  channels,
+  selected,
+  onToggle,
+}: {
+  channels: Pick<ChannelRow, "id" | "name" | "type" | "enabled">[];
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <CheckList
+      items={channels}
+      selected={selected}
+      onToggle={onToggle}
+      id={(c) => c.id}
+      label={(c) => (
+        <span>
+          {c.name}{" "}
+          <span className="text-muted-foreground">
+            ({channelType(c.type)?.label ?? c.type}
+            {!c.enabled && ", disabled"})
+          </span>
+        </span>
+      )}
+    />
   );
 }
 
