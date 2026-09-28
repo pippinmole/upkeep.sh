@@ -13,6 +13,14 @@
 #
 # Usage: test-agent-mac.sh [interval]
 #   interval defaults to 30s, same reasoning as test-agent-windows.sh.
+# Env:
+#   SW_TEST_USER_EMAIL  the dashboard account to enroll into (required when
+#                       the dev DB has more than one user; enroll-token.sh)
+#   SW_TEST_DOCKER=0    don't mount the Docker socket. By default it is
+#                       mounted read-only, so the agent's Docker collectors
+#                       report Docker Desktop's containers and images (the
+#                       image pages and image vulnerabilities need them).
+#                       The socket is root on the Docker VM: dev only.
 set -euo pipefail
 
 INTERVAL="${1:-30s}"
@@ -28,12 +36,12 @@ echo "==> Building the test agent image (real ubuntu base, not the scratch produ
 docker build -f .claude/skills/start-dev/scripts/test-agent.Dockerfile -t security-whatnot-agent-test ./agent
 
 echo "==> Generating a fresh one-time enrollment token..."
-# Same INSERT the real dashboard "Register agent" button runs — see the
-# comment in test-agent-windows.sh for the full explanation.
-TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))")"
-docker exec security-whatnot-dev-postgres-1 psql -U swuser -d security_whatnot -c \
-  "INSERT INTO enrollment_tokens (token, user_id, expires_at) VALUES ('$TOKEN', (SELECT id FROM users LIMIT 1), now() + interval '1 hour');" \
-  >/dev/null
+TOKEN="$(bash .claude/skills/start-dev/scripts/enroll-token.sh)"
+
+DOCKER_ARGS=()
+if [ "${SW_TEST_DOCKER:-1}" != "0" ]; then
+  DOCKER_ARGS=(-v /var/run/docker.sock:/var/run/docker.sock:ro)
+fi
 
 echo "==> Running the test agent (Ctrl-C to stop; it will keep pushing every $INTERVAL)..."
 echo "    Note: the agent and its host show up in /dashboard/agents as a random container ID"
@@ -45,4 +53,5 @@ docker run --rm \
   -e SW_SERVER_URL=http://host.docker.internal:8080 \
   -e SW_ENROLLMENT_TOKEN="$TOKEN" \
   -e SW_INTERVAL="$INTERVAL" \
+  ${DOCKER_ARGS[@]+"${DOCKER_ARGS[@]}"} \
   security-whatnot-agent-test
