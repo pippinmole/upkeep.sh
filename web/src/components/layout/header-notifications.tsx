@@ -38,11 +38,7 @@ export function HeaderNotifications() {
           variant="outline"
           size="icon"
           className="relative size-9"
-          aria-label={
-            unreadCount
-              ? `Notifications, ${unreadCount} unread`
-              : "Notifications"
-          }
+          aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : "Notifications"}
         >
           <Bell className="size-4" aria-hidden="true" />
           {unreadCount > 0 ? (
@@ -68,9 +64,7 @@ export function HeaderNotifications() {
               {notifications.map((n) => (
                 <div key={n.id} className="px-3 py-2.5">
                   <p className="text-sm leading-tight">{n.title}</p>
-                  <p className="text-muted-foreground text-xs leading-snug">
-                    {n.description}
-                  </p>
+                  <p className="text-muted-foreground text-xs leading-snug">{n.description}</p>
                 </div>
               ))}
             </div>

@@ -4,8 +4,7 @@ import * as React from "react";
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 
-interface ScrollAreaProps
-  extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
+interface ScrollAreaProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
   orientation?: "horizontal" | "vertical";
 }
 
@@ -44,10 +43,8 @@ const ScrollBar = React.forwardRef<
     orientation={orientation}
     className={cn(
       "flex touch-none transition-colors select-none",
-      orientation === "vertical" &&
-        "h-full w-2.5 border-l border-l-transparent p-[1px]",
-      orientation === "horizontal" &&
-        "h-2.5 flex-col border-t border-t-transparent p-[1px]",
+      orientation === "vertical" && "h-full w-2.5 border-l border-l-transparent p-[1px]",
+      orientation === "horizontal" && "h-2.5 flex-col border-t border-t-transparent p-[1px]",
       className,
     )}
     {...props}

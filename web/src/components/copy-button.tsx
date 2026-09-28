@@ -4,12 +4,7 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Props extends ButtonProps {
   text: string;
