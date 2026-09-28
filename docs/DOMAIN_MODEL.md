@@ -1265,6 +1265,47 @@ Current rows are `removed_at IS NULL`. Why Docker data is missing comes
 from the newest snapshot's `collector_status` (`docker_*` reasons,
 PROTOCOL.md "Docker sections"); stored rows are left as last known.
 
+**Container image packages (`migrations/0014_image_software.up.sql`,
+P2a).** An image's package list is interned into `software_versions`
+like a host's (same `internVersions`), so the matcher,
+`software_vulnerabilities` and every re-match trigger cover images
+unchanged; newly interned or source-upgraded versions enqueue
+`match_versions` in the write transaction
+(`jobs.EnqueueAfterImageSBOM`). Image content is immutable, so a list is
+a plain set, replaced as a whole when re-generated, not ranges.
+
+- `image_sbom_state`: one row per (image key, owner), with a surrogate
+  `id`. `owner_user_id` is NULL for lists the server obtained by digest
+  (`attestation`, `server-syft`: fleet-wide) and the user for an agent's
+  (`agent-syft`: that user's hosts only); a CHECK ties source to owner and
+  `UNIQUE NULLS NOT DISTINCT` makes NULL one owner. Status `ok` |
+  `unavailable` | `error` with `reason`; tool name/version,
+  `generated_at`, `package_count`; the image's os-release (`distro`,
+  `distro_version`, `distro_name`) and `release`, the key its distro
+  packages were interned under. Bookkeeping: `attempts` (failures since
+  the last ok), `last_attempt_at`, `next_attempt_at` (NULL = not on a
+  timer). A failure never overwrites an ok list. No row = not attempted.
+- `image_software (sbom_id, software_id, paths)`: entries with the same
+  interned key are merged, `paths` unioned. Reverse lookup by
+  `software_id` for reconciling image findings.
+- `image_sbom_effective(user)`: per image key, the server list if ok,
+  else the user's agent list if ok (inlined by the planner, so an
+  image-key filter is an index scan).
+- **purl → key (`server/internal/purl`).** `ecosystem` = purl type
+  (explicit table; unknown types are still stored under their type).
+  Distro types (`deb`, `apk`, `rpm`, `alpm`) take `distro` = os-release
+  `ID` and `release` = `purl.ReleaseFor`: the codename for debian/ubuntu
+  (VERSION_CODENAME, else VERSION_ID via `distro_releases`, else `''`,
+  never the number), major.minor for alpine (`3.20`), VERSION_ID
+  elsewhere; without os-release, the purl's `distro=` qualifier
+  (`debian-12`, `3.20.3`, `bookworm`). Version is the purl version with
+  an `epoch` qualifier folded in as `N:` (deb/rpm), as dpkg prints and
+  hosts store it. Source from the `upstream` qualifier (`name` or
+  `name@version`; rpm source rpm file names), else binary name/version
+  with `source_inferred`, as host ingest does. Names use OSV's form:
+  npm `@scope/name`, PyPI PEP 503 normalised, Go module path, Maven
+  `group:artifact`; versions are verbatim (Go keeps its `v`).
+
 ### 4.6 Target schema sketch (identity and topology)
 
 ```sql

@@ -97,6 +97,19 @@ func EnqueueAfterIngest(ctx context.Context, client *river.Client[pgx.Tx], tx pg
 	return err
 }
 
+// EnqueueAfterImageSBOM enqueues matching for the versions an image
+// package list interned (store.ImageSBOMInput.AfterWrite), inside its
+// transaction, exactly as ingest does for a host. Image findings
+// reconciliation is not queued here yet (Phase 2a "Matching").
+func EnqueueAfterImageSBOM(ctx context.Context, client *river.Client[pgx.Tx], tx pgx.Tx, res store.ImageSBOMResult) error {
+	ids := res.RematchSoftwareIDs()
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := client.InsertTx(ctx, tx, MatchVersionsArgs{IDs: ids}, nil)
+	return err
+}
+
 // NewInserter returns an insert-only River client (no queues, no workers)
 // for the API process: it can InsertTx jobs that the worker process runs.
 func NewInserter(pool *pgxpool.Pool) (*river.Client[pgx.Tx], error) {

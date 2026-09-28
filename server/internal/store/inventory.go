@@ -140,7 +140,7 @@ func applyInventory(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, a
 }
 
 // internVersions upserts every item of set into software_versions in one
-// statement and returns the ids of all of them (in no particular order),
+// statement and returns the ids of all of them (all[i] is set.Items[i]),
 // the ids that were newly inserted, and the ids whose inferred source was
 // replaced. Two round trips regardless of set size.
 //
@@ -206,10 +206,11 @@ func internVersions(ctx context.Context, tx pgx.Tx, set inventory.Set) (all, ins
 
 	rows, err = tx.Query(ctx, `
 		SELECT sv.id
-		FROM unnest($4::text[], $5::text[], $6::text[]) AS t(name, version, arch)
+		FROM unnest($4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS t(name, version, arch, ord)
 		JOIN software_versions sv
 		  ON sv.ecosystem = $1 AND sv.distro = $2 AND sv.release = $3
 		 AND sv.name = t.name AND sv.version = t.version AND sv.arch = t.arch
+		ORDER BY t.ord
 	`, set.Ecosystem, set.Distro, set.Release, names, versions, arches)
 	if err != nil {
 		return nil, nil, nil, err

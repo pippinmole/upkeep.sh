@@ -506,7 +506,9 @@ where it can reach the image (registry SBOM, else pull + Syft) and from
 the agent only where it can't; matching and scoring are always
 server-side. No external API keys. Order: server-side public images
 first (no agent upgrade needed), then more ecosystems, then the agent.
-- [ ] Migration: `image_software` (image key as `container_images`:
+- [x] Migration (done 2026-09-28, migration 0014, DOMAIN_MODEL.md
+      §4.5 "Container image packages"; `server/internal/purl`,
+      `store/imagesbom.go`): `image_software` (image key as `container_images`:
       image_id, os, arch, variant → `software_versions.id`, plus
       `paths text[]` for where in the image a package was found, which
       matters for language packages) and `image_sbom_state` per image
