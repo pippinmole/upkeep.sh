@@ -1,0 +1,34 @@
+From: "upkeep.sh" <alerts@example.com>
+To: ops@example.com, oncall@example.org
+Subject: [upkeep.sh] Monday patch list: 1 urgent action, 2 to patch this week, 1 image to update, 1 host not reporting
+Date: Sun, 27 Sep 2026 12:00:00 +0000
+Message-ID: <d-report@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+Auto-Submitted: auto-generated
+X-Upkeep-Kind: report
+X-Upkeep-Delivery: d-report
+
+Monday patch list: 1 urgent action, 2 to patch this week, 1 image to update=
+, 1 host not reporting
+
+Estate: 4 hosts, 7 containers, 3 images
+Patch now (KEV): 1 (+1)
+Patch this week: 2 (no change)
+When convenient: 1 (no change)
+Images to update: 1 (no change)
+Reboots required: 1 (+1)
+No fix available yet: 14 (+2, +16.7%)
+Open findings: 42 (+12, +40%)
+Opened since last report: 15 (+11)
+Resolved since last report: 3 (-3)
+Agents not reporting: 1 (no change)
+
+Changes since the previous report of 2026-09-21.
+
+Open in upkeep.sh: https://upkeep.example/dashboard/reports/r-1
+
+--=20
+Sent by upkeep.sh. Change your reports under Settings > Notification settin=
+gs in the dashboard.

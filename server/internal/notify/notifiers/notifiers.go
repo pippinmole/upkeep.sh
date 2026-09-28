@@ -12,12 +12,15 @@ import (
 )
 
 // Registry returns every supported channel type, all making outbound
-// connections through g.
-func Registry(g *netguard.Guard) *notify.Registry {
+// connections through g. reports renders report emails through web (nil:
+// report emails are plain text).
+func Registry(g *netguard.Guard, reports *email.ReportRenderer) *notify.Registry {
+	mail := email.New(g)
+	mail.Reports = reports
 	return notify.NewRegistry(
 		webhook.New(g),
 		ntfy.New(g),
-		email.New(g),
+		mail,
 		// Slack and Discord are deferred past MVP
 		// (docs/tasks/phase-2-plus-deferred.md); webhook covers chat tools via
 		// their inbound hooks.

@@ -7,7 +7,10 @@
 // enrollment tokens and post-rotation secrets). Alerting env:
 // SW_DASHBOARD_URL (links in notifications), SW_ALERT_INTERVAL,
 // SW_ALERT_JOB_WORKERS, and the dev-only SW_NOTIFY_ALLOW_PRIVATE_NETWORKS
-// (internal/netguard). Container image package lists from registry SBOM
+// (internal/netguard). Report emails: SW_WEB_INTERNAL_URL (web as the
+// worker reaches it, e.g. http://web:3000) and SW_INTERNAL_RENDER_SECRET
+// (shared with web) for the HTML report email; without them report emails
+// are plain text (internal/notify/email/render.go). Container image package lists from registry SBOM
 // attestations (internal/imagesbom, images.go): SW_IMAGE_FETCH_ENABLED
 // (default true; false for air-gapped installs, nothing is fetched),
 // SW_IMAGE_JOB_WORKERS, SW_IMAGE_SBOM_SWEEP_INTERVAL,
@@ -51,6 +54,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/feeds"
 	"github.com/pippinmole/upkeep.sh/server/internal/jobs"
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
+	"github.com/pippinmole/upkeep.sh/server/internal/notify/email"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify/notifiers"
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
@@ -158,6 +162,14 @@ func main() {
 		log.Printf("WARNING: %s=true: notifications may reach private/loopback addresses over plain http. Dev only; never set this in production.",
 			netguard.EnvAllowPrivate)
 	}
+	// Report emails: HTML rendered by web's internal route when both are set,
+	// plain text otherwise (internal/notify/email/render.go).
+	renderURL, renderSecret := os.Getenv("SW_WEB_INTERNAL_URL"), os.Getenv("SW_INTERNAL_RENDER_SECRET")
+	reportRenderer := email.NewReportRenderer(renderURL, renderSecret)
+	if reportRenderer == nil && (renderURL != "" || renderSecret != "") {
+		log.Printf("WARNING: SW_WEB_INTERNAL_URL and SW_INTERNAL_RENDER_SECRET must both be set to render report emails; " +
+			"report emails will be plain text")
+	}
 	jcfg := jobs.Config{
 		PeriodicSyncs:    envBool("SW_FEED_SYNC_ENABLED", true),
 		OSVEcosystems:    strings.Split(envOr("SW_OSV_ECOSYSTEMS", strings.Join(feeds.OSVEcosystems, ",")), ","),
@@ -167,7 +179,7 @@ func main() {
 		FindingsWorkers:  envInt("SW_FINDINGS_JOB_WORKERS", 4),
 		MatcherInterval:  envDuration("SW_MATCHER_INTERVAL", 5*time.Minute),
 		Alerting: jobs.AlertingConfig{
-			Notifiers:    notifiers.Registry(guard),
+			Notifiers:    notifiers.Registry(guard, reportRenderer),
 			DashboardURL: os.Getenv("SW_DASHBOARD_URL"),
 		},
 		AlertInterval:   envDuration("SW_ALERT_INTERVAL", time.Minute),

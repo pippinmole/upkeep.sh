@@ -1,0 +1,20 @@
+From: "upkeep.sh" <alerts@example.com>
+To: ops@example.com, oncall@example.org
+Subject: [upkeep.sh] Test notification from upkeep.sh
+Date: Sun, 27 Sep 2026 12:00:00 +0000
+Message-ID: <d-test@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+Auto-Submitted: auto-generated
+X-Upkeep-Kind: test
+X-Upkeep-Delivery: d-test
+
+This is a test email from upkeep.sh.
+
+Your email channel works: alerts matching your rules will be delivered to t=
+his address.
+
+--=20
+Sent by upkeep.sh. Change what you're alerted about under Alerts in the das=
+hboard.

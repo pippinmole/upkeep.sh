@@ -1,0 +1,24 @@
+From: "upkeep.sh" <alerts@example.com>
+To: ops@example.com, oncall@example.org
+Subject: [upkeep.sh] Digest: 2 events for Critical
+Date: Sun, 27 Sep 2026 12:00:00 +0000
+Message-ID: <0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+Auto-Submitted: auto-generated
+X-Upkeep-Kind: digest
+X-Upkeep-Delivery: 0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11
+
+2 events for Critical
+
+=E2=80=A2 KEV CVE-2024-3094 opened on web-1 (xz-utils)
+=E2=80=A2 Agent "edge" stopped reporting
+
+Open in upkeep.sh: https://app.example/dashboard
+
+Rule: Critical
+
+--=20
+Sent by upkeep.sh. Change what you're alerted about under Alerts in the das=
+hboard.

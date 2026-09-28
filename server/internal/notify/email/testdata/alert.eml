@@ -1,0 +1,26 @@
+From: "upkeep.sh" <alerts@example.com>
+To: ops@example.com, oncall@example.org
+Subject: [upkeep.sh] KEV CVE-2024-3094 opened on web-1
+Date: Sun, 27 Sep 2026 12:00:00 +0000
+Message-ID: <0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+Auto-Submitted: auto-generated
+X-Upkeep-Kind: alert
+X-Upkeep-Delivery: 0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11
+
+KEV CVE-2024-3094 opened on web-1
+
+Package: xz-utils 5.6.0-1 (liblzma5)
+Fix: upgrade to 5.6.1-1
+Severity: high, known exploited (CISA KEV), EPSS 85.3%
+
+Open in upkeep.sh: https://app.example/dashboard/hosts/h1/vulnerabilities?v=
+=3DCVE-2024-3094
+
+Rule: Critical
+
+--=20
+Sent by upkeep.sh. Change what you're alerted about under Alerts in the das=
+hboard.

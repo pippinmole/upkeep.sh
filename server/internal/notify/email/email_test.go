@@ -540,7 +540,7 @@ func TestMessageIDFallback(t *testing.T) {
 	s := settings{from: "a@example.com", to: []string{"b@example.com"}}
 	note := alert(finding(notify.EventFindingOpened, "low", false))
 	note.DeliveryID, note.Kind = "x\r\nBcc: y", "alert\r\nBcc: y"
-	msg, err := n.buildMessage(s, note)
+	msg, err := n.buildMessage(s, note, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

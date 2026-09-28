@@ -170,8 +170,9 @@ type Config struct {
 	// DisableMatcherSchedule turns the matcher safety net off (tests).
 	DisableMatcherSchedule bool
 
-	// Alerting: channel types (nil = notifiers.Registry(netguard.FromEnv()))
-	// and the dashboard base URL for links in notifications.
+	// Alerting: channel types (nil = notifiers.Registry(netguard.FromEnv(),
+	// nil): no report email renderer) and the dashboard base URL for links
+	// in notifications.
 	Alerting AlertingConfig
 	// AlertInterval is the cadence of agent_health, alert_digest and the
 	// alert_evaluate safety net (default 1m).
@@ -212,7 +213,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 
 	acfg := cfg.Alerting
 	if acfg.Notifiers == nil {
-		acfg.Notifiers = notifiers.Registry(netguard.FromEnv())
+		acfg.Notifiers = notifiers.Registry(netguard.FromEnv(), nil)
 	}
 	river.AddWorker(workers, &AlertEvaluateWorker{Store: st, Cfg: acfg})
 	river.AddWorker(workers, &AlertDigestWorker{Store: st, Cfg: acfg})
