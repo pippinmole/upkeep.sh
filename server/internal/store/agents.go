@@ -65,6 +65,15 @@ var activeAgentSQL = fmt.Sprintf(`(a.revoked_at IS NULL AND a.last_seen_at IS NO
 	AND a.last_seen_at >= now() - make_interval(secs => GREATEST(%d * COALESCE(a.push_interval_seconds, %d), %d)))`,
 	ActiveIntervals, int(DefaultPushInterval.Seconds()), int(MinActiveWindow.Seconds()))
 
+// staleAgentSQL is true for a seen agent row aliased "a" that is silent
+// past the active window as of the timestamptz expression at: the
+// dashboard's "stale" and agent_health's. Callers add the not revoked /
+// ever seen conditions.
+func staleAgentSQL(at string) string {
+	return fmt.Sprintf(`a.last_seen_at < %s - make_interval(secs => GREATEST(%d * COALESCE(a.push_interval_seconds, %d), %d))`,
+		at, ActiveIntervals, int(DefaultPushInterval.Seconds()), int(MinActiveWindow.Seconds()))
+}
+
 // ErrUnknownHostRef: the push names a remote target the agent has no
 // assignment for.
 var ErrUnknownHostRef = errors.New("unknown host ref")
