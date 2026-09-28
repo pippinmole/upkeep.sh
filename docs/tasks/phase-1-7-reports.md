@@ -1,11 +1,11 @@
 # Phase 1.7 — scheduled estate reports
 Decided 2026-09-28 ([Scheduled reports](../decisions/scheduled-reports.md) and [Report email
-HTML](../decisions/report-email-html.md)). Not started. A weekly or monthly report of the whole estate,
+HTML](../decisions/report-email-html.md)). In progress. A weekly or monthly report of the whole estate,
 organised as a patch list, sent to existing notification channels. It's
 separate from alert rules: reports describe state (everything open now),
 digests describe events. Order: schema, then snapshot builder, then
 delivery, then the email template, then the dashboard.
-- [ ] Migration: `report_schedules` (user, name, enabled, cadence
+- [x] Migration: `report_schedules` (user, name, enabled, cadence
       `weekly` | `monthly`, weekday or day of month, hour, IANA timezone,
       `next_run_at`, created/updated), `report_schedule_channels`
       (composite same-owner FKs like `alert_rule_channels`), `reports`
@@ -14,7 +14,11 @@ delivery, then the email template, then the dashboard.
       no host scope column yet. Ownership: Next.js writes schedules and
       their channels; the Go worker writes `reports` and
       `report_schedules.next_run_at`. Add both to ARCHITECTURE.md "Who
-      owns what".
+      owns what". (Done 2026-09-28, PR #11: migration 0017, also
+      `notifications.report_id` and the `report` kind; snapshot contract in
+      `internal/reports/snapshot.go`, mirrored in
+      `web/src/lib/report-snapshot.ts`, shared fixture
+      `web/src/lib/report-snapshot.example.json`.)
 - [ ] Snapshot builder (Go, `internal/reports`), one read transaction
       per report. It includes:
       - **Estate**: host, container and image counts.
