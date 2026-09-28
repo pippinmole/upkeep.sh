@@ -7,7 +7,14 @@
 // enrollment tokens and post-rotation secrets). Alerting env:
 // SW_DASHBOARD_URL (links in notifications), SW_ALERT_INTERVAL,
 // SW_ALERT_JOB_WORKERS, and the dev-only SW_NOTIFY_ALLOW_PRIVATE_NETWORKS
-// (internal/netguard).
+// (internal/netguard). Container image package lists from registry SBOM
+// attestations (internal/imagesbom, images.go): SW_IMAGE_FETCH_ENABLED
+// (default true; false for air-gapped installs, nothing is fetched),
+// SW_IMAGE_JOB_WORKERS, SW_IMAGE_SBOM_SWEEP_INTERVAL,
+// SW_IMAGE_SBOM_MAX_BYTES, SW_IMAGE_MANIFEST_MAX_BYTES, and optional
+// platform-wide Docker Hub credentials SW_DOCKERHUB_USERNAME /
+// SW_DOCKERHUB_TOKEN (only sent to Docker Hub, only to raise the anonymous
+// pull rate limit).
 //
 //	worker                         run the River client until SIGINT/SIGTERM
 //	worker sync osv Debian [-full] run one sync in the foreground and exit
@@ -15,6 +22,8 @@
 //	worker match                   sweep stale versions + drain advisory_changes, then exit
 //	worker reconcile [host-id...]  reconcile findings (all hosts by default), then exit
 //	worker rerank                  recompute severity of every open finding, then exit
+//	worker image-sbom <image_id> <os> <arch> [variant]
+//	                               fetch one image key's registry SBOM, then exit
 //
 // The one-shot commands run the same code as the jobs, in the foreground;
 // they are for operators and debugging (the scheduled jobs do all of this
@@ -133,8 +142,10 @@ func main() {
 			err = runReconcile(ctx, db, os.Args[2:])
 		case "rerank":
 			err = runRerank(ctx, db)
+		case "image-sbom":
+			err = runImageSBOM(ctx, db, imagesConfig(), os.Args[2:])
 		default:
-			log.Fatalf("unknown command %q (want no arguments, `sync`, `match`, `reconcile` or `rerank`)", os.Args[1])
+			log.Fatalf("unknown command %q (want no arguments, `sync`, `match`, `reconcile`, `rerank` or `image-sbom`)", os.Args[1])
 		}
 		if err != nil {
 			log.Fatal(err)
@@ -162,6 +173,7 @@ func main() {
 		AlertInterval:   envDuration("SW_ALERT_INTERVAL", time.Minute),
 		AlertWorkers:    envInt("SW_ALERT_JOB_WORKERS", 10),
 		CleanupInterval: envDuration("SW_CLEANUP_INTERVAL", jobs.DefaultCleanupInterval),
+		Images:          imagesConfig(),
 	}
 	client, err := jobs.NewClient(db.Pool, db, syncer, jcfg)
 	if err != nil {
@@ -170,8 +182,9 @@ func main() {
 	if err := client.Start(ctx); err != nil {
 		log.Fatalf("river start: %v", err)
 	}
-	log.Printf("worker started (periodic syncs: %v, osv ecosystems: %v, osv every %s, full every %s, kev/epss every %s)",
-		jcfg.PeriodicSyncs, jcfg.OSVEcosystems, jcfg.OSVInterval, fcfg.FullSyncInterval, jcfg.CVEFeedsInterval)
+	log.Printf("worker started (periodic syncs: %v, osv ecosystems: %v, osv every %s, full every %s, kev/epss every %s, image fetching: %v)",
+		jcfg.PeriodicSyncs, jcfg.OSVEcosystems, jcfg.OSVInterval, fcfg.FullSyncInterval, jcfg.CVEFeedsInterval,
+		jcfg.Images.FetchEnabled)
 
 	<-ctx.Done()
 	log.Printf("shutting down: waiting up to 30s for running jobs")

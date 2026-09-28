@@ -520,13 +520,31 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       purl type, `distro` / `release` from the image's `os-release` for
       distro packages (`''` for language packages), deb source package
       from the purl's `upstream` qualifier where present.
-- [ ] Worker: `image_sbom` River job, one per image key, enqueued when
+- [x] Worker: `image_sbom` River job, one per image key, enqueued when
       an image key is first seen with a repo digest. Fetch the registry's
       SBOM attestation for the digest (OCI referrers / Docker's
       `attestation-manifest` entries; SPDX and CycloneDX), anonymous
       registry auth, optional platform-wide Docker Hub token for the
       rate limit. Cache per image key fleet-wide; never refetch an `ok`
       one. Timeouts, size caps and `netguard` for outbound fetches.
+      (Done 2026-09-28: `internal/registry` (stdlib OCI client),
+      `internal/sbom` (SPDX / CycloneDX), `internal/imagesbom`,
+      `jobs/imagesbom.go`, queue `images`; DOMAIN_MODEL.md §4.5
+      "Container image packages", ARCHITECTURE.md "Container image
+      SBOMs". Ingest enqueues a unique `image_sbom` per key in the
+      snapshot tx when a `host_images` range opens with a repo digest and
+      the key has no server row, or a failed one not on a timer and the
+      digest is new; `image_sbom_sweep` every 10 min retries due rows.
+      Outcomes: `unavailable` "registry has no SBOM attestation for this
+      image" (server-side Syft's work list, `store.SBOMReasonNoAttestation`),
+      "private or local image, needs the agent" (401/403/404, private
+      address), "image fetching disabled on this server"
+      (`SW_IMAGE_FETCH_ENABLED=false`); `error` + backoff 30 min × 2ⁿ,
+      capped 24 h, Retry-After respected. The image id must equal the
+      index, platform manifest or config digest, so an agent can't attach
+      another image's list to a key. Live-checked on Docker Hub:
+      postgres:17 → 146 packages (debian 13 / trixie, docker-scout
+      1.18.1), postgres:17-alpine → 66 (alpine 3.24).)
 - [x] Matching (done 2026-09-28, migration 0015, DOMAIN_MODEL.md §2.6
       "Image findings and scores"; `findings/image.go`,
       `store/imagefindings.go`, `store/imagescore*.go`,

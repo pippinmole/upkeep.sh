@@ -95,10 +95,15 @@ func EnqueueAfterIngest(ctx context.Context, client *river.Client[pgx.Tx], tx pg
 	if res.InventoryChanged() || res.KernelChanged || res.ImageUseChanged() {
 		params = append(params, river.InsertManyParams{Args: ReconcileHostArgs{HostID: hostID}})
 	}
+	images, err := imageSBOMParams(ctx, tx, hostID, res) // image_sbom for newly seen image keys
+	if err != nil {
+		return err
+	}
+	params = append(params, images...)
 	if len(params) == 0 {
 		return nil
 	}
-	_, err := client.InsertManyTx(ctx, tx, params)
+	_, err = client.InsertManyTx(ctx, tx, params)
 	return err
 }
 

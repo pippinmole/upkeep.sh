@@ -1431,6 +1431,30 @@ a plain set, replaced as a whole when re-generated, not ranges.
   while a current container on it uses the image; every image gets a
   score (`image_sbom_scores`, `image_scores(user)`). A container or
   image range opening or closing at ingest queues `reconcile_host`.
+- **Server lists from registry attestations (`image_sbom` worker,
+  `internal/imagesbom`).** Repo digests come from the key's open
+  `host_images` rows (any host); each is tried until one yields an SBOM
+  (`internal/registry`: BuildKit attestation manifest for the platform,
+  else OCI referrers; SPDX preferred over CycloneDX). The key's
+  `image_id` must be the index, platform manifest or config digest of
+  what the registry serves, else the digest is not used ("registry image
+  doesn't match this image"). `internal/sbom` reads the document: tool
+  = the scanner, not BuildKit (`docker-scout` for Docker Official
+  Images, `syft` elsewhere); `generated_at` = the document's creation
+  time; OS from an OPERATING-SYSTEM package / CycloneDX
+  `operating-system` component, else the majority of distro purls'
+  qualifiers (Scout's `os_name`/`os_version`/`os_distro`, Syft's
+  `distro=`); `release` via `purl.ReleaseFor` with `distro_releases`.
+  Docker Scout writes no `upstream` qualifier: a binary's source is its
+  SPDX `GENERATED_FROM` relationship, folded into `upstream`, and deb
+  entries that are only a source package (their dpkg evidence names only
+  other packages: `glibc`, `gcc-14`) are dropped. `paths`: Scout's
+  "evident-by" files / Syft's `sourceInfo`, only the package database for
+  distro packages. Failures on the server row: `unavailable` with
+  `store.SBOMReason*` (no attestation, private or local, fetching
+  disabled; also too large, mismatch, unreadable) and no timer; `error`
+  with `next_attempt_at` (30 min × 2^attempts, capped at 24 h, never
+  before a registry's Retry-After).
 
 ### 4.6 Target schema sketch (identity and topology)
 

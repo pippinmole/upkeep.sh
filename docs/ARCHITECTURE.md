@@ -38,14 +38,16 @@
     (Postgres-backed queue, no Redis; DOMAIN_MODEL.md Q10): OSV
     Debian/Ubuntu advisory sync (hourly incremental, weekly full), CISA
     KEV + FIRST EPSS (daily), the vulnerability matcher and findings
-    reconciliation (see "Vulnerability pipeline" below), and alerting
-    (see "Alerting" below). Planned: host-side port-exposure
+    reconciliation (see "Vulnerability pipeline" below), alerting
+    (see "Alerting" below), and container image package lists from
+    registry SBOM attestations (see "Container image SBOMs" below). Planned: host-side port-exposure
     classification (TASKS.md Phase 1.6; no external scanning, see
     DECISIONS.md "Port exposure"). A
     separate process so multi-minute feed imports (Ubuntu's OSV zip is
     ~800 MB) never compete with ingest. One-shot commands run the same
     code in the foreground: `worker sync osv|kev|epss`, `worker match`
-    (sweep + drain), `worker reconcile [host…]`, `worker rerank`. River
+    (sweep + drain), `worker reconcile [host…]`, `worker rerank`,
+    `worker image-sbom <image_id> <os> <arch> [variant]`. River
     elects a leader for periodic scheduling, syncs are unique jobs and
     matcher writes take a Postgres advisory lock, so extra replicas are
     safe.
@@ -75,6 +77,7 @@ for the reasoning.
 | `distro_releases` | migrations (seed); flip `supported` to import a release |
 | `advisories`, `advisory_affected`, `advisory_changes`, `cves`, `feed_sync_state` | Go (worker: OSV/KEV/EPSS sync) |
 | `software_vulnerabilities`, `software_versions` matcher columns (`match_*`, `kernel_release`, `matcher_version`, `evaluated_at`, `max_fixed_version`) | Go (worker: matcher) |
+| `image_sbom_state` (owner NULL), `image_software` of those lists | Go (worker: `image_sbom`) |
 | `river_*` | Go (River job queue; API inserts, worker runs) |
 | `findings` (kind `vulnerable_package`) | Go (worker: findings reconciliation, re-rank) |
 | `alert_events`, `alert_dedup`, `alert_digest_items`, `agent_health`, `alert_rules.last_digest_at` | Go (worker: findings reconcile / agent health write events; alerting jobs the rest) |
@@ -180,6 +183,46 @@ findings queue:
 - Kernel CVEs are raised only for the running kernel
   (`snapshots.kernel_release`); other installed kernels are exposed by the
   `host_kernel_packages` view (DOMAIN_MODEL.md Q7).
+
+## Container image SBOMs
+
+TASKS.md Phase 2a, DECISIONS.md "Container image vulnerabilities". The
+server's own package list per image key (fleet-wide, `owner_user_id`
+NULL) comes from the image's registry SBOM attestation.
+
+```
+ingest tx: host_images range opened with a repo digest, key has no server
+  row (or a failed one not on a timer, and the digest is new) ──> image_sbom{key}   [images]
+every 10 min (fetching enabled) ──> image_sbom_sweep: retry-due rows, keys with a
+  repo digest but no server row, rows recorded while fetching was disabled
+image_sbom: registry.FetchSBOM ─> sbom.Parse ─> purl.Map ─> WriteImageSBOM
+  └─ newly interned versions ──> match_versions (same tx)
+```
+
+- `image_sbom` is unique per image key while waiting or running, so the
+  fleet enqueues each image once; an `ok` list is never refetched.
+- **Outbound fetching** is the one place the server contacts hosts named
+  by agents (registries from repo digests), so everything goes through
+  `netguard`: public addresses only, checked at dial time, including the
+  CDN a registry redirects blob GETs to (https and ports 443/8443 for
+  redirect targets; the registry token is dropped on a cross-origin
+  redirect). Only GETs by digest; every manifest and blob is verified
+  against the digest asked for. Caps: 4 MiB per manifest, 64 MiB per SBOM
+  (`SW_IMAGE_MANIFEST_MAX_BYTES`, `SW_IMAGE_SBOM_MAX_BYTES`); 30 s per
+  request, 2 min per blob, 10 min per job. Concurrency is the `images`
+  queue's worker count (`SW_IMAGE_JOB_WORKERS`, default 2). A 429 backs
+  that registry off for the whole process (Retry-After respected,
+  default 10 min) and the image is recorded as `error` with a retry,
+  never failed permanently.
+- Registry auth is anonymous (Bearer token flow, pull scope on the one
+  repository). `SW_DOCKERHUB_USERNAME` / `SW_DOCKERHUB_TOKEN` are
+  optional platform-wide Docker Hub credentials, sent only to
+  `auth.docker.io` for Docker Hub images, only to raise the rate limit
+  (anonymous: 100 manifest GETs per hour per IP; an image costs 2 to 3).
+- **`SW_IMAGE_FETCH_ENABLED=false`** (default true) turns all outbound
+  image fetching off for air-gapped installs: jobs record `unavailable`
+  "image fetching disabled on this server" and the sweep isn't
+  scheduled. Re-enabling it retries those rows.
 
 ## Alerting
 

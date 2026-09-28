@@ -11,6 +11,8 @@
 //   - "alerts":   alert_evaluate, alert_digest, alert_deliver, agent_health,
 //     alert_prune (see alerting.go).
 //   - "maintenance": credential_cleanup (maintenance.go).
+//   - "images":   image_sbom, image_sbom_sweep (imagesbom.go): registry
+//     SBOM attestations for container images.
 package jobs
 
 import (
@@ -184,6 +186,10 @@ type Config struct {
 	CleanupInterval time.Duration
 	// DisableMaintenanceSchedule turns credential_cleanup off (tests).
 	DisableMaintenanceSchedule bool
+
+	// Images: the image_sbom worker (imagesbom.go). Outbound fetching is
+	// off in the zero value.
+	Images ImagesConfig
 }
 
 // NewClient builds a River client that works the feeds and matcher queues
@@ -202,6 +208,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	river.AddWorker(workers, &FindingsRerankWorker{Store: st})
 	river.AddWorker(workers, &CredentialCleanupWorker{Store: st})
 	imageWorkers(workers, st)
+	imageWorkerCount, imagePeriodic := addImageWorkers(workers, st, cfg.Images)
 
 	acfg := cfg.Alerting
 	if acfg.Notifiers == nil {
@@ -254,6 +261,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 		)
 	}
 	periodic = append(periodic, maintenanceJobs(cfg)...)
+	periodic = append(periodic, imagePeriodic...)
 	if cfg.PeriodicSyncs {
 		for _, eco := range cfg.OSVEcosystems {
 			periodic = append(periodic, river.NewPeriodicJob(
@@ -279,6 +287,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 			QueueFindings:    {MaxWorkers: max(1, cfg.FindingsWorkers)},
 			QueueAlerts:      {MaxWorkers: cmp.Or(cfg.AlertWorkers, 10)},
 			QueueMaintenance: {MaxWorkers: 1},
+			QueueImages:      {MaxWorkers: imageWorkerCount},
 		},
 		Workers:              workers,
 		PeriodicJobs:         periodic,
