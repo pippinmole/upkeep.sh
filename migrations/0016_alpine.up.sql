@@ -1,4 +1,4 @@
--- P2a Alpine (DOMAIN_MODEL.md §2.3, §2.5; TASKS.md Phase 2a "Alpine"):
+-- P2a Alpine (DOMAIN_MODEL.md §2.3, §2.5; docs/tasks/phase-2a-image-vulns.md "Alpine"):
 -- Alpine releases for the OSV `Alpine` sync and the apk matcher. No
 -- schema change: advisory_affected / software_versions already carry
 -- distro 'alpine' and release as text.

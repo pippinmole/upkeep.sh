@@ -11,7 +11,7 @@ import {
   RELEASE_JOIN,
 } from "./queries-image-scores";
 
-// One container image (TASKS.md Phase 2a "Dashboard", DOMAIN_MODEL.md
+// One container image (docs/tasks/phase-2a-image-vulns.md "Dashboard", DOMAIN_MODEL.md
 // §3.8): which of the user's hosts have it, the containers using it, its
 // package list's provenance and its score. Packages and vulnerabilities
 // are in queries-image-packages.ts / queries-image-vulns.ts.

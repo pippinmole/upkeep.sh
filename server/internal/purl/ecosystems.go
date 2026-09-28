@@ -8,7 +8,8 @@ import (
 // typeRule is how one purl type maps to software_versions.
 type typeRule struct {
 	// Ecosystem is software_versions.ecosystem. It is the purl type
-	// itself for every known type (DECISIONS.md: "ecosystem from the
+	// itself for every known type
+	// (docs/decisions/container-image-vulnerabilities.md: "ecosystem from the
 	// package URL type"), kept explicit so a rename is one line.
 	Ecosystem string
 	// DistroScoped: versions only mean something within one distro

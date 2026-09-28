@@ -51,7 +51,7 @@ the source-package fields described below still need adding.
 - The payload shape is `agent/internal/collector/types.go` (agent side) and
   `server/internal/ingest/payload.go` (server side), `schema_version: 1`.
 
-The TASKS.md "Phase 1 remainder" plan was already server-side matching
+The "Phase 1 remainder" plan ([tasks/phase-1b-vuln-pipeline.md](tasks/phase-1b-vuln-pipeline.md)) was already server-side matching
 ("OSV sync worker … into `vulnerabilities`", then match). The agent never
 had to decide what counts as vulnerable. What the plan did not have was:
 
@@ -129,7 +129,7 @@ implemented".)*
    ranges (§2.2) that is safe, since there is no false "everything removed".
    With more collectors it is too coarse; see per-collector status in §4.5.
 6. **Windows and macOS are listed as explicit non-goals** in `README.md` and
-   `docs/TASKS.md`. Section 4 of this doc assumes they are coming. That
+   [`docs/tasks/non-goals.md`](tasks/non-goals.md). Section 4 of this doc assumes they are coming. That
    change of product scope needs an explicit decision (open question Q1).
 
 ---
@@ -781,7 +781,7 @@ queues `reconcile_host` for hosts having such an image
 
 ## 3. Packages in the dashboard
 
-This follows the existing pattern in DECISIONS.md: **Next.js Server
+This follows the existing pattern in [decisions/direct-postgres-reads.md](decisions/direct-postgres-reads.md): **Next.js Server
 Components read Postgres directly** through `web/src/lib/queries*.ts`.
 None of the views below needs a new Go HTTP endpoint. The Go side writes
 `host_software`, `software_vulnerabilities` and `findings`, and Next.js
@@ -946,7 +946,7 @@ query per page, labelled as today's advisory knowledge. No `type`/`from`/
 
 ### 3.5 Per-host vulnerabilities: `/dashboard/hosts/[hostId]/vulnerabilities`
 
-This is the existing TASKS item "findings list/detail page", now scoped per
+This is the existing task item ([tasks/phase-1c-packages-ui.md](tasks/phase-1c-packages-ui.md)) "findings list/detail page", now scoped per
 host. There is one row per open finding, `(source package, vuln_key)`:
 
 | Column | Source |
@@ -1078,8 +1078,8 @@ package changes across fleet".
 - The fleet package search uses
   `software_versions_name_idx (text_pattern_ops)` for prefix search. Add
   `pg_trgm` only if substring search is wanted.
-- Nothing here needs caching at MVP scale. The existing DECISIONS.md
-  guidance applies if it ever does.
+- Nothing here needs caching at MVP scale. The existing
+  [decisions/direct-postgres-reads.md](decisions/direct-postgres-reads.md) guidance applies if it ever does.
 
 ### 3.8 Container images (P2a, as built)
 
@@ -1219,7 +1219,7 @@ remote collection would need the fixed read-only commands Q3 allows.
   successful collection.
 - **Credential rotation and revocation** move to the agent level
   (`agents.revoked_at`, `agent_credentials.rotated_at`). This lines up with
-  the existing TASKS items.
+  the existing task items ([tasks/cross-cutting-gaps.md](tasks/cross-cutting-gaps.md)).
 
 **As implemented (P1.5, migration 0008, `server/internal/store/agents.go`).**
 
@@ -1741,17 +1741,17 @@ Legend:
 - ❌ not planned
 - ❓ TBD, see open questions
 
-Phase labels, as used in [TASKS.md](TASKS.md):
+Phase labels, as used in [tasks/](tasks/README.md):
 
 - **P1**: Phase 1 remainder (inventory history, matching, packages UI)
 - **P1.5**: agent/host split + Linux collector breadth
 - **P1.6**: Docker inventory (containers, images, Swarm) + host-side port exposure
-- **P2a**: container image packages + vulnerabilities (DECISIONS.md "Container image vulnerabilities")
+- **P2a**: container image packages + vulnerabilities ([decisions/container-image-vulnerabilities.md](decisions/container-image-vulnerabilities.md))
 - **P2**: existing Phase 2+ (external scanner, RHEL/Alpine host collectors)
 - **P3**: Windows agent
 - **P4**: macOS agent
 
-Windows and macOS are **currently non-goals** in README/TASKS. Their 🛠
+Windows and macOS are **currently non-goals** in README/[tasks](tasks/non-goals.md). Their 🛠
 cells assume Q1 is answered yes.
 
 | Data point / collector | Windows | Ubuntu / Debian | macOS |
@@ -1800,7 +1800,7 @@ Linux/Debian-family only. Nothing else is collected today.
 
 ## 6. Open questions
 
-1. **Windows/macOS scope.** README and TASKS list "Windows/macOS support" as
+1. **Windows/macOS scope.** README and [tasks](tasks/non-goals.md) list "Windows/macOS support" as
    an explicit non-goal. This design treats them as future P3/P4. Confirm
    the scope change, and which OS comes first. The recommendation is
    Windows before macOS: more servers, a clearer vuln story via MSRC. Or
@@ -1830,7 +1830,7 @@ Linux/Debian-family only. Nothing else is collected today.
    (`SW_SSH_KEY_FILE`); the server stores only the public key and the
    confirmed host keys. Reinstalling with a lost volume means adding the
    new public key on the remote hosts. A "replace agent" flow (the new
-   agent takes over the old one's remote hosts) is a follow-up in TASKS.
+   agent takes over the old one's remote hosts) is a follow-up in [tasks/phase-1-5-agent-host-split.md](tasks/phase-1-5-agent-host-split.md).
 5. **External port scanning for remote hosts.** Today's safety check
    (`source_ip` equals the agent's connection) can't verify a remote host's
    address. Should remote hosts simply be ineligible, or verified another
@@ -1839,7 +1839,7 @@ Linux/Debian-family only. Nothing else is collected today.
    host's pushes carry the agent's `source_ip`; the scanner must only
    consider `local` assignments. **Update 2026-09-27:** the external
    scanner itself is deferred to Phase 2+ in favour of host-side exposure
-   analysis (DECISIONS.md "Port exposure"); this answer applies if it is
+   analysis ([decisions/port-exposure.md](decisions/port-exposure.md)); this answer applies if it is
    built.
 6. **Resolved: `snapshot_packages` is retired entirely** (the alternative
    was keeping raw per-snapshot package rows for N days). Nothing read it beyond the one-off 0003 backfill, and
@@ -1918,7 +1918,7 @@ Linux/Debian-family only. Nothing else is collected today.
     threat (a malicious release). Images are collected from the start (image ID, repo
     digests, layer diff IDs) for Phase 2 image CVE matching. Docker and
     Swarm are supported generically, not per platform. Details:
-    DECISIONS.md "Docker collection", TASKS.md Phase 1.6.
+    [decisions/docker-collection.md](decisions/docker-collection.md), [tasks/phase-1-6-docker-exposure.md](tasks/phase-1-6-docker-exposure.md).
 
 ---
 

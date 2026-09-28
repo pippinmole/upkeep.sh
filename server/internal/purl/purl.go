@@ -3,7 +3,7 @@
 // ecosystem, distro, release, name, version, arch, source). Container image
 // SBOMs (registry attestations, Syft) identify every package by its purl,
 // so this is how image packages join host packages and the matcher
-// (DOMAIN_MODEL.md §2.2, DECISIONS.md "Container image vulnerabilities").
+// (DOMAIN_MODEL.md §2.2, docs/decisions/container-image-vulnerabilities.md).
 //
 // The parser is our own (about a page of code, following the spec's
 // "How to parse" section) rather than packageurl-go: we only read purls,

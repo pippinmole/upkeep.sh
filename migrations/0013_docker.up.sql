@@ -1,4 +1,4 @@
--- P1.6 Docker inventory (TASKS.md Phase 1.6, PROTOCOL.md "Docker
+-- P1.6 Docker inventory (docs/tasks/phase-1-6-docker-exposure.md, PROTOCOL.md "Docker
 -- sections"): containers and images as validity ranges on the 0010
 -- pattern, images interned fleet-wide, Swarm services per cluster, and the
 -- engine / Swarm membership / networks as current per-host state.

@@ -26,8 +26,8 @@ import { Label } from "@/components/ui/label";
 // upkeep-agent-data is the agent's data directory (a folder): its
 // credentials.json and its SSH key for remote hosts. Without a persistent
 // volume there, the read-only container can't save its credentials.
-// withDocker adds the opt-in Docker socket mount (DECISIONS.md "Docker
-// collection"), the same line as agent/docker-compose.example.yml.
+// withDocker adds the opt-in Docker socket mount
+// (docs/decisions/docker-collection.md), the same line as agent/docker-compose.example.yml.
 function dockerRunCommand(serverUrl: string, token: string, withDocker: boolean): string {
   const socket = withDocker ? `\n  ${DOCKER_SOCKET_MOUNT} \\` : "";
   return `docker run -d --restart unless-stopped \\
@@ -156,7 +156,7 @@ export function EnrollAgentPanel({
 
 // Opt-in Docker collection: adds the socket mount to the command. Off by
 // default because socket access is root on the host; the copy says so
-// plainly (DECISIONS.md "Docker collection").
+// plainly (docs/decisions/docker-collection.md).
 function DockerCollectionOption({
   checked,
   onChange,

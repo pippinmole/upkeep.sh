@@ -61,7 +61,7 @@ func main() {
 	collect := snapshot.New()
 	collect.Agent = &collector.Agent{Version: version, Platform: platform(), IntervalSeconds: int(interval.Seconds())}
 	// Docker collection is opt-in: it runs only if the engine socket is
-	// mounted at this path (docs/DECISIONS.md "Docker collection").
+	// mounted at this path (docs/decisions/docker-collection.md).
 	collect.DockerSocket = envOr("SW_DOCKER_SOCKET", dockerapi.DefaultSocket)
 	// Remote targets never touch the socket: Collect already skips Docker
 	// for any non-local target before looking at the path, and their

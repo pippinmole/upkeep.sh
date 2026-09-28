@@ -23,11 +23,11 @@
   expose: dpkg database, `/etc/os-release`, reboot-required flag). It
   collects facts only — no command execution, no inbound ports. CVE
   matching happens server-side so the agent stays small and auditable.
-  Planned (TASKS.md Phase 1.6): Docker containers, images and Swarm
+  Planned ([tasks/phase-1-6-docker-exposure.md](tasks/phase-1-6-docker-exposure.md)): Docker containers, images and Swarm
   services over an opt-in Docker socket mount, through Docker's Go SDK
   behind an interface that only exposes a fixed list of read calls, on
-  hosts with their own agent only, not remote (SSH) ones (DECISIONS.md
-  "Docker collection").
+  hosts with their own agent only, not remote (SSH) ones
+  ([decisions/docker-collection.md](decisions/docker-collection.md)).
 
 - **`server/`** — Go, two binaries from one image:
   - `cmd/api`: agent enrollment (`POST /v1/enroll`) and snapshot ingest
@@ -41,8 +41,8 @@
     reconciliation (see "Vulnerability pipeline" below), alerting
     (see "Alerting" below), and container image package lists from
     registry SBOM attestations (see "Container image SBOMs" below). Planned: host-side port-exposure
-    classification (TASKS.md Phase 1.6; no external scanning, see
-    DECISIONS.md "Port exposure"). A
+    classification ([tasks/phase-1-6-docker-exposure.md](tasks/phase-1-6-docker-exposure.md); no external scanning, see
+    [decisions/port-exposure.md](decisions/port-exposure.md)). A
     separate process so multi-minute feed imports (Ubuntu's OSV zip is
     ~800 MB) never compete with ingest. One-shot commands run the same
     code in the foreground: `worker sync osv|kev|epss`, `worker match`
@@ -65,7 +65,7 @@
 
 Two codebases touch the same schema. Ownership is drawn by **who needs to
 enforce business logic on a table**, not by "which language talks to the
-DB" — see [DECISIONS.md](DECISIONS.md#direct-postgres-reads-from-nextjs)
+DB" — see [decisions/direct-postgres-reads.md](decisions/direct-postgres-reads.md)
 for the reasoning.
 
 | Table | Written by |
@@ -92,7 +92,7 @@ query. If caching is added later (e.g. Next.js `"use cache"` +
 `cacheTag`), the tables Go writes to must be invalidated by Go calling an
 on-demand revalidation endpoint in Next.js after it writes — the standard
 pattern for an external writer invalidating Next.js's cache (same shape
-as a CMS webhook), not a workaround. See DECISIONS.md for the full
+as a CMS webhook), not a workaround. See [decisions/direct-postgres-reads.md](decisions/direct-postgres-reads.md) for the full
 reasoning trail on this.
 
 ## Data model
@@ -100,7 +100,7 @@ reasoning trail on this.
 See `migrations/` for the authoritative schema. Summary:
 
 - `users` → `agents` and `hosts` (one user owns many of each; no
-  orgs/teams yet, see DECISIONS.md).
+  orgs/teams yet, see [decisions/single-user-tenancy.md](decisions/single-user-tenancy.md)).
 - **Agent ≠ host** (migration 0008, DOMAIN_MODEL.md §4): an `agents` row is
   one deployed collector with its own credential (`agent_credentials`,
   1:1, only a secret hash is stored; `agents.revoked_at` refuses it). A
@@ -186,7 +186,7 @@ findings queue:
 
 ## Container image SBOMs
 
-TASKS.md Phase 2a, DECISIONS.md "Container image vulnerabilities". The
+[tasks/phase-2a-image-vulns.md](tasks/phase-2a-image-vulns.md), [decisions/container-image-vulnerabilities.md](decisions/container-image-vulnerabilities.md). The
 server's own package list per image key (fleet-wide, `owner_user_id`
 NULL) comes from the image's registry SBOM attestation.
 
@@ -277,7 +277,7 @@ alerts queue:
 - **Secrets**: fields declared secret live in `notification_channels.secrets`,
   which dashboard queries never select; generated ones (the webhook
   signing secret) are shown once on create/rotate. They are stored in
-  plaintext in Postgres (the worker needs them to sign) — see TASKS.md.
+  plaintext in Postgres (the worker needs them to sign) — see [tasks/phase-1-alerting.md](tasks/phase-1-alerting.md).
 - **Outbound requests** go through `server/internal/netguard` (SSRF guard:
   https, ports 443/8443, public addresses only, checked on the dialed IP,
   same-origin redirects; SMTP connections for the email channel have their
@@ -340,7 +340,7 @@ and a priority (Automatic, or a fixed 1–5 that overrides the mapping).
 
 `server/internal/notify/email` sends a plain-text email through the
 user's **own SMTP server**. SMTP settings are **per channel**; there is no
-platform-wide SMTP config (DECISIONS.md "Email notifier").
+platform-wide SMTP config ([decisions/email-notifier-smtp.md](decisions/email-notifier-smtp.md)).
 
 - **Fields**: To (required; one or more addresses separated by commas,
   at most 20, each a bare ASCII address), From address (required),
@@ -424,8 +424,8 @@ with a fake channel type registered next to the webhook to prove it.
 
 ## Reports (planned)
 
-Not built yet (TASKS.md "Phase 1.7 — scheduled estate reports";
-DECISIONS.md "Scheduled reports" and "Report email HTML"). Planned
+Not built yet ([tasks/phase-1-7-reports.md](tasks/phase-1-7-reports.md);
+[decisions/scheduled-reports.md](decisions/scheduled-reports.md) and [decisions/report-email-html.md](decisions/report-email-html.md)). Planned
 shape:
 
 ```

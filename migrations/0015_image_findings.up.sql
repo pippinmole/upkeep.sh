@@ -1,5 +1,6 @@
--- P2a container image findings and scores (TASKS.md Phase 2a "Matching",
--- DECISIONS.md "Container image vulnerabilities" + follow-up decisions).
+-- P2a container image findings and scores
+-- (docs/tasks/phase-2a-image-vulns.md "Matching",
+-- docs/decisions/container-image-vulnerabilities.md + follow-up decisions).
 --
 -- An image's package list (migration 0014) is matched like a host's: its
 -- versions are in software_versions, so software_vulnerabilities covers

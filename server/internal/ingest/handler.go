@@ -192,7 +192,7 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 
 	// TODO(phase 1, exposure): enqueue host-side port-exposure
 	// classification here (same AfterWrite/InsertTx pattern) once that
-	// job exists (docs/TASKS.md Phase 1.6; no external scanning).
+	// job exists (docs/tasks/phase-1-6-docker-exposure.md; no external scanning).
 
 	w.WriteHeader(http.StatusAccepted)
 }

@@ -1,6 +1,7 @@
 // What mounting the Docker socket into the agent grants, and where the
-// socket lives on rootless Docker / Podman (DECISIONS.md "Docker
-// collection"). Shared by the Register agent dialog's opt-in checkbox and
+// socket lives on rootless Docker / Podman
+// (docs/decisions/docker-collection.md). Shared by the Register agent
+// dialog's opt-in checkbox and
 // the host Containers / Images tabs' "not enabled" state, so both say the
 // same thing.
 

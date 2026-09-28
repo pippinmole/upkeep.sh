@@ -1,7 +1,7 @@
 package jobs
 
 // Container image package lists from registry SBOM attestations
-// (internal/imagesbom, TASKS.md Phase 2a "Worker: image_sbom").
+// (internal/imagesbom, docs/tasks/phase-2a-image-vulns.md "Worker: image_sbom").
 //
 //	ingest (InsertTx in the snapshot tx): a host_images range opened with a
 //	  repo digest for a key without an ok server list ──> image_sbom{key}   [images]

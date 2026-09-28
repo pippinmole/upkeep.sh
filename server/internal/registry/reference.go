@@ -1,8 +1,8 @@
 // Package registry is a small, read-only OCI Distribution client for
-// fetching a container image's SBOM attestation by digest (TASKS.md Phase
-// 2a "Worker: image_sbom", DECISIONS.md "Container image
-// vulnerabilities"). It only ever GETs manifests and blobs by digest,
-// anonymously (Bearer token flow), with optional platform-wide Docker Hub
+// fetching a container image's SBOM attestation by digest
+// (docs/tasks/phase-2a-image-vulns.md "Worker: image_sbom",
+// docs/decisions/container-image-vulnerabilities.md). It only ever GETs
+// manifests and blobs by digest, anonymously (Bearer token flow), with optional platform-wide Docker Hub
 // credentials that only raise the pull rate limit.
 //
 // Every connection goes through netguard (public addresses only, checked

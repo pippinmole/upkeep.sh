@@ -5,7 +5,7 @@
 // directly, so the list below is the whole of what the agent can ask the
 // engine for.
 //
-// The boundary (docs/DECISIONS.md "Docker collection"): access to the
+// The boundary (docs/decisions/docker-collection.md): access to the
 // Docker socket is root on the host, and a read-only mount doesn't change
 // that, so the agent's own code is what keeps it read-only. Allowed: ping,
 // version, info, container list/inspect, image list/inspect, network list,
@@ -13,7 +13,7 @@
 // image save/get, attach/exec, events, secrets, configs, or any call that
 // changes engine state. "GET-only" is not the rule: several GET endpoints
 // (archive, export, image get, logs, configs) leak data. Adding a method to
-// Client is a security decision; update DECISIONS.md with it.
+// Client is a security decision; update docs/decisions/docker-collection.md with it.
 //
 // The engine is reached only through the configured socket path, never via
 // DOCKER_HOST or other DOCKER_* variables, Docker contexts or config.json:

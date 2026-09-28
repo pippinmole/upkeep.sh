@@ -1,7 +1,7 @@
 // Package severity ranks vulnerability findings: one pure function turns
 // the signals we hold for a (package, vuln) pair into a coarse display
 // Bucket and a totally ordered sort Key. It is the only place ranking
-// rules live; SQL and the UI consume its outputs (docs/TASKS.md P1b).
+// rules live; SQL and the UI consume its outputs (docs/tasks/phase-1b-vuln-pipeline.md).
 //
 // # Signal precedence
 //

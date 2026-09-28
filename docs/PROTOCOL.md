@@ -399,11 +399,11 @@ only.
 of each primary key) in addition to the `host_listeners` ranges: it keeps
 the owning pid, which ranges deliberately don't (it would churn on every
 restart). Its `is_public` column is never set: the external scanner it
-was meant for is deferred (DECISIONS.md "Port exposure").
+was meant for is deferred ([decisions/port-exposure.md](decisions/port-exposure.md)).
 
 ### Docker sections
 
-TASKS.md Phase 1.6; rationale in DECISIONS.md "Docker collection". The
+[tasks/phase-1-6-docker-exposure.md](tasks/phase-1-6-docker-exposure.md); rationale in [decisions/docker-collection.md](decisions/docker-collection.md). The
 agent sends these (agent/internal/collector/types_docker.go); the server
 stores them per migration 0013 (see "Server storage" at the end of this
 section). Additive within `schema_version: 1`, like the breadth sections.
@@ -621,7 +621,7 @@ them (ARCHITECTURE.md "Vulnerability pipeline").
 Traefik proxy. **The reverse proxy must set/overwrite this header
 itself**, or anyone can spoof their recorded source IP. It matters most
 for the deferred external port scanner, which would use it to target
-only an enrolled agent's own IP (DECISIONS.md "Port exposure").
+only an enrolled agent's own IP ([decisions/port-exposure.md](decisions/port-exposure.md)).
 
 ## 3. Credential rotation
 
@@ -771,7 +771,7 @@ the agent (`agent/cmd/agent/remote.go`, `agent/internal/target/ssh.go`):
   (`target.LiveProc`) and are reported `skipped`; so is the public IP
   lookup, which would describe the agent's network. The Docker
   collectors (planned) are `skipped` too: SFTP can't reach the remote
-  Docker socket (DECISIONS.md "Docker collection").
+  Docker socket ([decisions/docker-collection.md](decisions/docker-collection.md)).
 - **Scheduling.** Each target is collected every push interval. A failed
   attempt is retried after 1m, doubling up to the push interval, so a
   host being set up is retried quickly without an SSH login every minute
@@ -816,7 +816,7 @@ manually; a mismatch should only ever be an additive field.
 
 ## Not yet implemented
 
-- Port-exposure classification (TASKS.md Phase 1.6) — see
+- Port-exposure classification ([tasks/phase-1-6-docker-exposure.md](tasks/phase-1-6-docker-exposure.md)) — see
   `TODO(phase 1, exposure)` in `handler.go`. Like vulnerability matching,
   it is enqueued per snapshot, not run inline in the request handler.
 - No agent self-update.

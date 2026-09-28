@@ -18,7 +18,8 @@ func Registry(g *netguard.Guard) *notify.Registry {
 		webhook.New(g),
 		ntfy.New(g),
 		email.New(g),
-		// Slack and Discord are deferred past MVP (docs/TASKS.md
-		// "Phase 2+"); webhook covers chat tools via their inbound hooks.
+		// Slack and Discord are deferred past MVP
+		// (docs/tasks/phase-2-plus-deferred.md); webhook covers chat tools via
+		// their inbound hooks.
 	)
 }

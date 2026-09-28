@@ -16,8 +16,9 @@ import { cn } from "@/lib/utils";
 type What = "containers" | "images";
 
 // Why a host's Containers / Images tab is empty, or why its rows may be out
-// of date (TASKS.md Phase 1.6 "Docker is collected only on hosts with their
-// own agent"). Keyed on the newest snapshot's collector_status, never on
+// of date (docs/tasks/phase-1-6-docker-exposure.md
+// "Docker is collected only on hosts with their own agent"). Keyed on the
+// newest snapshot's collector_status, never on
 // "no rows": stored rows stay as last known after collection stops.
 //
 // - hasRows false: the whole empty state (remote / not enabled / engine

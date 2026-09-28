@@ -45,7 +45,7 @@ export type HostCollector = {
 
 // The agents collecting one host of the user's, with how they reach it
 // (local agent vs remote over SSH), not-revoked first, local before
-// remote. Remote hosts lack Docker, listeners etc. (TASKS.md Phase 1.6),
+// remote. Remote hosts lack Docker, listeners etc. (docs/tasks/phase-1-6-docker-exposure.md),
 // so pages use this to say why. cache(): layout + tab pages share it.
 export const getHostCollectors = cache(async function getHostCollectors(
   userId: string,

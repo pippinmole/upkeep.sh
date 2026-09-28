@@ -7,7 +7,8 @@ import type { ImageListState, ImageOverview } from "@/lib/queries-image";
 import { formatDate, formatDateTime } from "@/lib/time";
 
 // Why the image has no package list, or why its list says less than it
-// seems: explicit states instead of empty tables (TASKS.md Phase 2a
+// seems: explicit states instead of empty tables
+// (docs/tasks/phase-2a-image-vulns.md
 // "Dashboard"). Returns null when the list is ok, scored and assessed.
 
 export type ListView =

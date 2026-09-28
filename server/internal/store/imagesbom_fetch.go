@@ -14,7 +14,7 @@ import (
 
 // Reasons the image_sbom worker records (image_sbom_state.reason). They
 // are shown to users as is and are stable, so other producers can select
-// on them: server-side Syft (TASKS.md Phase 2a) picks up
+// on them: server-side Syft (docs/tasks/phase-2a-image-vulns.md) picks up
 //
 //	WHERE owner_user_id IS NULL AND status = 'unavailable' AND reason = SBOMReasonNoAttestation
 //

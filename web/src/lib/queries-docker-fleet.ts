@@ -10,7 +10,7 @@ import {
   RELEASE_JOIN,
 } from "./queries-image-scores";
 
-// Fleet-level Docker reads (TASKS.md Phase 1.6; migration 0013,
+// Fleet-level Docker reads (docs/tasks/phase-1-6-docker-exposure.md; migration 0013,
 // DOMAIN_MODEL.md §4.5 "Docker"): the fleet Images page and the Swarm
 // cluster view. Per-host Containers / Images tabs live in queries-docker.ts.
 //

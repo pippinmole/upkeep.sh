@@ -1,4 +1,5 @@
-// The image detail page's URL and the image key in it (TASKS.md Phase 2a
+// The image detail page's URL and the image key in it
+// (docs/tasks/phase-2a-image-vulns.md
 // "Dashboard", DOMAIN_MODEL.md §3.8). Client-safe: no database imports.
 //
 // An image is keyed like container_images: (image_id, os, arch, variant).

@@ -1,7 +1,6 @@
 // Package sbom reads SBOM documents (SPDX 2.x JSON, CycloneDX JSON) into
-// what an image package list needs (DECISIONS.md "Container image
-// vulnerabilities"): each package's purl and where in the image it was
-// found, the image's OS from its os-release, and the generating tool.
+// what an image package list needs (docs/decisions/container-image-vulnerabilities.md):
+// each package's purl and where in the image it was found, the image's OS from its os-release, and the generating tool.
 // Mapping purls to interned software keys is purl.Map's job.
 //
 // The documents come from several generators, which differ in ways that

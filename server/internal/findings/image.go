@@ -5,8 +5,8 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/severity"
 )
 
-// Container image findings and scores (DECISIONS.md "Container image
-// vulnerabilities", follow-up decisions).
+// Container image findings and scores
+// (docs/decisions/container-image-vulnerabilities.md, follow-up decisions).
 //
 // A host gets vulnerable_image findings for an image only while at least
 // one current container on it uses the image (any state: an exited

@@ -10,8 +10,9 @@ import { plural } from "./cards";
 
 // "Most urgent vulnerabilities" over both finding kinds, each row saying
 // where the CVE is: in host packages (upgrade the host) and/or in images
-// (rebuild or re-pull). The CVE page lists host findings only (TASKS.md
-// Phase 2a), so an image-only CVE in one image links to that image's
+// (rebuild or re-pull). The CVE page lists host findings only
+// (docs/tasks/phase-2a-image-vulns.md), so an image-only CVE in one image
+// links to that image's
 // Vulnerabilities tab filtered to it.
 
 function imageLink(r: UrgentVulnRow): string {

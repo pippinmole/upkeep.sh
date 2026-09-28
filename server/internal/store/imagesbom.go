@@ -15,9 +15,9 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/purl"
 )
 
-// Container image package lists (migration 0014, DECISIONS.md "Container
-// image vulnerabilities"). An image's packages are interned into
-// software_versions exactly like a host's (internVersions), so the matcher
+// Container image package lists (migration 0014,
+// docs/decisions/container-image-vulnerabilities.md). An image's packages
+// are interned into software_versions exactly like a host's (internVersions), so the matcher
 // and its triggers cover them unchanged; image_software is the plain set
 // per list, image_sbom_state the list's provenance and attempt bookkeeping.
 

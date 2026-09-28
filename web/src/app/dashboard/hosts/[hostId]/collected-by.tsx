@@ -10,7 +10,7 @@ const REMOTE_LABEL: Record<string, string> = { ssh: "Remote (SSH)", winrm: "Remo
 // Host header: which agents collect this host, with a "Remote (SSH)" badge
 // on agents that reach it over SSH. Those can only read files, so Docker,
 // listening ports, port exposure and live process state are missing
-// (TASKS.md Phase 1.6); the badge's title says so.
+// (docs/tasks/phase-1-6-docker-exposure.md); the badge's title says so.
 export async function CollectedBy({ userId, hostId }: { userId: string; hostId: string }) {
   const agents = await getHostCollectors(userId, hostId);
   if (agents.length === 0) return null;

@@ -11,8 +11,9 @@ import (
 )
 
 // Docker collector status reasons. The dashboard keys on these exact
-// strings to tell its empty states apart (TASKS.md Phase 1.6), so they are
-// part of the protocol: don't reword them.
+// strings to tell its empty states apart
+// (docs/tasks/phase-1-6-docker-exposure.md), so they are part of the
+// protocol: don't reword them.
 const (
 	// ReasonRemoteHost: the target is collected over SSH, whose read-only
 	// SFTP access can't reach the target's Docker socket.

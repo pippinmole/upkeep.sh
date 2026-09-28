@@ -1,7 +1,8 @@
 // Package imagesbom obtains the server's package list for one container
 // image key (image_id, os, arch, variant) from its registry's SBOM
-// attestation and stores it (TASKS.md Phase 2a "Worker: image_sbom",
-// DECISIONS.md "Container image vulnerabilities"). The image_sbom River
+// attestation and stores it
+// (docs/tasks/phase-2a-image-vulns.md "Worker: image_sbom",
+// docs/decisions/container-image-vulnerabilities.md). The image_sbom River
 // job (internal/jobs) runs it; `worker image-sbom` runs it in the
 // foreground.
 //

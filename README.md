@@ -18,7 +18,7 @@ Qualys — just the handful of things on your servers that actually matter:
 collection, snapshot storage) and the dashboard's auth/host-list flow
 work end to end. The actual vulnerability-matching and alerting pipeline
 — the core value prop — isn't built yet. See
-**[docs/TASKS.md](docs/TASKS.md)** for exactly what's done vs. outstanding
+**[docs/tasks/](docs/tasks/README.md)** for exactly what's done vs. outstanding
 before picking up new work.
 
 ## Repo layout
@@ -30,7 +30,8 @@ agent/       Go, single static binary. Read-only, outbound-only host
 server/      Go. Agent enrollment + snapshot ingest today; vulnerability
              matching, exposure analysis, and alert dispatch land here.
 web/         Next.js (App Router) + Bun + Auth.js. Marketing, auth,
-             dashboard. Reads Postgres directly (see docs/DECISIONS.md).
+             dashboard. Reads Postgres directly (see
+             docs/decisions/direct-postgres-reads.md).
 migrations/  SQL migrations (golang-migrate format) — the actual schema
              contract shared by server/ and web/.
 docs/        Architecture, protocol spec, decision log, task tracker.
@@ -42,10 +43,10 @@ For anything beyond a quick start, read:
   flow, the Go/Next.js write-ownership split, deployment shapes.
 - **[docs/PROTOCOL.md](docs/PROTOCOL.md)** — the agent↔server wire
   format, auth, and versioning policy.
-- **[docs/DECISIONS.md](docs/DECISIONS.md)** — why things are built this
+- **[docs/decisions/](docs/decisions/README.md)** — why things are built this
   way (direct Postgres reads, self-hosted auth, package manager, version
   pinning policy, etc.) — read before relitigating a past call.
-- **[docs/TASKS.md](docs/TASKS.md)** — done vs. to-do, kept current.
+- **[docs/tasks/](docs/tasks/README.md)** — done vs. to-do, kept current.
 
 ## Local development
 
@@ -99,7 +100,7 @@ design: ping, version, info, container list/inspect, image
 list/inspect, network list, and on Swarm managers service/task/node list.
 It never calls logs, exec, file export, secrets or configs, never changes
 state, and never sends environment variables
-([docs/DECISIONS.md](docs/DECISIONS.md) "Docker collection").
+([docs/decisions/docker-collection.md](docs/decisions/docker-collection.md)).
 
 The container side is `/var/run/docker.sock` unless you set
 `SW_DOCKER_SOCKET`. On the host side, mount the socket your engine uses:
@@ -126,7 +127,7 @@ the public IP.
 
 ## Roadmap
 
-See [docs/TASKS.md](docs/TASKS.md) for the actionable breakdown. At a
+See [docs/tasks/](docs/tasks/README.md) for the actionable breakdown. At a
 glance, the phases:
 
 1. ✅ Agent collectors + enrollment + ingest + schema.
@@ -166,4 +167,4 @@ reporting (SOC2/CIS), Windows/macOS support, log analysis/SIEM.
   the agent is root-equivalent on that host. Its code only makes a
   fixed list of reads, and releases must be signed and
   pinned, since a malicious release is the realistic threat (see
-  docs/DECISIONS.md).
+  docs/decisions/docker-collection.md).

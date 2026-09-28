@@ -1,6 +1,7 @@
--- P2a container image packages (TASKS.md Phase 2a, DECISIONS.md "Container
--- image vulnerabilities"): the package list of an image, interned into
--- software_versions like host packages, so the matcher,
+-- P2a container image packages (docs/tasks/phase-2a-image-vulns.md,
+-- docs/decisions/container-image-vulnerabilities.md): the package list of
+-- an image, interned into software_versions like host packages, so the
+-- matcher,
 -- software_vulnerabilities and every re-match trigger cover images
 -- unchanged.
 --
