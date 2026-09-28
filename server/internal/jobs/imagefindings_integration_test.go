@@ -100,7 +100,8 @@ func TestImageFindingsPipeline(t *testing.T) {
 	if ev.Finding == nil || ev.Finding.Kind != "vulnerable_image" || ev.Finding.VulnKey != cve ||
 		ev.Finding.ImageID != key.ImageID || !slices.Equal(ev.Finding.ImageRefs, []string{"nginx:1.27"}) ||
 		!slices.Equal(ev.Finding.Containers, []string{"web"}) ||
-		ev.URL != "https://upkeep.example/dashboard/hosts/"+f.hostID+"/images" {
+		ev.URL != "https://upkeep.example/dashboard/images/-/"+key.ImageID+
+			"?host="+f.hostID+"&q="+cve+"&tab=vulnerabilities" {
 		t.Fatalf("image finding event: %+v / %+v", ev, ev.Finding)
 	}
 	sc, err := f.s.ImageScoreOf(ctx, f.userID, key)

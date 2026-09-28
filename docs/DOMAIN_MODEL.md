@@ -1058,6 +1058,60 @@ package changes across fleet".
 - Nothing here needs caching at MVP scale. The existing DECISIONS.md
   guidance applies if it ever does.
 
+### 3.8 Container images (P2a, as built)
+
+**Image detail: `/dashboard/images/-/<image id>`** (folder
+`web/src/app/dashboard/images/-/[imageId]`; key and URL rules in
+`web/src/lib/image-key.ts`). The key is `container_images`'
+(image_id, os, arch, variant): `?platform=linux/arm64/v8` selects it,
+else the platform the image has on `?host=`, else the user's first (a
+platform switcher lists the others). `?tab=vulnerabilities` switches tabs.
+Tenancy: every read starts from the user's current `host_images`
+(`getImagePlatforms`, 404 otherwise), and package lists are only read
+through `image_sbom_effective(user)`, never by list id.
+
+- *Header* (`queries-image.ts`): tags and digests across the user's
+  hosts, platform, created, distro (`image_sbom_state.distro_name` /
+  release), list source + tool + generated_at, the score from
+  `image_scores(user)`, and every host with the image and the containers
+  using it (score only when none).
+- *Packages tab* (`queries-image-packages.ts`): every package of the
+  effective list, server-driven DataTable (`?q` name/source/path, facets
+  `?ecosystem=` and `?status=vulnerable,not-assessed,pending,no-known`,
+  `?sort=status|name|ecosystem`, paging). Not assessed = outside
+  `matcher.Assessed` (mirrored in `web/src/lib/assessed.ts`) or a distro
+  release with `distro_releases.supported` false: never "no
+  vulnerabilities".
+- *Vulnerabilities tab* (`queries-image-vulns.ts`):
+  `software_vulnerabilities` through the list, one row per (source
+  package, vuln_key) like `findings.BuildImage` (kernel binaries
+  skipped), so images no container uses work too; per row the user's
+  `vulnerable_image` findings (host, open since / resolved). Facets
+  severity, KEV, fix; sort severity (default), vuln, package, EPSS, CVSS.
+- *Severity per row*: Go stores buckets on findings and only totals per
+  list, so the web assesses matches with a SQL mirror of
+  `severity.Assess` (`web/src/lib/severity-sql.ts`); rows add up to
+  `image_sbom_scores`, and keys equal `findings.severity_key` where
+  findings exist (checked on real data). The representative row of a
+  group is the lowest match version in text order (Go uses the
+  ecosystem comparator; equal in practice).
+- *States instead of empty tables* (`list-state.tsx`): not inspected on
+  any host (no platform), no package list yet, local image (no repo
+  digest) needs the agent, `unavailable` with its reason verbatim
+  ("private or local image, needs the agent", "registry has no SBOM
+  attestation for this image", ...), error with the retry time, release
+  not assessed (distro not imported, release out of support or unknown),
+  matching in progress (list ok, score not current).
+
+**Score columns** (`components/image/score-cell.tsx`, `ImageScoreCell`):
+worst bucket with its count, KEV count, total and max CVSS, or the state
+label; linked to the detail page. Host Images and Containers tabs join
+`image_scores(user)` per row; the fleet Images page shows each
+repository's most urgent image (`getRepoScores`, "worst of N images"),
+and the repository page links each image to its detail page.
+Notification links for `vulnerable_image` findings point at the detail
+page's Vulnerabilities tab filtered to the CVE (`store.ImageFindingURL`).
+
 ---
 
 ## 4. Domain model: agents, hosts, OS families

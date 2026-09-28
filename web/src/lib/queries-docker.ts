@@ -1,6 +1,13 @@
 import { cache } from "react";
 
 import { pool } from "./db";
+import type { ImageScore } from "./image-score";
+import {
+  IMAGE_SCORE_COLUMNS,
+  type ImageScoreDbRow,
+  mapImageScore,
+  RELEASE_JOIN,
+} from "./queries-image-scores";
 import type { CollectorStatus } from "./queries-inventory";
 import { isUuid } from "./queries-inventory";
 
@@ -178,40 +185,54 @@ export type HostContainerRow = {
   inspectError: string | null;
   // In this exact state (name, image, state, ports…) since.
   since: string;
+  // The image's platform on this host (null = image not listed or not
+  // inspected) and its score (image_scores(user)).
+  imagePlatform: { os: string; arch: string; variant: string } | null;
+  imageScore: ImageScore | null;
 };
 
 export async function getHostContainers(userId: string, hostId: string) {
   if (!isUuid(hostId)) return { rows: [] as HostContainerRow[], freshness: null };
-  const { rows } = await pool.query<{
-    container_id: string;
-    name: string;
-    image: string | null;
-    image_id: string | null;
-    repo_tags: string[] | null;
-    repo_digests: string[] | null;
-    state: string | null;
-    started_at: Date | null;
-    compose_project: string | null;
-    compose_service: string | null;
-    swarm_stack: string | null;
-    swarm_service_name: string | null;
-    ports: ContainerPort[] | null;
-    networks: string[] | null;
-    network_mode: string | null;
-    privileged: boolean | null;
-    restart_policy: string | null;
-    mounts: ContainerMount[] | null;
-    inspect_error: string | null;
-    first_seen_at: Date;
-  }>(
+  const { rows } = await pool.query<
+    ImageScoreDbRow & {
+      image_os: string | null;
+      image_arch: string | null;
+      image_variant: string | null;
+      container_id: string;
+      name: string;
+      image: string | null;
+      image_id: string | null;
+      repo_tags: string[] | null;
+      repo_digests: string[] | null;
+      state: string | null;
+      started_at: Date | null;
+      compose_project: string | null;
+      compose_service: string | null;
+      swarm_stack: string | null;
+      swarm_service_name: string | null;
+      ports: ContainerPort[] | null;
+      networks: string[] | null;
+      network_mode: string | null;
+      privileged: boolean | null;
+      restart_policy: string | null;
+      mounts: ContainerMount[] | null;
+      inspect_error: string | null;
+      first_seen_at: Date;
+    }
+  >(
     `SELECT c.container_id, c.name, c.image, c.image_id, i.repo_tags, i.repo_digests,
             c.state, c.started_at, c.compose_project, c.compose_service, c.swarm_stack,
             c.swarm_service_name, c.ports, c.networks, c.network_mode, c.privileged,
-            c.restart_policy, c.mounts, c.inspect_error, c.first_seen_at
+            c.restart_policy, c.mounts, c.inspect_error, c.first_seen_at,
+            i.os AS image_os, i.arch AS image_arch, i.variant AS image_variant,
+            ${IMAGE_SCORE_COLUMNS}
      FROM hosts h
      JOIN host_containers c ON c.host_id = h.id AND c.removed_at IS NULL
      LEFT JOIN host_images i
        ON i.host_id = h.id AND i.image_id = c.image_id AND i.removed_at IS NULL
+     LEFT JOIN image_scores($1) s
+       ON s.image_id = i.image_id AND s.os = i.os AND s.arch = i.arch AND s.variant = i.variant
+     ${RELEASE_JOIN}
      WHERE h.id = $2 AND h.user_id = $1
      ORDER BY c.name`,
     [userId, hostId],
@@ -238,6 +259,11 @@ export async function getHostContainers(userId: string, hostId: string) {
       mounts: r.mounts,
       inspectError: r.inspect_error,
       since: r.first_seen_at.toISOString(),
+      imagePlatform:
+        r.image_os !== null && r.image_arch !== null && r.image_variant !== null
+          ? { os: r.image_os, arch: r.image_arch, variant: r.image_variant }
+          : null,
+      imageScore: mapImageScore(r),
     })),
     freshness: await freshness(userId, hostId, "containers:docker"),
   };
@@ -262,26 +288,30 @@ export type HostImageRow = {
   containers: number;
   running: number;
   since: string;
+  // image_scores(user) for the image key; null until inspected.
+  score: ImageScore | null;
 };
 
 export async function getHostImages(userId: string, hostId: string) {
   if (!isUuid(hostId)) return { rows: [] as HostImageRow[], freshness: null };
-  const { rows } = await pool.query<{
-    image_id: string;
-    repo_tags: string[];
-    repo_digests: string[];
-    os: string | null;
-    arch: string | null;
-    variant: string | null;
-    created: Date | null;
-    inspect_error: string | null;
-    containers: string;
-    running: string;
-    first_seen_at: Date;
-  }>(
+  const { rows } = await pool.query<
+    ImageScoreDbRow & {
+      image_id: string;
+      repo_tags: string[];
+      repo_digests: string[];
+      os: string | null;
+      arch: string | null;
+      variant: string | null;
+      created: Date | null;
+      inspect_error: string | null;
+      containers: string;
+      running: string;
+      first_seen_at: Date;
+    }
+  >(
     `SELECT i.image_id, i.repo_tags, i.repo_digests, i.os, i.arch, i.variant, ci.created,
             i.inspect_error, coalesce(u.containers, 0) AS containers,
-            coalesce(u.running, 0) AS running, i.first_seen_at
+            coalesce(u.running, 0) AS running, i.first_seen_at, ${IMAGE_SCORE_COLUMNS}
      FROM hosts h
      JOIN host_images i ON i.host_id = h.id AND i.removed_at IS NULL
      -- = USING (image_id, os, arch, variant); spelled out because hosts
@@ -289,6 +319,9 @@ export async function getHostImages(userId: string, hostId: string) {
      LEFT JOIN container_images ci
        ON ci.image_id = i.image_id AND ci.os = i.os AND ci.arch = i.arch
       AND ci.variant = i.variant
+     LEFT JOIN image_scores($1) s
+       ON s.image_id = i.image_id AND s.os = i.os AND s.arch = i.arch AND s.variant = i.variant
+     ${RELEASE_JOIN}
      LEFT JOIN (
        SELECT c.image_id, count(*) AS containers,
               count(*) FILTER (WHERE c.state = 'running') AS running
@@ -313,6 +346,7 @@ export async function getHostImages(userId: string, hostId: string) {
       containers: Number(r.containers),
       running: Number(r.running),
       since: r.first_seen_at.toISOString(),
+      score: mapImageScore(r),
     })),
     freshness: await freshness(userId, hostId, "images:docker"),
   };

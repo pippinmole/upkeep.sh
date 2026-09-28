@@ -563,13 +563,45 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       range opened or closed at ingest, KEV/EPSS rerank. Every image, used
       or not, gets a score (`image_sbom_scores`, read through
       `image_scores(user)`). Alert rules gained `finding_kinds`.
-- [ ] Dashboard: image detail page with **Packages** (all of them,
+- [x] Dashboard: image detail page with **Packages** (all of them,
       vulnerable or not, filter by ecosystem, TanStack server-driven
       table) and **Vulnerabilities** tabs; score column on the fleet
       Images page and the host Images / Containers tabs (worst severity
       bucket + counts, max CVSS, KEV flag); explicit states for "no
       package list yet", "private/local image, needs the agent", and
       "ecosystem not assessed".
+      (Done 2026-09-28, DOMAIN_MODEL.md §3.8. Route
+      `/dashboard/images/-/<image id>?platform=os/arch[/variant]&tab=vulnerabilities`
+      (folder `-`; `-` can't start a repository path component,
+      so no clash with `[...repo]`); without `platform` the page takes the
+      platform on `?host=`, else the first the user has, with a switcher.
+      404 unless one of the user's hosts has the image. Header: tags,
+      digests, platform, distro/release, list source + tool +
+      generated_at, score (counts per bucket, KEV, max CVSS, fixable,
+      not assessed), hosts and containers. Both tabs are the first users
+      of the DataTable server mode (`useServerTable`, `?q/page/sort/size`
+      + facets). Packages: `image_sbom_effective(user)` rows, status
+      vulnerable / not assessed / not matched yet / none known, facets
+      ecosystem and status. Vulnerabilities: `software_vulnerabilities`
+      through the list, grouped per (source package, vuln_key) as
+      findings are, so score-only images work; per-row finding lifecycle
+      on the user's hosts. States: not inspected on any host, no package
+      list yet, local image needs the agent, `unavailable` reasons
+      verbatim, error + retry time, release not assessed (EOL / unknown
+      distro), matching in progress. Score cells: `ImageScoreCell`.
+      Image finding notifications link to the page (`store.ImageFindingURL`).
+      Follow-ups: the host Vulnerabilities tab and fleet vulnerability
+      pages still list only `vulnerable_package`; the web mirrors
+      `severity.Assess` in SQL (`web/src/lib/severity-sql.ts`) and
+      `matcher.Assessed` (`web/src/lib/assessed.ts`).)
+- [ ] One copy of the ranking rules: have `ScoreImageSBOM` persist the
+      per-(source, vuln_key) rows it already assesses, and switch the
+      image Vulnerabilities tab to read them instead of the SQL mirror
+      of `severity.Assess` (checked equal on real data 2026-09-28: 502
+      findings and both image totals). Do before the Phase 2a stack
+      merges.
+- [ ] Image findings on the host Vulnerabilities tab and the fleet
+      vulnerability pages (they list only `vulnerable_package` today).
 - [ ] Server-side Syft for public images without an SBOM attestation:
       pull by digest (the image's platform only) and run Syft as a Go
       library. Bound CPU, memory, disk and concurrency in the worker;

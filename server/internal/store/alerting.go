@@ -234,15 +234,28 @@ func eventURL(base string, ev notify.Event) string {
 	}
 	switch {
 	case ev.Finding != nil && ev.Host != nil && ev.Finding.ImageID != "":
-		// Until the image detail page exists (Phase 2a "Dashboard"): the
-		// host's Images tab.
-		return base + "/dashboard/hosts/" + url.PathEscape(ev.Host.ID) + "/images"
+		// The image detail page's Vulnerabilities tab, searched to this
+		// vulnerability; ?host= picks the platform the image has on that
+		// host (web/src/lib/image-key.ts).
+		return ImageFindingURL(base, ev.Finding.ImageID, ev.Host.ID, ev.Finding.VulnKey)
 	case ev.Finding != nil && ev.Host != nil:
 		return base + "/dashboard/hosts/" + url.PathEscape(ev.Host.ID) + "/vulnerabilities?v=" + url.QueryEscape(ev.Finding.VulnKey)
 	case ev.Agent != nil:
 		return base + "/dashboard/agents"
 	}
 	return ""
+}
+
+// ImageFindingURL is the dashboard link for an image finding: the image
+// detail page (/dashboard/images/-/<image id>, see
+// web/src/lib/image-key.ts) on its Vulnerabilities tab, filtered to the
+// vulnerability, with the host choosing the platform.
+func ImageFindingURL(base, imageID, hostID, vulnKey string) string {
+	q := url.Values{}
+	q.Set("host", hostID)
+	q.Set("tab", "vulnerabilities")
+	q.Set("q", vulnKey)
+	return strings.TrimRight(base, "/") + "/dashboard/images/-/" + url.PathEscape(imageID) + "?" + q.Encode()
 }
 
 // EvaluateAlerts drains the alert_events outbox: every pending event is

@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { auth } from "@/lib/auth";
+import { imageHref } from "@/lib/image-key";
 import {
   type RepoHostImage,
   UNTAGGED_REPO,
@@ -338,6 +339,14 @@ export default async function FleetImagePage({
                         <div className="text-muted-foreground font-sans">
                           {r.platform || (r.inspectError ? "details unavailable" : "—")}
                         </div>
+                        {r.key && (
+                          <Link
+                            href={imageHref(r.key.imageId, { platform: r.key, host: r.hostId })}
+                            className="font-sans hover:underline"
+                          >
+                            Packages and vulnerabilities
+                          </Link>
+                        )}
                       </TableCell>
                       <TableCell className="align-top">
                         {r.containers.length === 0 ? (
