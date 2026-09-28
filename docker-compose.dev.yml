@@ -60,6 +60,17 @@ services:
       # Dev only: lets notification channels reach http:// and private /
       # loopback receivers (docs/WEBHOOKS.md). Set it in web/.env.local too.
       SW_NOTIFY_ALLOW_PRIVATE_NETWORKS: ${SW_NOTIFY_ALLOW_PRIVATE_NETWORKS:-false}
+      # Report emails: rendered by the Next.js dev server, which runs on the
+      # host (see below), so the worker reaches it through
+      # host.docker.internal. web/.env.example (and start-dev's up.sh, for an
+      # existing web/.env.local) sets the same two values on the web side.
+      # A throwaway secret, like the DB credentials above.
+      SW_WEB_INTERNAL_URL: http://host.docker.internal:3000
+      SW_INTERNAL_RENDER_SECRET: dev-only-render-secret-not-for-production
+    # Docker Desktop resolves host.docker.internal by itself; native Linux
+    # Docker needs this.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # `web` is intentionally NOT run here. Turbopack's file watcher does not
   # reliably see changes made to a Windows-path bind mount under Docker

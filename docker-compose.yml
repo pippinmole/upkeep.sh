@@ -63,8 +63,13 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
       SW_FEED_SYNC_ENABLED: ${SW_FEED_SYNC_ENABLED:-true}
-      # Dashboard links in alert notifications.
+      # Dashboard links in alert and report notifications.
       SW_DASHBOARD_URL: ${PUBLIC_WEB_URL:-}
+      # Report emails: the worker POSTs each report to web's internal render
+      # route over the compose network (docs/ARCHITECTURE.md "Reports").
+      # Same two values as on web below.
+      SW_WEB_INTERNAL_URL: ${SW_WEB_INTERNAL_URL:-http://web:3000}
+      SW_INTERNAL_RENDER_SECRET: "${SW_INTERNAL_RENDER_SECRET:?generate with 'openssl rand -base64 32'}"
 
   web:
     build:
@@ -81,6 +86,11 @@ services:
       # match PUBLIC_WEB_URL (e.g. a reverse proxy not forwarding the
       # original Host header). Leave unset/false otherwise.
       AUTH_TRUST_HOST: "${AUTH_TRUST_HOST:-false}"
+      # The report render route (/api/internal/render/report) only answers
+      # requests addressed to this host, never the public domain, and with
+      # the shared secret. Must match the worker's values above.
+      SW_WEB_INTERNAL_URL: ${SW_WEB_INTERNAL_URL:-http://web:3000}
+      SW_INTERNAL_RENDER_SECRET: "${SW_INTERNAL_RENDER_SECRET:?generate with 'openssl rand -base64 32'}"
     expose:
       - "3000"
     # In Dokploy, point your primary domain at this service (port 3000).
