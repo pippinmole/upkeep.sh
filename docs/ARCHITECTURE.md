@@ -81,10 +81,12 @@ for the reasoning.
 | `river_*` | Go (River job queue; API inserts, worker runs) |
 | `findings` (kind `vulnerable_package`) | Go (worker: findings reconciliation, re-rank) |
 | `alert_events`, `alert_dedup`, `alert_digest_items`, `agent_health`, `alert_rules.last_digest_at` | Go (worker: findings reconcile / agent health write events; alerting jobs the rest) |
-| `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
+| `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting and reports), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
 | `users` | Next.js (signup) |
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
 | `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Notification settings: channels) |
+| `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Settings → Notification settings: reports); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes, so the worker recomputes it |
+| `reports`, `report_schedules.next_run_at` / `last_run_at` | Go (worker: `report_due`), including "Send now": like "Send test", Next.js only inserts the River job and the worker builds, stores and delivers the report |
 
 Both sides **read** any table directly from Postgres. There is no caching
 layer in front of these reads today — every dashboard render is a live
@@ -439,6 +441,16 @@ alert_deliver    email: POST snapshot to web's internal render route
 
 This is the first place the worker depends on `web` at runtime. A
 failed render is retried like a failed send.
+
+Schema: migration 0017 (`report_schedules`, `report_schedule_channels`,
+`reports`, and `notifications.report_id` for the `report` kind). The
+snapshot contract is `server/internal/reports/snapshot.go`
+(`SchemaVersion`, and `RankingVersion` for the tier definitions:
+comparison across versions is suppressed), mirrored by hand in
+`web/src/lib/report-snapshot.ts`. The shared fixture
+`web/src/lib/report-snapshot.example.json` is round-tripped through the
+Go types by `go test ./internal/reports` and type-checked by
+`bunx tsc --noEmit`, so the two sides can't drift silently.
 
 ## Protocol
 
