@@ -39,7 +39,8 @@
     Debian/Ubuntu advisory sync (hourly incremental, weekly full), CISA
     KEV + FIRST EPSS (daily), the vulnerability matcher and findings
     reconciliation (see "Vulnerability pipeline" below), alerting
-    (see "Alerting" below), and container image package lists from
+    (see "Alerting" below), scheduled estate reports (see "Reports"
+    below), and container image package lists from
     registry SBOM attestations (see "Container image SBOMs" below). Planned: host-side port-exposure
     classification ([tasks/phase-1-6-docker-exposure.md](tasks/phase-1-6-docker-exposure.md); no external scanning, see
     [decisions/port-exposure.md](decisions/port-exposure.md)). A
@@ -56,6 +57,11 @@
   credentials auth (self-hosted, bcrypt, own `users` table), and the
   dashboard. Deployed as a standalone Docker image (`output: "standalone"`
   in `next.config.ts`) since this is self-hosted via Dokploy, not Vercel.
+  Also serves one internal route to the worker: report emails are
+  rendered by `POST /api/internal/render/report` (React Email), reached
+  at `SW_WEB_INTERNAL_URL` with a shared secret, never through the
+  public domain. It is the only runtime call from the worker to `web`
+  (see "Web ↔ worker render dependency").
 
 - **`migrations/`** — SQL migrations (golang-migrate `.up.sql`/`.down.sql`
   pairs). This is the actual contract between `server/` and `web/`, since
@@ -86,7 +92,7 @@ for the reasoning.
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
 | `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Notification settings: channels) |
 | `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Settings → Notification settings: reports); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes or a disabled schedule is enabled, so the worker recomputes it |
-| `reports`, `report_schedules.next_run_at` / `last_run_at` | Go (worker: `report_due`), including "Send now": like "Send test", Next.js only inserts the River job and the worker builds, stores and delivers the report |
+| `reports`, `report_schedules.next_run_at` / `last_run_at` | Go (worker: `report_due`; `alert_prune` deletes reports after a year), including "Send now": like "Send test", Next.js only inserts the River job and the worker builds, stores and delivers the report |
 
 Both sides **read** any table directly from Postgres. There is no caching
 layer in front of these reads today — every dashboard render is a live
@@ -249,7 +255,7 @@ alerts queue:
   alert_deliver   Notifier.Send through the channel type's registry entry;
                   each attempt logged; retryable errors back off (30s .. 6h,
                   8 attempts), notify.Permanent errors fail at once
-  alert_prune     (1h) events 30d, delivery log 90d
+  alert_prune     (1h) events 30d, delivery log 90d, reports 1y (see Reports)
 ```
 
 - **Finding kinds** (migration 0015): `alert_rules.finding_kinds` selects
@@ -464,41 +470,67 @@ Rules, evaluation, dedup, digests, retries, "Send test" and the delivery
 log need no change; `jobs/alerting_integration_test.go` runs the pipeline
 with a fake channel type registered next to the webhook to prove it.
 
-## Reports (planned)
+## Reports
 
-In progress ([tasks/phase-1-7-reports.md](tasks/phase-1-7-reports.md);
-[decisions/scheduled-reports.md](decisions/scheduled-reports.md) and [decisions/report-email-html.md](decisions/report-email-html.md)).
-The worker side is built except the HTML email; the dashboard is not yet:
+A weekly or monthly report of the whole estate (every non-archived host
+and the images its containers use), organised as a patch list and sent to
+existing notification channels
+([tasks/phase-1-7-reports.md](tasks/phase-1-7-reports.md);
+[decisions/scheduled-reports.md](decisions/scheduled-reports.md) and
+[decisions/report-email-html.md](decisions/report-email-html.md)).
+Reports describe **state** (everything open when they run), not events,
+so they are separate from alert rules. Migration 0017.
 
 ```
+Next.js (Settings → Notification settings):
+  report_schedules + report_schedule_channels (next_run_at NULL on insert
+  and whenever the timing changes or the schedule is enabled)
+  "Send now" -> River job report_send_now (plain SQL + pg_notify, like
+                "Send test"; web/src/lib/river.ts)
+
 alerts queue (server/internal/jobs/reports.go):
   report_due       (1m) advisory-locked pass over enabled schedules:
                    next_run_at NULL -> computed from now, not run;
                    next_run_at <= now -> run once, next_run_at -> the first
                    occurrence after now (a run missed while the worker was
                    down runs once, not once per missed period)
-  report_send_now  "Send now": web inserts the River job (args
-                   {"schedule_id"}); runs the schedule even when disabled,
-                   trigger manual, next_run_at untouched
-  both -> runReport: previous report + inputs in one REPEATABLE READ tx ->
-                   reports.Build + reports.Compare -> one write tx: reports
-                   row, last_run_at (+ next_run_at), a 'report'
-                   notification (report_id) + one notification_deliveries
-                   row per enabled schedule channel + alert_deliver (InsertTx)
-  alert_deliver    loads the snapshot through notifications.report_id (a
-                   report deleted with its schedule fails the delivery
-                   permanently) and builds the report link at send time;
-                   webhook: snapshot JSON; ntfy: summary + headline + link;
-                   email: plain-text headline + link for now, planned:
-                   POST snapshot to web's internal render route
-                   (React Email -> {subject, html, text}), then SMTP
+  report_send_now  args {"schedule_id"}; runs the schedule even when
+                   disabled, trigger manual, next_run_at untouched
+  both -> runReport:
+                   read tx (REPEATABLE READ): store.LatestReport +
+                   store.LoadReportInputs -> reports.Build + reports.Compare
+                   write tx (store.StoreReport): reports row, last_run_at
+                   (+ next_run_at), a 'report' notification (report_id) +
+                   one notification_deliveries row per enabled schedule
+                   channel + alert_deliver (InsertTx)
+  alert_deliver    loads the snapshot through notifications.report_id and
+                   builds the report link (SW_DASHBOARD_URL +
+                   /dashboard/reports/<id>) at send time:
+                     webhook  the snapshot JSON (WEBHOOKS.md)
+                     ntfy     summary title, headline numbers, click -> link
+                     email    POST {SW_WEB_INTERNAL_URL}/api/internal/render/report
+                              -> web: React Email -> {subject, html, text}
+                              -> SMTP, multipart/alternative
+  alert_prune      (1h) reports older than a year, except each schedule's latest
 ```
 
+- **Ownership**: Next.js writes `report_schedules` (except `next_run_at` /
+  `last_run_at`) and `report_schedule_channels`; the worker writes
+  `reports`, `next_run_at`, `last_run_at` and the report's notification and
+  deliveries. "Send now" is like "Send test": web only inserts the River
+  job, and the run is a real report (stored, delivered, and the previous
+  report for the next comparison). There is no preview. See "Who owns
+  what".
 - **Timing**: `reports.NextRun` keeps the local hour in the schedule's
   IANA timezone across DST: a time that doesn't exist (spring forward)
   runs when the clocks go forward, a time that happens twice (fall back)
   runs at the first occurrence. A timezone the worker doesn't know leaves
-  the schedule as it is (logged once per worker process).
+  the schedule as it is (logged once per worker process). Weekly
+  schedules use weekday 0 = Sunday; monthly ones a day of month 1–28, so
+  every month has it. The period a report covers (`period_start` ..
+  `period_end`) starts at the previous report's `generated_at`, or one
+  nominal period back for the first one; `Build`, `period_end` and
+  `generated_at` use the same instant.
 - **Run once**: the write transaction locks the schedule row and re-checks
   `next_run_at` (scheduled) or looks for a manual report generated since
   the job was created (Send now retried), so overlapping passes or a
@@ -506,22 +538,87 @@ alerts queue (server/internal/jobs/reports.go):
   (so the comparison would be against the wrong previous report) makes
   the job build it again. A schedule with no enabled channel still gets
   its report stored, for the dashboard.
-- **Summary line**: `"{schedule name}: {summary}"`
-  (`reports.Title`; the email subject in `web/src/lib/report-summary.ts`
-  must match it), stored as the notification's `summary`.
+- **Snapshot contract**: `server/internal/reports/snapshot.go` defines
+  the JSON stored in `reports.snapshot` (`SchemaVersion` for its shape,
+  `RankingVersion` for the tier definitions), mirrored by hand in
+  `web/src/lib/report-snapshot.ts`. Lists are complete (cutting them is
+  a rendering concern), optional values are `null` rather than omitted,
+  and there are no URLs (channels build links at send time, since the
+  dashboard's base URL can change). The one shared fixture,
+  `web/src/lib/report-snapshot.example.json`, is round-tripped through
+  the Go types by `go test ./internal/reports` and type-checked by
+  `bunx tsc --noEmit`, so the two sides can't drift silently: change the
+  Go type, the TS type and the fixture together. Readers must handle
+  every `schema_version` still within retention.
+- **Contents**: host-package actions (open `vulnerable_package` findings
+  grouped by package and fixed version, with the hosts and CVEs), image
+  actions (re-pull or rebuild), reboots required, no fix available yet,
+  coverage gaps (stale agents, hosts without Docker collection, images
+  not scored) and per-host counts. Tiers use the `severity` ranking: KEV
+  → patch now; critical/high with a fix or high EPSS → patch this week;
+  the rest → when convenient.
+- **Week-on-week** (`reports.Compare`, against the schedule's latest
+  stored report, scheduled or manual): every headline number gets an
+  absolute change, and a percentage only when the previous value is at
+  least 10. When the previous report has another `ranking_version`, the
+  tier-based numbers aren't compared; only total open, opened, resolved
+  and stale agents are. Hosts added or archived since the previous
+  report are listed with their share of the numbers, so a bigger estate
+  isn't reported as a worse one.
+- **Summary line**: `"{schedule name}: {summary}"` (`reports.Title`,
+  e.g. `Monday patch list: 1 urgent action, 2 to patch this week, 1 image
+  to update, 1 host not reporting`, or `…: all clear`), stored as the
+  notification's `summary`. It is the ntfy title and, prefixed with
+  `[upkeep.sh] `, the email subject (`web/src/lib/report-summary.ts` must
+  produce the same text).
+- **Channels**: [WEBHOOKS.md](WEBHOOKS.md#report-notifications),
+  "ntfy channel" and "Email (SMTP) channel" above. Only report emails
+  are HTML; alert emails stay plain text rendered in Go.
+- **Dashboard**: schedules under Settings → Notification settings (with
+  "Send now"), past reports per schedule at
+  `/dashboard/settings/notifications/reports/<schedule id>`, and one
+  report at `/dashboard/reports/<report id>` (the link in emails and
+  ntfy). Deliveries appear in the delivery log.
+- **Retention**: `alert_prune` deletes reports generated more than a year
+  ago, but always keeps each schedule's latest report, however old (the
+  next run compares against it). A pruned report's
+  `notifications.report_id` and its successor's `previous_report_id` are
+  set NULL by their foreign keys (the delivery log is pruned at 90 days,
+  so in practice no notification points at a pruned report). Deleting a
+  schedule deletes its reports; a delivery still pending then fails
+  permanently ("report was deleted").
 
-With the HTML email, this is the first place the worker depends on `web`
-at runtime. A failed render is retried like a failed send.
+### Web ↔ worker render dependency
 
-Schema: migration 0017 (`report_schedules`, `report_schedule_channels`,
-`reports`, and `notifications.report_id` for the `report` kind). The
-snapshot contract is `server/internal/reports/snapshot.go`
-(`SchemaVersion`, and `RankingVersion` for the tier definitions:
-comparison across versions is suppressed), mirrored by hand in
-`web/src/lib/report-snapshot.ts`. The shared fixture
-`web/src/lib/report-snapshot.example.json` is round-tripped through the
-Go types by `go test ./internal/reports` and type-checked by
-`bunx tsc --noEmit`, so the two sides can't drift silently.
+Report emails are the one place the worker calls `web` at runtime. The
+worker POSTs `{"snapshot": …, "report_url": … | null}` with
+`Authorization: Bearer <secret>` to
+`{SW_WEB_INTERNAL_URL}/api/internal/render/report`
+(`web/src/app/api/internal/render/report/route.ts`), which renders the
+template in `web/src/emails/` and returns `{subject, html, text}`.
+
+| Variable | Set on | Value |
+|---|---|---|
+| `SW_WEB_INTERNAL_URL` | worker and web | how the worker reaches web without the public domain: `http://web:3000` on the compose network (the default in `docker-compose.yml`), `http://host.docker.internal:3000` in the dev stack |
+| `SW_INTERNAL_RENDER_SECRET` | worker and web | the same random value on both (`openssl rand -base64 32`); required by `docker-compose.yml`, a fixed throwaway in the dev stack |
+| `SW_DASHBOARD_URL` | worker | the public dashboard URL, for report links (`PUBLIC_WEB_URL` in `docker-compose.yml`); unset = no links |
+
+The route is not part of the public site: it answers 404 when the secret
+is unset on web, and when the request's `Host` (and any
+`X-Forwarded-Host`, which the public reverse proxy adds) isn't the host
+of `SW_WEB_INTERNAL_URL`. That URL must therefore not name the public
+host (`NEXTAUTH_URL` / `AUTH_URL`); if it does, the route accepts
+nothing. A wrong secret gets 401 (compared in constant time), a
+malformed body 400.
+
+| Failure | Handling |
+|---|---|
+| web down, connection refused, timeout, 5xx render error | retryable, same backoff as a failed send (30 s .. 6 h, 8 attempts); the webhook and ntfy deliveries of the same report are unaffected |
+| 404 or 401 (secret unset on web or different on the two sides, `SW_WEB_INTERNAL_URL` wrong or naming the public host) | a deployment mistake rather than a bad report: see "Email (SMTP) channel" for how the delivery reports it |
+| SMTP errors after rendering | as for any email (see "Email (SMTP) channel") |
+
+Every retry renders the stored snapshot again, so the content is the
+same each time.
 
 ## Protocol
 
@@ -531,10 +628,17 @@ versioning policy.
 ## Deployment shapes
 
 - **Local dev**: `docker-compose.dev.yml` — hardcoded dev credentials, no
-  `.env` needed, zero-setup.
+  `.env` needed, zero-setup. The dev worker renders report emails
+  through the natively run Next.js dev server at
+  `http://host.docker.internal:3000`, with a fixed dev-only secret that
+  `web/.env.example` matches.
 - **Production (the platform itself)**: `docker-compose.yml`, deployed
   once on your own box via Dokploy, reading a root `.env`
-  (`.env.example` is the template).
+  (`.env.example` is the template). `worker` and `web` share
+  `SW_INTERNAL_RENDER_SECRET` (required) and reach each other at
+  `SW_WEB_INTERNAL_URL` (default `http://web:3000`, the compose service)
+  for report emails; the worker's `SW_DASHBOARD_URL` comes from
+  `PUBLIC_WEB_URL`.
 - **Monitored hosts**: `agent/docker-compose.example.yml`, deployed once
   per host you want monitored, pointed at the platform's public API URL
   with a one-time enrollment token from the dashboard.
