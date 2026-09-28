@@ -19,6 +19,7 @@ import (
 
 	"github.com/pippinmole/upkeep.sh/server/internal/alerting"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
+	"github.com/pippinmole/upkeep.sh/server/internal/reports"
 )
 
 // alertingLock serializes evaluation and digest flushing (dedup state and
@@ -598,10 +599,15 @@ type Delivery struct {
 	Notification             notify.Notification
 	NotificationID           string
 	HasPayload               bool
+	// ReportDeleted: a report notification whose report is gone (deleted
+	// with its schedule; notifications.report_id is then NULL).
+	ReportDeleted bool
 }
 
 // LoadDelivery loads a delivery with its channel config (secrets merged)
-// and notification payload. ErrNotFound when the delivery is gone.
+// and notification payload. For a report notification, Notification.Report
+// carries the stored snapshot (its URL is left for the caller to set).
+// ErrNotFound when the delivery is gone.
 func (s *Store) LoadDelivery(ctx context.Context, id string) (Delivery, error) {
 	var (
 		d               Delivery
@@ -609,16 +615,20 @@ func (s *Store) LoadDelivery(ctx context.Context, id string) (Delivery, error) {
 		payload         []byte
 		enabled         *bool
 		createdAt       time.Time
+		reportID        *string
+		snapshot        []byte
 	)
 	err := s.Pool.QueryRow(ctx, `
 		SELECT d.id::text, d.user_id::text, d.status, n.kind, n.id::text, d.channel_id::text,
-		       COALESCE(c.type, d.channel_type), c.enabled, c.config, c.secrets, n.payload, n.created_at
+		       COALESCE(c.type, d.channel_type), c.enabled, c.config, c.secrets, n.payload, n.created_at,
+		       r.id::text, r.snapshot
 		FROM notification_deliveries d
 		JOIN notifications n ON n.id = d.notification_id
 		LEFT JOIN notification_channels c ON c.id = d.channel_id
+		LEFT JOIN reports r ON r.id = n.report_id
 		WHERE d.id = $1
 	`, id).Scan(&d.ID, &d.UserID, &d.Status, &d.Kind, &d.NotificationID, &d.ChannelID, &d.ChannelType,
-		&enabled, &config, &secrets, &payload, &createdAt)
+		&enabled, &config, &secrets, &payload, &createdAt, &reportID, &snapshot)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, ErrNotFound
 	}
@@ -658,6 +668,17 @@ func (s *Store) LoadDelivery(ctx context.Context, id string) (Delivery, error) {
 		d.Notification = notify.Notification{
 			Version: notify.PayloadVersion, ID: d.NotificationID, Kind: d.Kind, CreatedAt: createdAt.UTC(),
 			Summary: alerting.Summary(d.Kind, nil), Events: []notify.Event{},
+		}
+	}
+	if d.Kind == notify.KindReport {
+		if reportID == nil {
+			d.ReportDeleted = true
+		} else {
+			var snap reports.Snapshot
+			if err := json.Unmarshal(snapshot, &snap); err != nil {
+				return d, fmt.Errorf("report %s snapshot: %w", *reportID, err)
+			}
+			d.Notification.Report = &notify.Report{ID: *reportID, Snapshot: &snap}
 		}
 	}
 	d.Notification.DeliveryID = d.ID

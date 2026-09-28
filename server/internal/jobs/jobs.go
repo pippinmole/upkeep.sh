@@ -9,7 +9,7 @@
 //   - "findings": reconcile_host, findings_rerank, reconcile_image,
 //     image_score, image_score_sweep (imagefindings.go).
 //   - "alerts":   alert_evaluate, alert_digest, alert_deliver, agent_health,
-//     alert_prune (see alerting.go).
+//     alert_prune (see alerting.go); report_due, report_send_now (reports.go).
 //   - "maintenance": credential_cleanup (maintenance.go).
 //   - "images":   image_sbom, image_sbom_sweep (imagesbom.go): registry
 //     SBOM attestations for container images.
@@ -219,6 +219,8 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	river.AddWorker(workers, &AgentHealthWorker{Store: st, Cfg: acfg})
 	river.AddWorker(workers, &AlertPruneWorker{Store: st, Cfg: acfg})
 	river.AddWorker(workers, &AlertDeliverWorker{Store: st, Cfg: acfg})
+	river.AddWorker(workers, &ReportDueWorker{Store: st, Cfg: acfg})
+	river.AddWorker(workers, &ReportSendNowWorker{Store: st, Cfg: acfg})
 
 	// Matcher safety net, independent of the feed schedule (no network):
 	// drains advisory_changes and evaluates never/stale-evaluated versions
@@ -258,6 +260,11 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 			river.NewPeriodicJob(river.PeriodicInterval(time.Hour),
 				func() (river.JobArgs, *river.InsertOpts) { return AlertPruneArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "alert_prune", RunOnStart: true}),
+			// Every minute regardless of AlertInterval: schedules run on
+			// the hour, and a pass with nothing due is one indexed query.
+			river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) { return ReportDueArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "report_due", RunOnStart: true}),
 		)
 	}
 	periodic = append(periodic, maintenanceJobs(cfg)...)
