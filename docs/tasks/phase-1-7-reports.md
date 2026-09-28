@@ -19,7 +19,7 @@ delivery, then the email template, then the dashboard.
       `internal/reports/snapshot.go`, mirrored in
       `web/src/lib/report-snapshot.ts`, shared fixture
       `web/src/lib/report-snapshot.example.json`.)
-- [ ] Snapshot builder (Go, `internal/reports`), one read transaction
+- [x] Snapshot builder (Go, `internal/reports`), one read transaction
       per report. It includes:
       - **Estate**: host, container and image counts.
       - **Host-package actions**: open `vulnerable_package` findings
@@ -38,13 +38,19 @@ delivery, then the email template, then the dashboard.
       Tiers use the existing `severity` ranking: KEV → patch now;
       critical/high with a fix or high EPSS → patch this week; the
       rest → when convenient. Archived hosts are excluded. Unit-test the
-      grouping against fixed data.
-- [ ] Week-on-week comparison with the previous report of the same
+      grouping against fixed data. (Done 2026-09-28, PR #12:
+      `reports.Build` over `store.LoadReportInputs` in one REPEATABLE READ
+      tx; host actions keyed by ecosystem/distro/release/package/fix
+      channel; opened/resolved from findings timestamps, not
+      `alert_events`.)
+- [x] Week-on-week comparison with the previous report of the same
       schedule: absolute changes for every headline number (urgent,
       patch this week, images to update, total open, opened/resolved
       since last report). A percentage only when the previous value is
       ≥ 10. No comparison when the ranking version differs. Attribute
-      changes to hosts added or archived since the previous report.
+      changes to hosts added or archived since the previous report. (Done 2026-09-28, PR #12:
+      `reports.Compare`; on a ranking-version change only total open,
+      opened, resolved and stale agents are compared.)
 - [ ] Worker jobs: `report_due` (periodic, 1m; advisory-locked; builds,
       stores, advances `next_run_at` in the schedule's timezone,
       including DST changes; inserts a `report` notification + one
@@ -73,7 +79,10 @@ delivery, then the email template, then the dashboard.
       retryable. Keep the HTML simple enough for Gmail/Outlook (React
       Email's components handle that) and under Gmail's ~102 KB clip
       limit, with long lists cut to "…and N more, see the full report".
-      Preview the template with the `email` dev CLI.
+      Preview the template with the `email` dev CLI. (Web side done
+      2026-09-28, PR #13: react-email 6.11.0, `src/emails/report.tsx`,
+      `POST /api/internal/render/report`, `bun run email`. Open: the
+      email channel's HTML part.)
 - [ ] Dashboard, **Settings → Notification settings**: a Reports
       section listing schedules (name, cadence, channels, next run, last
       run). Create/edit dialog: name, weekly/monthly, day, hour,
