@@ -73,10 +73,13 @@ delivery, then the email template, then the dashboard.
 - [ ] Dashboard, **Settings → Notification settings**: a Reports
       section listing schedules (name, cadence, channels, next run, last
       run). Create/edit dialog: name, weekly/monthly, day, hour,
-      timezone (defaults to the browser's), channels. Buttons: "Preview"
-      (build and show the report without sending or storing it) and
-      "Send now" (a real run: stored and delivered, and counted as the
-      previous report for next time).
+      timezone (defaults to the browser's), channels. A "Send now" button
+      (a real run: web inserts a River job like "Send test"; the report
+      is stored, delivered and counted as the previous report for next
+      time). No "Preview" (decided 2026-09-28, for simplicity): the
+      builder is Go, so a preview would need a preview job or a worker
+      HTTP endpoint. To see a report, send it now and open it from the
+      past reports list.
 - [ ] Dashboard: past reports, meaning a list per schedule and a report
       page showing a stored snapshot (the link target of emails and
       ntfy). Deliveries show in the existing delivery log.
