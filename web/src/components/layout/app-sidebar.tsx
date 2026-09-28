@@ -2,6 +2,8 @@
 
 import {
   BellRing,
+  Boxes,
+  Container,
   LayoutDashboard,
   Monitor,
   Package,
@@ -24,6 +26,8 @@ import {
 
 import type { NavGroup as NavGroupType, User } from "./types";
 
+const SWARM_URL = "/dashboard/swarm";
+
 export const navGroups: NavGroupType[] = [
   {
     title: "General",
@@ -35,6 +39,10 @@ export const navGroups: NavGroupType[] = [
       { title: "Agents", url: "/dashboard/agents", icon: Server },
       { title: "Vulnerabilities", url: "/dashboard/vulnerabilities", icon: ShieldAlert },
       { title: "Packages", url: "/dashboard/packages", icon: Package },
+      { title: "Images", url: "/dashboard/images", icon: Container },
+      // In the sidebar only when a host is in a Swarm (AppSidebar
+      // hasSwarm); the command menu always lists it.
+      { title: "Swarm", url: SWARM_URL, icon: Boxes },
       { title: "Alerts", url: "/dashboard/alerts", icon: BellRing },
     ],
   },
@@ -42,9 +50,13 @@ export const navGroups: NavGroupType[] = [
 
 interface Props extends React.ComponentProps<typeof Sidebar> {
   user: User;
+  hasSwarm: boolean;
 }
 
-export function AppSidebar({ user, ...props }: Props) {
+export function AppSidebar({ user, hasSwarm, ...props }: Props) {
+  const groups = hasSwarm
+    ? navGroups
+    : navGroups.map((g) => ({ ...g, items: g.items.filter((i) => i.url !== SWARM_URL) }));
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -59,7 +71,7 @@ export function AppSidebar({ user, ...props }: Props) {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        {navGroups.map((group) => (
+        {groups.map((group) => (
           <NavGroup key={group.title} {...group} />
         ))}
       </SidebarContent>

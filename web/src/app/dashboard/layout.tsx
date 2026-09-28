@@ -4,6 +4,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Header } from "@/components/layout/header";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { auth } from "@/lib/auth";
+import { hasSwarm } from "@/lib/queries-docker-fleet";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -13,16 +14,16 @@ interface Props {
 export default async function DashboardLayout({ children }: Props) {
   const [cookieStore, session] = await Promise.all([cookies(), auth()]);
   /** Matches client `sidebar.tsx`: cookie is `"true"` / `"false"`; treat missing as open. */
-  const sidebarDefaultOpen =
-    cookieStore.get("sidebar_state")?.value !== "false";
+  const sidebarDefaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
 
   const email = session?.user?.email ?? "unknown@example.com";
   const user = { name: email.split("@")[0] ?? email, email };
+  const showSwarm = session?.user?.id ? await hasSwarm(session.user.id) : false;
 
   return (
     <div className="border-grid flex flex-1 flex-col">
       <SidebarProvider defaultOpen={sidebarDefaultOpen}>
-        <AppSidebar user={user} />
+        <AppSidebar user={user} hasSwarm={showSwarm} />
         <div
           id="content"
           className={cn(
