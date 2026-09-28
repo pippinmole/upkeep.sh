@@ -19,7 +19,7 @@ before or while building them.
 | [Phase 1 remainder — alerting](phase-1-alerting.md) | in progress: 3 open, 6 done |
 | [Phase 1.5 — agent/host split + Linux collector breadth](phase-1-5-agent-host-split.md) | in progress: 4 open, 9 done |
 | [Phase 1.6 — Docker inventory + host-side port exposure](phase-1-6-docker-exposure.md) | in progress: 5 open, 6 done |
-| [Phase 1.7 — scheduled estate reports](phase-1-7-reports.md) | not started: 10 open |
+| [Phase 1.7 — scheduled estate reports](phase-1-7-reports.md) | done: 10 done |
 | [Phase 2a — container image packages + vulnerabilities](phase-2a-image-vulns.md) | in progress: 7 open, 6 done |
 | [Cross-cutting gaps worth closing before real users](cross-cutting-gaps.md) | in progress: 6 open, 3 done |
 | [Phase 2+ (explicitly deferred, don't start early)](phase-2-plus-deferred.md) | not started: 8 open |

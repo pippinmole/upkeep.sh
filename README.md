@@ -148,7 +148,7 @@ glance, the phases:
    (Slack/Discord integrations deferred).
 5. Docker inventory (containers, images, Swarm) + host-side port
    exposure (listeners × ufw × Docker published ports) with alerts.
-6. Scheduled estate reports: a weekly or monthly patch list for the
+6. ✅ Scheduled estate reports: a weekly or monthly patch list for the
    whole estate, with week-on-week changes, sent to your notification
    channels (HTML email via React Email, webhook, ntfy).
 7. Polish, tests, CI.

@@ -1,6 +1,6 @@
 # Phase 1.7 — scheduled estate reports
 Decided 2026-09-28 ([Scheduled reports](../decisions/scheduled-reports.md) and [Report email
-HTML](../decisions/report-email-html.md)). In progress. A weekly or monthly report of the whole estate,
+HTML](../decisions/report-email-html.md)). Done 2026-09-28 (PRs #11–#19). A weekly or monthly report of the whole estate,
 organised as a patch list, sent to existing notification channels. It's
 separate from alert rules: reports describe state (everything open now),
 digests describe events. Order: schema, then snapshot builder, then
@@ -61,7 +61,7 @@ delivery, then the email template, then the dashboard.
       (Done 2026-09-28, PR #15: `jobs/reports.go`, `store/reportruns.go`,
       `reports.NextRun`; also `report_send_now` for "Send now";
       `TestReportJobs`.)
-- [ ] `report` notification kind per channel:
+- [x] `report` notification kind per channel:
       - **Webhook**: the full snapshot JSON, documented in WEBHOOKS.md
         with an example.
       - **ntfy**: a summary title ("3 urgent actions, 2 hosts not
@@ -69,9 +69,10 @@ delivery, then the email template, then the dashboard.
         report page. Priority 3; 4 when there are KEV actions.
       - **Email**: HTML + text from the render endpoint (next item).
 
-      (Webhook and ntfy done 2026-09-28, PR #15; email sends a plain-text
-      stand-in until the HTML part lands.)
-- [ ] React Email: add `react-email` to `web/` at an **exact** version
+      (Done 2026-09-28: webhook and ntfy in PR #15, email in PR #18.
+      Email verified end to end in Mailpit; webhook and ntfy by unit
+      tests only, not yet against live receivers.)
+- [x] React Email: add `react-email` to `web/` at an **exact** version
       (no `^`), the latest on npm at install time (6.11.0 on
       2026-09-28; `@react-email/components` is deprecated). Report
       template in `web/src/emails/`. Internal route (e.g.
@@ -87,8 +88,9 @@ delivery, then the email template, then the dashboard.
       limit, with long lists cut to "…and N more, see the full report".
       Preview the template with the `email` dev CLI. (Web side done
       2026-09-28, PR #13: react-email 6.11.0, `src/emails/report.tsx`,
-      `POST /api/internal/render/report`, `bun run email`. Open: the
-      email channel's HTML part.)
+      `POST /api/internal/render/report`, `bun run email`. Email channel's
+      HTML part: PR #18, plain text when the worker has no render
+      config.)
 - [x] Dashboard, **Settings → Notification settings**: a Reports
       section listing schedules (name, cadence, channels, next run, last
       run). Create/edit dialog: name, weekly/monthly, day, hour,
@@ -106,9 +108,11 @@ delivery, then the email template, then the dashboard.
       2026-09-28, PR #16: `/dashboard/reports/[id]`,
       `/dashboard/settings/notifications/reports/[scheduleId]`, delivery
       log `?notification=` filter.)
-- [ ] Retention: prune `reports` older than a year (keep the latest
-      per schedule regardless), in `alert_prune`.
-- [ ] Docs: ARCHITECTURE.md "Reports" section (flow, ownership rows,
+- [x] Retention: prune `reports` older than a year (keep the latest
+      per schedule regardless), in `alert_prune`. (Done 2026-09-28,
+      PR #19.)
+- [x] Docs: ARCHITECTURE.md "Reports" section (flow, ownership rows,
       the web ↔ worker render dependency), README feature list, deploy
       env vars (`SW_WEB_INTERNAL_URL`, `SW_INTERNAL_RENDER_SECRET`) in
-      the compose files.
+      the compose files. (Done 2026-09-28, PR #19;
+      `SW_INTERNAL_RENDER_SECRET` is required in `docker-compose.yml`.)
