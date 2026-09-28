@@ -595,7 +595,11 @@ worker POSTs `{"snapshot": …, "report_url": … | null}` with
 `Authorization: Bearer <secret>` to
 `{SW_WEB_INTERNAL_URL}/api/internal/render/report`
 (`web/src/app/api/internal/render/report/route.ts`), which renders the
-template in `web/src/emails/` and returns `{subject, html, text}`.
+template in `web/src/emails/` and returns `{subject, html, text}`. The
+request is a plain HTTP call to an operator-configured internal URL, not
+through `netguard` (which only allows public https), with a 20 s timeout,
+a 2 MB response cap and no redirects followed (so the secret can't be
+forwarded).
 
 | Variable | Set on | Value |
 |---|---|---|
@@ -614,7 +618,8 @@ malformed body 400.
 | Failure | Handling |
 |---|---|
 | web down, connection refused, timeout, 5xx render error | retryable, same backoff as a failed send (30 s .. 6 h, 8 attempts); the webhook and ntfy deliveries of the same report are unaffected |
-| 404 or 401 (secret unset on web or different on the two sides, `SW_WEB_INTERNAL_URL` wrong or naming the public host) | a deployment mistake rather than a bad report: see "Email (SMTP) channel" for how the delivery reports it |
+| 404, 401 or 400 (secret unset on web or different on the two sides, `SW_WEB_INTERNAL_URL` wrong or naming the public host) | a deployment mistake rather than a bad report, but still retryable like any render failure (never permanent), so fixing the config within the retry window delivers it; the delivery log shows web's status and reply |
+| `SW_WEB_INTERNAL_URL` or `SW_INTERNAL_RENDER_SECRET` unset on the worker | render is off: report emails go out as plain text (the headline numbers and the report link), with a warning logged once per worker process; the worker also warns at startup when only one of the two is set |
 | SMTP errors after rendering | as for any email (see "Email (SMTP) channel") |
 
 Every retry renders the stored snapshot again, so the content is the
