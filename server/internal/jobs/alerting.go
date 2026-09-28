@@ -9,7 +9,7 @@ package jobs
 //	alert_digest      (every 1m) flush digest rules whose interval elapsed
 //	alert_deliver     send one delivery through its channel type's Notifier;
 //	                  retried with backoff (deliverBackoff) on retryable errors
-//	alert_prune       (hourly) retention for events and the delivery log
+//	alert_prune       (hourly) retention for events, the delivery log and reports
 //
 // alert_evaluate also runs every minute as a safety net. None of this runs
 // in the API: ingest never waits on alerting.
@@ -193,12 +193,13 @@ type AlertPruneWorker struct {
 }
 
 func (w *AlertPruneWorker) Work(ctx context.Context, _ *river.Job[AlertPruneArgs]) error {
-	res, err := w.Store.PruneAlerting(ctx, w.Cfg.now(), 30*24*time.Hour, 90*24*time.Hour)
+	res, err := w.Store.PruneAlerting(ctx, w.Cfg.now(), 30*24*time.Hour, 90*24*time.Hour, 365*24*time.Hour)
 	if err != nil {
 		return err
 	}
-	if res.Events+res.Notifications+res.Dedup > 0 {
-		log.Printf("alert_prune: %d events, %d notifications, %d dedup marks", res.Events, res.Notifications, res.Dedup)
+	if res.Events+res.Notifications+res.Dedup+res.Reports > 0 {
+		log.Printf("alert_prune: %d events, %d notifications, %d dedup marks, %d reports",
+			res.Events, res.Notifications, res.Dedup, res.Reports)
 	}
 	return nil
 }
