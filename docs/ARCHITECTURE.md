@@ -350,8 +350,9 @@ and a priority (Automatic, or a fixed 1–5 that overrides the mapping).
 
 ### Email (SMTP) channel
 
-`server/internal/notify/email` sends a plain-text email through the
-user's **own SMTP server**. SMTP settings are **per channel**; there is no
+`server/internal/notify/email` sends email through the user's **own SMTP
+server**: plain text for alerts, digests and tests, HTML with a
+plain-text alternative for reports. SMTP settings are **per channel**; there is no
 platform-wide SMTP config ([decisions/email-notifier-smtp.md](decisions/email-notifier-smtp.md)).
 
 - **Fields**: To (required; one or more addresses separated by commas,
@@ -400,13 +401,38 @@ platform-wide SMTP config ([decisions/email-notifier-smtp.md](decisions/email-no
   (`internal/notify/render`): event detail lines, or a bulleted list of up
   to 50 events, then `Open in upkeep.sh: <link>` (when `SW_DASHBOARD_URL`
   is set) and `Rule: <name>`. "Send test" sends a fixed test message.
-  A report is, for now, the same plain text as its ntfy push (subject
+- **Report emails** are rendered by `web` ([decisions/report-email-html.md](decisions/report-email-html.md)):
+  the worker POSTs `{"snapshot": <stored snapshot>, "report_url": <link
+  or null>}` to `{SW_WEB_INTERNAL_URL}/api/internal/render/report` with
+  `Authorization: Bearer {SW_INTERNAL_RENDER_SECRET}` and gets back
+  `{subject, html, text}` (React Email). That request is plain HTTP to an
+  operator-configured internal address (e.g. `http://web:3000`), so it
+  does not go through `netguard`; 20 s timeout, 2 MB response cap,
+  redirects not followed. The message is then `multipart/alternative`
+  (boundary random per message, starting `=_`, which quoted-printable
+  output can't contain): a `text/plain` part, then a `text/html` part,
+  both UTF-8 quoted-printable; the other headers are as above. The
+  subject is web's (`[upkeep.sh] ` + the summary line, the same text as
+  `reports.Title`), sanitized like event text, prefixed if web left the
+  prefix off, and must not be empty. **A failed render is retried like a
+  failed send, never permanent**, whatever web answered (unreachable,
+  timeout, 5xx, and also 400/401/404, which mean a misconfiguration the
+  operator can fix; an unusable response: invalid JSON, an empty subject,
+  html or text, over 2 MB); nothing is sent to the SMTP server. The
+  delivery log shows e.g. `email: render report email: web returned 503:
+  …` (response text on one line, cut to 300 bytes). The channel config is
+  validated first, so a broken channel still fails permanently without a
+  render. **Without `SW_WEB_INTERNAL_URL` and `SW_INTERNAL_RENDER_SECRET`
+  on the worker** (both needed; web needs the same secret), report emails
+  fall back to plain text: the same text as the ntfy push (subject
   `[upkeep.sh] ` + the summary line, body the headline numbers and the
-  report link); the HTML report is planned (see Reports).
+  report link), single part as for alerts; the worker logs that once per
+  process (and warns at startup if only one of the two is set).
 - **Header injection**: addresses, host, username and password with CR/LF
   (or other control characters, for addresses and host) are rejected by
-  validation; event text in the subject has control characters replaced;
-  and the header writer refuses any value containing CR/LF.
+  validation; event text and web's report subject have control
+  characters replaced; and the header writer refuses any value containing
+  CR/LF.
 - **Errors** (the reply text, on one line and cut to 300 bytes, goes into
   the delivery log):
 
@@ -417,6 +443,7 @@ platform-wide SMTP config ([decisions/email-notifier-smtp.md](decisions/email-no
   | STARTTLS required but not offered, no AUTH / no PLAIN or LOGIN offered, insecure-auth refusal | permanent |
   | TLS certificate verification failure, server not speaking TLS in `tls` mode | permanent |
   | destination refused by `netguard` | permanent |
+  | report render failed (any web error or unusable response) | retried with backoff |
 
   A rejected recipient aborts the whole message (nobody gets a partial
   send). The SMTP reply code is not stored as the attempt's status code
