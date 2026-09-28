@@ -497,6 +497,80 @@ storage/UI, then firewall + exposure on top.
       expected ports per rule (e.g. 80/443 on a reverse proxy). Replace
       `TODO(phase 1, exposure)` in `ingest/handler.go`.
 
+### Phase 2a — container image packages + vulnerabilities
+Decided 2026-09-28 (DECISIONS.md "Container image vulnerabilities").
+Scout-like, on our own pipeline: **inventory first, then matching**, as
+for hosts. Every image shows all its packages (OS and language), and
+vulnerabilities are a join on top. Package lists come from the server
+where it can reach the image (registry SBOM, else pull + Syft) and from
+the agent only where it can't; matching and scoring are always
+server-side. No external API keys. Order: server-side public images
+first (no agent upgrade needed), then more ecosystems, then the agent.
+- [ ] Migration: `image_software` (image key as `container_images`:
+      image_id, os, arch, variant → `software_versions.id`, plus
+      `paths text[]` for where in the image a package was found, which
+      matters for language packages) and `image_sbom_state` per image
+      key (source `attestation` | `server-syft` | `agent-syft`, tool +
+      version, generated_at, status `ok` | `unavailable` | `error` with
+      a reason, e.g. "private or local image, waiting for the agent").
+      A plain set, not validity ranges: image content is immutable.
+      Package URL → `software_versions` mapping: `ecosystem` from the
+      purl type, `distro` / `release` from the image's `os-release` for
+      distro packages (`''` for language packages), deb source package
+      from the purl's `upstream` qualifier where present.
+- [ ] Worker: `image_sbom` River job, one per image key, enqueued when
+      an image key is first seen with a repo digest. Fetch the registry's
+      SBOM attestation for the digest (OCI referrers / Docker's
+      `attestation-manifest` entries; SPDX and CycloneDX), anonymous
+      registry auth, optional platform-wide Docker Hub token for the
+      rate limit. Cache per image key fleet-wide; never refetch an `ok`
+      one. Timeouts, size caps and `netguard` for outbound fetches.
+- [ ] Matching: intern image packages into `software_versions` so the
+      existing matcher, `software_vulnerabilities` and re-match
+      triggers cover them; findings per host for images it runs
+      (kind `vulnerable_image`, dedup key
+      `img:<image_id>:<source>:<vuln_key>`), reconciled when an image is
+      matched and when a host's image/container set changes. Ranking and
+      KEV/EPSS/CVSS unchanged. Decide whether an image present but not
+      used by any container gets findings or only a score.
+- [ ] Dashboard: image detail page with **Packages** (all of them,
+      vulnerable or not, filter by ecosystem, TanStack server-driven
+      table) and **Vulnerabilities** tabs; score column on the fleet
+      Images page and the host Images / Containers tabs (worst severity
+      bucket + counts, max CVSS, KEV flag); explicit states for "no
+      package list yet", "private/local image, needs the agent", and
+      "ecosystem not assessed".
+- [ ] Server-side Syft for public images without an SBOM attestation:
+      pull by digest (the image's platform only) and run Syft as a Go
+      library. Bound CPU, memory, disk and concurrency in the worker;
+      delete pulled layers after cataloguing.
+- [ ] Alpine: OSV `Alpine` ecosystem in `feeds.OSVEcosystems`, apk
+      version comparator, `distro_releases` rows. Many official images
+      ship `-alpine` variants, so this comes before language packages.
+- [ ] End-of-life base images (e.g. `debian:buster`): show "release out
+      of support, not assessed" rather than hiding them or claiming
+      clean.
+- [ ] Language ecosystems, one at a time, each with its OSV feed and
+      comparator: likely npm, PyPI, Go, then crates.io / Maven. Until an
+      ecosystem is added its packages are listed but marked "not
+      assessed".
+- [ ] Agent: package lists for images the server can't pull (no repo
+      digest = built locally, or a private registry). The push response
+      carries "need a package list for these image IDs"; the agent runs
+      Syft over the layers on disk (read-only, the existing `/host`
+      mount; both graphdriver overlay2 and the containerd image store,
+      whose metadata DB is locked, see DECISIONS.md "Docker
+      collection" — verify how Syft or we resolve layers there) and
+      sends only package URLs + paths, once per image. New wire section
+      in PROTOCOL.md; adding it is a privacy decision (the list names
+      the software in private images). Weigh the agent binary size cost.
+      Keep `/var/lib/docker` / `/var/lib/containerd` readable when the
+      `/:/host:ro` mount is narrowed (Phase 1.6), only with Docker on.
+- [ ] Verification: compare our results with `docker scout cves` /
+      Trivy / Grype on a fixed set of images (`postgres:17`,
+      `nginx:1.27`, an Alpine variant, an EOL `debian:buster` image)
+      and explain every difference.
+
 ### Cross-cutting gaps worth closing before real users
 - [ ] Tests: dpkg status parsing, OS detection and the inventory range
       diff / set hash / old-agent rules now have tests (server store tests
@@ -529,12 +603,6 @@ storage/UI, then firewall + exposure on top.
       the last version audit — check it.
 
 ### Phase 2+ (explicitly deferred, don't start early)
-- [ ] Container image vulnerability scanning for Docker workloads. Builds
-      on the Phase 1.6 image inventory: scan once per image ID (or layer
-      diff ID) fleet-wide, like `software_versions`, and attach results
-      to every host / container running it. How to read an image's
-      package database (layers via the API's export, or the running
-      container's filesystem) is undecided; mind the proxy allowlist.
 - [ ] External port-exposure scanner (deferred 2026-09-27, DECISIONS.md
       "Port exposure"): probe only an enrolled agent's own
       `snapshots.source_ip`, rate-limited, never an arbitrary target;

@@ -1478,7 +1478,8 @@ Phase labels, as used in [TASKS.md](TASKS.md):
 - **P1**: Phase 1 remainder (inventory history, matching, packages UI)
 - **P1.5**: agent/host split + Linux collector breadth
 - **P1.6**: Docker inventory (containers, images, Swarm) + host-side port exposure
-- **P2**: existing Phase 2+ (container image vulns, external scanner, RHEL/Alpine)
+- **P2a**: container image packages + vulnerabilities (DECISIONS.md "Container image vulnerabilities")
+- **P2**: existing Phase 2+ (external scanner, RHEL/Alpine host collectors)
 - **P3**: Windows agent
 - **P4**: macOS agent
 
@@ -1518,7 +1519,7 @@ cells assume Q1 is answered yes.
 | Built-in AV / malware protection | 🛠 P3 (Defender status) | ❌ | 🛠 P4 (XProtect version) |
 | Disk encryption | 🛠 P3 (BitLocker) | ❓ (LUKS detection) | 🛠 P4 (FileVault, exec) |
 | Platform integrity (SIP/Gatekeeper) | ❌ n/a | ❌ n/a | 🛠 P4 (exec, Q3) |
-| Container image vulns | ❌ | 🛠 P2 (on the P1.6 image inventory) | ❌ |
+| Container image packages + vulns | ❌ | 🛠 P2a (registry SBOM / server-side Syft; agent for local and private images) | ❌ |
 | Remote (agentless-from-target) collection | ❓ Q3 (WinRM) | ❓ Q3 (SSH) | ❓ Q3 (SSH) |
 
 Verified "✅ now" set, exactly: dpkg packages (name, version, arch), OS

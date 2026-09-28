@@ -213,6 +213,67 @@ there", and the dashboard says so wherever Docker data would appear.
 On a Swarm manager, services, tasks and nodes cover the whole cluster,
 but per-node containers and images still need an agent on each node.
 
+## Container image vulnerabilities: our own SBOM + matcher, not Docker Scout
+
+Considered (2026-09-28): what Docker Desktop's "Start analysis" does, i.e.
+Docker Scout (`docker scout cves`), versus building the same pipeline on
+what we already have.
+
+Scout works in two steps: it builds an SBOM from the image's layers (OS
+packages and language packages as package URLs, `pkg:deb/debian/apt@3.0.3`),
+then sends it to Docker's backend, which matches it against Docker's
+advisory database (distro trackers, NVD, GitHub/GitLab, language
+ecosystems). **Not used as our engine**: the backend needs each user's
+Docker account and plan and isn't a public API to build on; it would send
+every user's image contents to Docker; reading a local image goes through
+image export, which the agent's Docker interface deliberately excludes;
+and its results wouldn't share our findings model (KEV/EPSS ranking, fix
+channels, open/resolved/reopened history). Scout (or Trivy/Grype) stays
+useful as a reference to check our results against.
+
+**Decided: the same two steps, on our own data.** The product is the
+**inventory first, then matching**, exactly as for hosts (list every apt
+package, then match): clicking into an image shows *all* of its
+packages, vulnerable or not, and vulnerabilities are a join on top.
+
+- **Package lists are interned into `software_versions`**, the table
+  host packages use: `ecosystem` from the package URL type (`deb`,
+  `apk`, `npm`, `pypi`, `golang`…), `distro` / `release` from the image's
+  `os-release` for distro packages, `''` for language packages. An image's
+  content never changes, so its inventory is a plain set per image
+  (keyed like `container_images`), not validity ranges. The matcher,
+  `software_vulnerabilities`, KEV/EPSS/CVSS and re-matching on advisory
+  changes then apply unchanged; image findings reuse the same ranking.
+- **Matching and scoring always run on the server** (River worker), where
+  the advisories, comparators and re-match triggers live. Advisory
+  updates re-check every image without the hosts being involved.
+- **Package lists come from the server where it can reach the image,
+  and from the agent only where it can't.** Server, per digest,
+  fleet-wide, cached: (1) the registry's SBOM attestation when the image
+  has one (checked 2026-09-28: Docker Official Images carry an SPDX SBOM
+  per platform, anonymously fetchable, with `deb` package URLs including
+  distro and release); (2) otherwise pull the image by `repo_digests` and
+  run **Syft** (Apache-2.0 Go library) on it. Agent: only for images the
+  server can't pull, i.e. locally built images (no repo digest) and
+  private registries. We don't store users' registry credentials. The
+  server tells the agent which image IDs it needs; the agent runs Syft on
+  the layers on disk and sends only the package list, never file contents.
+- **Advisories: OSV, extended per ecosystem.** OSV already publishes
+  Alpine, npm, PyPI, Go, crates.io, Maven… (and GitHub's advisory data).
+  Each ecosystem needs its own version comparator (Debian ordering is
+  the only one today), so ecosystems are added one at a time; until
+  then their packages are listed but marked "not assessed", never "no
+  vulnerabilities".
+- **No external API keys.** OSV, KEV and EPSS are public downloads
+  (unchanged), Syft is local, public registries allow anonymous pulls.
+  An optional platform-wide Docker Hub token only raises the anonymous
+  pull rate limit.
+
+The "score" shown for an image is the worst severity bucket plus counts
+per bucket, with max CVSS and a KEV flag (the existing `severity.Key`
+ranking), not a new composite number. Tasks: TASKS.md "Phase 2a —
+container image packages + vulnerabilities".
+
 ## Next.js deploys as a Docker standalone image, not on Vercel
 
 The whole pitch is self-hosting on your own VPS via Dokploy/Coolify.
