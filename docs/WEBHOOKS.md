@@ -1,11 +1,13 @@
 # Webhooks
 
 A **webhook** notification channel receives an HTTPS `POST` of a JSON
-document for every notification a rule sends to it (and for "Send test").
-Channels are configured under **Dashboard → Settings → Notification
-settings** and the rules that send to them under **Dashboard → Alerts**
-(which also holds the delivery log); the pipeline behind them is described in
-[ARCHITECTURE.md § Alerting](ARCHITECTURE.md#alerting).
+document for every notification a rule or a report schedule sends to it
+(and for "Send test"). Channels and report schedules are configured under
+**Dashboard → Settings → Notification settings** and the rules that send to
+them under **Dashboard → Alerts** (which also holds the delivery log); the
+pipeline behind them is described in
+[ARCHITECTURE.md § Alerting](ARCHITECTURE.md#alerting). Scheduled reports
+have their own body shape, see [Report notifications](#report-notifications).
 
 ## Request
 
@@ -13,7 +15,7 @@ settings** and the rules that send to them under **Dashboard → Alerts**
 POST /your/path HTTP/1.1
 Content-Type: application/json
 User-Agent: upkeep.sh-webhook/1
-X-Upkeep-Kind: alert                       # alert | digest | test
+X-Upkeep-Kind: alert                       # alert | digest | test | report
 X-Upkeep-Delivery: 4b579242-c8a0-...       # same value on every retry of this delivery
 X-Upkeep-Timestamp: 1790512453             # unix seconds, when this attempt was signed
 X-Upkeep-Signature: v1=5d41402abc4b2a76... # see "Verifying the signature"
@@ -103,7 +105,7 @@ it must never be set in production.
 | Field | Notes |
 |---|---|
 | `version` | Payload version, currently `1`. Additive changes (new fields, new event types, new objects on events) don't bump it; ignore what you don't know. |
-| `kind` | `alert`: matches of one rule from one evaluation pass (usually one event, more when a host reports many changes at once). `digest`: a rule's matches over its digest interval. `test`: "Send test"; `rule` is `null` and `events` is empty. |
+| `kind` | `alert`: matches of one rule from one evaluation pass (usually one event, more when a host reports many changes at once). `digest`: a rule's matches over its digest interval. `test`: "Send test"; `rule` is `null` and `events` is empty. `report`: a scheduled estate report ([below](#report-notifications)); `rule` is `null`, `events` is empty and `report` is set. |
 | `summary` | One human-readable line. |
 | `events` | At most 200 per notification (larger batches are split into several). |
 | `events[].url` | Present only when the worker has `SW_DASHBOARD_URL` set. |
@@ -132,6 +134,148 @@ Images tab. Alert rules can be limited to either kind.
 `finding.severity` is the dashboard's bucket (`critical`, `high`, `medium`,
 `unknown`, `low`, `negligible`); `fix_channel` is `standard`, `ubuntu-pro`
 (fix only in Ubuntu Pro) or `null` (no fix yet).
+
+## Report notifications
+
+A report schedule (weekly or monthly, under Settings → Notification
+settings) sends the whole estate's state, organised as a patch list, to its
+channels; "Send now" sends one at once. The webhook gets the same envelope
+and signature as an alert, with `kind: "report"` and the stored report in
+`report`:
+
+| Field | Notes |
+|---|---|
+| `summary` | `"{schedule name}: {summary}"`, e.g. `Monday patch list: 1 urgent action, 2 to patch this week, 1 image to update, 1 host not reporting` (`all clear` when there is nothing). The same line titles the ntfy push and the email. |
+| `report.id` | The stored report. Every retry of a delivery sends the same report. |
+| `report.url` | The report's dashboard page. Present only when the worker has `SW_DASHBOARD_URL` set. |
+| `report.snapshot` | The full report, exactly as stored. |
+
+```json
+{
+  "version": 1,
+  "id": "3e0c9a4b-…",
+  "delivery_id": "8d2f7c61-…",
+  "kind": "report",
+  "created_at": "2026-09-28T07:00:04Z",
+  "rule": null,
+  "summary": "Monday patch list: 1 urgent action, 2 to patch this week, 1 image to update, 1 host not reporting",
+  "events": [],
+  "report": {
+    "id": "e5f6a7b8-…",
+    "url": "https://upkeep.example.com/dashboard/reports/e5f6a7b8-…",
+    "snapshot": {
+      "schema_version": 1,
+      "ranking_version": 1,
+      "generated_at": "2026-09-28T07:00:04Z",
+      "period": { "start": "2026-09-21T07:00:03Z", "end": "2026-09-28T07:00:04Z" },
+      "trigger": "scheduled",
+      "schedule": { "id": "6f1c2b1e-…", "name": "Monday patch list", "cadence": "weekly", "timezone": "Europe/London" },
+      "estate": { "hosts": 4, "containers": 7, "images": 3 },
+      "headline": {
+        "patch_now": 1, "patch_this_week": 2, "when_convenient": 1, "images_to_update": 1,
+        "reboots_required": 1, "no_fix_findings": 14, "total_open_findings": 42,
+        "opened_since_last": 15, "resolved_since_last": 3, "stale_agents": 1
+      },
+      "host_actions": [
+        {
+          "tier": "patch_now",
+          "package": "openssl",
+          "binary_packages": ["libssl3", "openssl"],
+          "fixed_version": "3.0.2-0ubuntu1.18",
+          "fix_channel": "standard",
+          "requires_pro": false,
+          "kev": true,
+          "worst_severity": "critical",
+          "max_epss": 0.94312,
+          "cves": ["CVE-2026-1001", "CVE-2026-1002", "CVE-2026-1003"],
+          "cve_count": 3,
+          "hosts": [{ "id": "0b8e7f52-…", "name": "db-1" }, { "id": "1a2b3c4d-…", "name": "web-1" }, { "id": "2b3c4d5e-…", "name": "web-2" }],
+          "host_count": 3,
+          "oldest_open_at": "2026-09-03T14:22:10Z"
+        }
+      ],
+      "image_actions": [
+        {
+          "tier": "patch_this_week",
+          "image_id": "sha256:4f2a9c1d…",
+          "image_refs": ["nginx:1.27", "nginx:latest"],
+          "os": "linux", "arch": "arm64", "variant": "v8",
+          "kev": false,
+          "worst_severity": "high",
+          "max_epss": 0.1234,
+          "open_findings": 18,
+          "fixable_findings": 11,
+          "containers": ["proxy", "static-site"],
+          "hosts": [{ "id": "1a2b3c4d-…", "name": "web-1" }, { "id": "2b3c4d5e-…", "name": "web-2" }],
+          "oldest_open_at": "2026-08-30T02:11:47Z"
+        }
+      ],
+      "reboots_required": [
+        { "host_id": "2b3c4d5e-…", "host_name": "web-2", "packages": ["linux-image-5.15.0-122-generic"], "since": "2026-09-25T03:14:00Z" }
+      ],
+      "no_fix": { "findings": 14, "kev_findings": 0, "worst_severity": "high", "host_package_findings": 9, "image_findings": 5 },
+      "coverage": {
+        "stale_agents": [
+          { "agent_id": "9c8b7a6f-…", "name": "backup-agent", "last_seen_at": "2026-09-19T22:47:12Z",
+            "hosts": [{ "id": "3c4d5e6f-…", "name": "backup-1" }] }
+        ],
+        "hosts_without_docker": [{ "id": "3c4d5e6f-…", "name": "backup-1" }],
+        "images_not_scored": []
+      },
+      "hosts": [
+        { "id": "0b8e7f52-…", "name": "db-1", "patch_now": 1, "patch_this_week": 1, "when_convenient": 0,
+          "images_to_update": 0, "reboot_required": false, "no_fix_findings": 2, "total_open_findings": 9 }
+      ],
+      "changes": {
+        "previous_report_id": "d4e5f6a7-…",
+        "previous_generated_at": "2026-09-21T07:00:03Z",
+        "comparable": true,
+        "metrics": {
+          "patch_now": { "previous": 0, "current": 1, "delta": 1, "percent": null },
+          "total_open_findings": { "previous": 30, "current": 42, "delta": 12, "percent": 40 }
+        },
+        "hosts_added": [
+          { "id": "0b8e7f52-…", "name": "db-1",
+            "contribution": { "patch_now": 1, "patch_this_week": 1, "no_fix_findings": 2, "total_open_findings": 9 } }
+        ],
+        "hosts_archived": []
+      }
+    }
+  }
+}
+```
+
+(Abbreviated: lists are cut to one or two entries and `changes.metrics`
+to two keys; a real snapshot lists everything. The complete example is
+[`web/src/lib/report-snapshot.example.json`](../web/src/lib/report-snapshot.example.json).)
+
+The snapshot's shape is versioned by `schema_version` (breaking changes
+bump it; new fields don't). Conventions:
+
+- Lists are complete (nothing is truncated) and never `null`; optional
+  values are present as `null`, never omitted. Timestamps are RFC 3339 UTC.
+- `headline` holds the top-line numbers. `patch_now` / `patch_this_week` /
+  `when_convenient` count **action lines** (one upgrade of one package, or
+  one image to re-pull or rebuild), not CVEs: KEV → patch now;
+  critical/high with a fix, or high EPSS → patch this week; the rest →
+  when convenient. `opened_since_last` / `resolved_since_last` cover
+  `period`.
+- `host_actions` (one line per package upgrade, with the hosts it affects
+  and the CVEs it closes) and `image_actions` are sorted most urgent
+  first. `coverage` is always present: agents not reporting, hosts
+  without Docker collection and images whose findings are unknown, so an
+  empty patch list can't be mistaken for "all clear" when parts of the
+  estate aren't being watched.
+- `changes` compares with the schedule's previous report (`null` for the
+  first one). Every headline number gets an absolute `delta`; `percent`
+  only when the previous value is at least 10. When `ranking_version`
+  changed between the two reports, `comparable` is `false` and `metrics`
+  only has the numbers that don't depend on the ranking
+  (`total_open_findings`, `opened_since_last`, `resolved_since_last`,
+  `stale_agents`). `hosts_added` / `hosts_archived` attribute changes to
+  hosts that joined or left the estate.
+- Hosts are named by their dashboard label, else their hostname. The
+  snapshot has no URLs; `report.url` is built when the delivery is sent.
 
 ## Verifying the signature
 
