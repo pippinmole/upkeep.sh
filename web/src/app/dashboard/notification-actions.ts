@@ -14,7 +14,12 @@ import {
   isFindingEvent,
   validateChannelValues,
 } from "@/lib/notifiers";
-import { type CleanSchedule, type ScheduleInput, validateSchedule } from "@/lib/report-schedules";
+import {
+  type CleanSchedule,
+  resetsNextRun,
+  type ScheduleInput,
+  validateSchedule,
+} from "@/lib/report-schedules";
 import { enqueueAlertDelivery, enqueueReportSendNow } from "@/lib/river";
 
 // Alert rules (/dashboard/alerts), notification channels and report
@@ -455,9 +460,10 @@ async function validateScheduleFor(
 }
 
 // The schedule and its channels in one transaction. next_run_at is the
-// worker's: it is NULL on insert and reset to NULL when the timing changes,
-// so the worker recomputes it; otherwise neither next_run_at nor
-// last_run_at is written here.
+// worker's: it is NULL on insert and reset to NULL when the timing changes
+// or a disabled schedule is enabled (resetsNextRun), so the worker
+// recomputes it from now; otherwise neither next_run_at nor last_run_at is
+// written here.
 async function writeSchedule(
   userId: string,
   id: string | null,
@@ -476,20 +482,36 @@ async function writeSchedule(
       s.hour,
       s.timezone,
     ];
-    // In an UPDATE, column references on the right-hand side read the old
-    // row, so the CASE compares the stored timing with the new one.
+    let reset = false;
+    if (id) {
+      // Locked so the comparison and the UPDATE see the same row.
+      const prev = await client.query<{
+        enabled: boolean;
+        cadence: CleanSchedule["cadence"];
+        weekday: number | null;
+        day_of_month: number | null;
+        hour: number;
+        timezone: string;
+      }>(
+        `SELECT enabled, cadence, weekday, day_of_month, hour, timezone
+         FROM report_schedules WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+        [id, userId],
+      );
+      const p = prev.rows[0];
+      if (!p) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      reset = resetsNextRun({ ...p, dayOfMonth: p.day_of_month }, s);
+    }
     const res = id
       ? await client.query<{ id: string }>(
           `UPDATE report_schedules
            SET name = $2, enabled = $3, cadence = $4, weekday = $5, day_of_month = $6, hour = $7,
-               timezone = $8,
-               next_run_at = CASE
-                 WHEN (cadence, weekday, day_of_month, hour, timezone)
-                      IS DISTINCT FROM ($4::text, $5::int, $6::int, $7::int, $8::text)
-                 THEN NULL ELSE next_run_at END,
+               timezone = $8, next_run_at = CASE WHEN $10 THEN NULL ELSE next_run_at END,
                updated_at = now()
            WHERE id = $9 AND user_id = $1 RETURNING id`,
-          [...params, id],
+          [...params, id, reset],
         )
       : await client.query<{ id: string }>(
           `INSERT INTO report_schedules (user_id, name, enabled, cadence, weekday, day_of_month, hour, timezone)
@@ -552,8 +574,13 @@ export async function setReportScheduleEnabled(
 ): Promise<ActionResult> {
   const userId = await requireUser();
   if (!isUuid(id)) return { ok: false, error: "Schedule not found." };
+  // Enabling a disabled schedule resets next_run_at (see resetsNextRun);
+  // the right-hand side reads the old row. Disabling leaves it alone.
   const r = await pool.query(
-    `UPDATE report_schedules SET enabled = $3, updated_at = now() WHERE id = $1 AND user_id = $2`,
+    `UPDATE report_schedules
+     SET enabled = $3, next_run_at = CASE WHEN $3 AND NOT enabled THEN NULL ELSE next_run_at END,
+         updated_at = now()
+     WHERE id = $1 AND user_id = $2`,
     [id, userId, enabled === true],
   );
   if (r.rowCount === 0) return { ok: false, error: "Schedule not found." };

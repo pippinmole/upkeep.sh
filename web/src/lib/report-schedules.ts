@@ -129,6 +129,27 @@ function nextRunFormat(timeZone: string): Intl.DateTimeFormat {
 }
 
 /**
+ * Whether saving `next` over the stored `prev` must reset next_run_at to
+ * NULL so the worker recomputes it from now: when the timing changes, and
+ * when a disabled schedule is enabled (its stored next_run_at may be long
+ * past, and a re-enabled schedule mustn't fire at once). Disabling, or
+ * saving an enabled schedule with the same timing, keeps it.
+ */
+export function resetsNextRun(
+  prev: ScheduleTiming & { enabled: boolean },
+  next: ScheduleTiming & { enabled: boolean },
+): boolean {
+  if (!prev.enabled && next.enabled) return true;
+  return (
+    prev.cadence !== next.cadence ||
+    prev.weekday !== next.weekday ||
+    prev.dayOfMonth !== next.dayOfMonth ||
+    prev.hour !== next.hour ||
+    prev.timezone !== next.timezone
+  );
+}
+
+/**
  * A run time in the schedule's own timezone ("Mon, 5 Oct 2026, 09:00 BST"),
  * which is what "Monday 09:00" meant to whoever set it up. next_run_at is
  * NULL until the worker computes it (within a minute of a change).

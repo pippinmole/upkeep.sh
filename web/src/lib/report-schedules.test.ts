@@ -6,6 +6,7 @@ import {
   canonicalTimeZone,
   formatRunAt,
   NEXT_RUN_PENDING,
+  resetsNextRun,
   type ScheduleInput,
   timeZoneOptions,
   validateSchedule,
@@ -102,6 +103,40 @@ describe("canonicalTimeZone", () => {
     expect(opts).toContain("Europe/London");
     expect(opts).toContain("UTC");
     expect(opts).toEqual([...opts].sort());
+  });
+});
+
+describe("resetsNextRun", () => {
+  const base = {
+    enabled: true,
+    cadence: "weekly" as const,
+    weekday: 1,
+    dayOfMonth: null,
+    hour: 9,
+    timezone: "Europe/London",
+  };
+
+  test("unchanged enabled schedule keeps next_run_at", () => {
+    expect(resetsNextRun(base, { ...base })).toBe(false);
+  });
+
+  test("disabled -> enabled resets", () => {
+    expect(resetsNextRun({ ...base, enabled: false }, base)).toBe(true);
+  });
+
+  test("enabled -> disabled and disabled -> disabled keep it", () => {
+    expect(resetsNextRun(base, { ...base, enabled: false })).toBe(false);
+    expect(resetsNextRun({ ...base, enabled: false }, { ...base, enabled: false })).toBe(false);
+  });
+
+  test("any timing change resets", () => {
+    expect(resetsNextRun(base, { ...base, weekday: 2 })).toBe(true);
+    expect(resetsNextRun(base, { ...base, hour: 10 })).toBe(true);
+    expect(resetsNextRun(base, { ...base, timezone: "UTC" })).toBe(true);
+    expect(resetsNextRun(base, { ...base, cadence: "monthly", weekday: null, dayOfMonth: 1 })).toBe(
+      true,
+    );
+    expect(resetsNextRun(base, { ...base, enabled: false, hour: 10 })).toBe(true);
   });
 });
 
