@@ -314,6 +314,42 @@ incremental runs) and keeps only affected entries whose ecosystem maps to
 a supported release. `Ubuntu:Pro:<ver>` entries map to the same release
 with `channel = 'ubuntu-pro'`.
 
+**As built (P2a, Alpine, migration 0016).** `feeds.OSVEcosystems` is
+`Debian`, `Ubuntu`, `Alpine`; each top-level directory maps to one
+distro (`osv.DistroFor`), and the supported-release fingerprint that
+forces a full import is per distro, so enabling an Alpine branch doesn't
+reload Ubuntu. Checked 2026-09-28: `Alpine/all.zip` (~4 MB, 4,679
+records) and `Alpine/modified_id.csv` are current; the per-release
+`Alpine:v3.20/all.zip` is stale since 2024-10 like Debian's, and
+`Alpine:v3.22`+ have no per-release directory at all. Records:
+
+- Ids are `ALPINE-CVE-<cve>`, the CVE only in `upstream` (no `aliases`).
+  They are per-CVE records like `DEBIAN-CVE-*`: `vuln_key` is the CVE,
+  the matcher's per-CVE precedence applies, and their `CVSS_V3` vector
+  feeds `cves` (of 4,679 records, 153 carry only `CVSS_V4`, which `cves`
+  doesn't store, and 48 no score; the same CVE may still get a v3 score
+  from a Debian/Ubuntu record).
+- `affected[].package` is the apk **origin** (`pkg:apk/alpine/openssl?arch=source`)
+  per branch, ecosystem `Alpine:v3.22` → (`alpine`, `3.22`). Alpine has
+  no codenames, so `distro_releases.codename` = `version` = the branch,
+  which is also what `purl.ReleaseFor` interns image packages under.
+- Ranges are `ECOSYSTEM` with `introduced` (often an upstream version
+  without `-rN`, e.g. `3.0.0`, which apk orders below `3.0.0-r0`) and
+  `fixed`. There is **no unfixed tracking**: Alpine's secdb lists fixes
+  only, so every row is `fixed`. A few ranges list several `fixed`
+  events after one `introduced`; the first (lowest) closes the range.
+- secdb's `fixed: "0"` ("this branch was never affected") becomes
+  `status = 'not_affected'`. On 2026-09-28 every such record in a
+  supported branch was also withdrawn.
+- **No distro severity**: records carry CVSS only, so
+  `distro_severity` is NULL and ranking falls back to KEV/EPSS/CVSS, as
+  for an unknown priority.
+
+Live first sync (3.21-3.24 supported): 3,480 advisories (62 withdrawn,
+all CVE-keyed), 12,940 affected rows: 3.21 3,096 · 3.22 3,229 · 3.23
+3,396 · 3.24 3,219, over ~270-280 source packages per branch; 10 s,
+19 MB heap.
+
 ### 2.4 Advisory schema (replaces `vulnerabilities`)
 
 ```sql
@@ -402,7 +438,7 @@ this way here for readability.)
   transaction as any change to that key's `advisory_affected` rows and
   drained by the `advisory_rematch` job (§2.6).
 - **`advisories.vuln_key` rule**: the record's own CVE (a `CVE-` id, or
-  the CVE a `DEBIAN-CVE-`/`UBUNTU-CVE-` record wraps); else the single CVE
+  the CVE a `DEBIAN-CVE-`/`UBUNTU-CVE-`/`ALPINE-CVE-` record wraps); else the single CVE
   a DSA/DLA/USN cites; else the advisory id (a notice citing several
   CVEs). The matcher then keys *matches* by CVE wherever possible: a
   multi-CVE notice is expanded to each CVE it cites (§2.5 "As built").
@@ -521,6 +557,36 @@ from `/var/lib/ubuntu-advantage/status.json` (open question Q9).
   running kernel** (agents older than the `kernel` collector, or the
   collector failed): every installed kernel raises findings, marked
   `findings.running_kernel_unknown`, so an unknown never hides risk.
+
+**As built (P2a, comparators per ecosystem).** The predicate and
+precedence above are ecosystem-neutral; only version ordering differs.
+`matcher.Comparator` (`Validate(v)`, `Compare(a, b) (int, error)`) is
+looked up by `software_versions.ecosystem` in one table
+(`matcher/ecosystems.go`): `deb` → `debversion`, `apk` →
+`server/internal/apkversion`, a port of apk-tools' `version.c`
+(digits, one letter, `_alpha _beta _pre _rc` < none < `_cvs _svn _git
+_hg _p`, `~hash`, `-rN`; a leading-zero component compares as a
+string), tested with apk-tools' own `version.data`. An invalid version
+counts as a bad version and is skipped, never ordered by guess (13
+distinct values in the whole Alpine feed, e.g. `1999-12-14`). Adding an
+ecosystem (npm, PyPI, Go: task G) is one comparator plus its feed.
+
+- `matcher.Resolve` matches any ecosystem with a comparator by
+  (source, source version) as interned (apk: the origin from the purl's
+  `upstream` qualifier, else the binary name, `source_inferred`); the
+  kernel mapping and Ubuntu Pro channels stay deb-only.
+- `matcher.Assessed(ecosystem, distro, release)` is the single answer to
+  "is this package matched at all" (for "not assessed" counts): `deb` on
+  debian/ubuntu and `apk` on alpine, with a release. Whether that
+  release is supported (end of life) is data: join `distro_releases`.
+- The store joins `advisory_affected` on (distro, release,
+  source_package) exactly as for deb: an apk package in an Alpine 3.22
+  image is (`alpine`, `3.22`, origin).
+- `matcher.Version` 2: apk versions interned before this were stamped
+  "evaluated, nothing to match" under 1; the bump re-evaluates them.
+  deb results are unchanged.
+- Host findings (`findings.Build`) still pick the lowest installed
+  version with debversion; hosts only send deb today.
 
 ### 2.6 Materialized or computed on read?
 

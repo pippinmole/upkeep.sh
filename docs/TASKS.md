@@ -556,9 +556,17 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       pull by digest (the image's platform only) and run Syft as a Go
       library. Bound CPU, memory, disk and concurrency in the worker;
       delete pulled layers after cataloguing.
-- [ ] Alpine: OSV `Alpine` ecosystem in `feeds.OSVEcosystems`, apk
+- [x] Alpine: OSV `Alpine` ecosystem in `feeds.OSVEcosystems`, apk
       version comparator, `distro_releases` rows. Many official images
       ship `-alpine` variants, so this comes before language packages.
+      (Done 2026-09-28, migration 0016; DOMAIN_MODEL.md §2.3, §2.5 "As
+      built". `server/internal/apkversion` ports apk-tools' ordering and
+      runs its `version.data` vectors; the matcher picks a comparator per
+      ecosystem (`matcher.ComparatorFor`, `matcher.Assessed`),
+      `matcher.Version` 2. Alpine 3.21-3.24 supported, 3.19/3.20 listed
+      as EOL. Live: 3,480 advisories, ~3,100-3,400 affected rows per
+      branch. Alpine's feed has **fixed** CVEs only: secdb doesn't track
+      unfixed ones, so an Alpine package is never "affected, no fix".)
 - [ ] End-of-life base images (e.g. `debian:buster`): show "release out
       of support, not assessed" rather than hiding them or claiming
       clean.

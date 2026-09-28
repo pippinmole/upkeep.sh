@@ -25,9 +25,9 @@ const (
 
 // Release is one distro_releases row.
 type Release struct {
-	Distro    string // 'debian' | 'ubuntu'
-	Codename  string
-	Version   string // '12', '22.04'
+	Distro    string // 'debian' | 'ubuntu' | 'alpine'
+	Codename  string // 'bookworm'; Alpine has none, so its branch: '3.22'
+	Version   string // '12', '22.04', '3.22'
 	Supported bool
 }
 
@@ -44,12 +44,14 @@ func NewReleases(rs []Release) Releases {
 	return Releases{byVersion: m}
 }
 
-// Fingerprint identifies the supported set. The sync stores it and runs a
-// full import when it changes (a release was enabled or disabled).
-func (rs Releases) Fingerprint() string {
+// Fingerprint identifies the supported set of one distro. The sync of
+// that distro's feed stores it and runs a full import when it changes (a
+// release was enabled or disabled), so adding another distro's releases
+// doesn't reload every feed.
+func (rs Releases) Fingerprint(distro string) string {
 	var keys []string
 	for _, r := range rs.byVersion {
-		if r.Supported {
+		if r.Supported && r.Distro == distro {
 			keys = append(keys, r.Distro+"/"+r.Version+"/"+r.Codename)
 		}
 	}
@@ -76,9 +78,10 @@ func (rs Releases) Lookup(ecosystem string) (rel Release, channel string, ok boo
 
 var releaseVersionRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
 
-// ParseEcosystem splits an OSV Debian/Ubuntu ecosystem name.
+// ParseEcosystem splits an OSV Debian/Ubuntu/Alpine ecosystem name.
 //
 //	Debian:12                -> debian 12    standard
+//	Alpine:v3.22             -> alpine 3.22  standard
 //	Ubuntu:22.04:LTS         -> ubuntu 22.04 standard
 //	Ubuntu:25.10             -> ubuntu 25.10 standard
 //	Ubuntu:Pro:22.04:LTS     -> ubuntu 22.04 ubuntu-pro
@@ -90,6 +93,8 @@ func ParseEcosystem(eco string) (distro, version, channel string, ok bool) {
 	switch {
 	case len(parts) == 2 && parts[0] == "Debian":
 		distro, version = "debian", parts[1]
+	case len(parts) == 2 && parts[0] == "Alpine" && strings.HasPrefix(parts[1], "v"):
+		distro, version = "alpine", parts[1][1:]
 	case len(parts) >= 2 && parts[0] == "Ubuntu":
 		rest := parts[1:]
 		if rest[0] == "Pro" {
@@ -115,6 +120,12 @@ func SourceFor(ecosystemDir string) string {
 	return "osv-" + strings.ToLower(ecosystemDir)
 }
 
+// DistroFor returns the distro (distro_releases.distro) an OSV ecosystem
+// directory holds advisories for ("Alpine" -> "alpine").
+func DistroFor(ecosystemDir string) string {
+	return strings.ToLower(ecosystemDir)
+}
+
 // Advisory is one normalized record: an advisories row plus its
 // advisory_affected rows.
 type Advisory struct {
@@ -138,7 +149,7 @@ type Advisory struct {
 	Affected []AffectedRow
 
 	// CVSSv3Vector is set on per-CVE records (DEBIAN-CVE-, UBUNTU-CVE-,
-	// CVE-) and feeds cves.cvss_v3_vector for VulnKey.
+	// ALPINE-CVE-, CVE-) and feeds cves.cvss_v3_vector for VulnKey.
 	CVSSv3Vector string
 }
 
@@ -198,7 +209,7 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 	adv.CVEIDs = cveIDs(r)
 	adv.VulnKey = vulnKey(r.ID, adv.CVEIDs)
 	adv.Severity = recordPriority(r.Severity)
-	// Per-CVE records (own id is the CVE, or a DEBIAN-/UBUNTU-CVE wrapper):
+	// Per-CVE records (own id is the CVE, or a DEBIAN-/UBUNTU-/ALPINE-CVE wrapper):
 	// their CVSS belongs to that CVE. Multi-CVE advisories (DSA/USN) are
 	// skipped: their record-level severity isn't per CVE.
 	if IsPerCVE(r.ID) {
@@ -229,9 +240,14 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 			for _, row := range rangeRows(rg.Events) {
 				row.Distro, row.Release, row.SourcePackage = rel.Distro, rel.Codename, a.Package.Name
 				row.Channel, row.Ecosystem, row.DistroSeverity = channel, a.Package.Ecosystem, sev
-				if row.FixedVersion != nil {
+				switch {
+				case rel.Distro == "alpine" && row.FixedVersion != nil && *row.FixedVersion == "0":
+					// Alpine secdb's "0" fix: this branch was never affected
+					// (seen with any introduced, e.g. "2.5.0" -> "0").
+					row.Status = "not_affected"
+				case row.FixedVersion != nil:
 					row.Status = "fixed"
-				} else {
+				default:
 					row.Status = "unfixed"
 				}
 				// Duplicate keys happen when OSV lists a package twice for one
@@ -302,10 +318,15 @@ var ubuntuPriorityRank = map[string]int{
 
 // affectedSeverity is the distro severity for one affected entry:
 // Debian urgency, or Ubuntu's per-package priority, the highest per-CVE
-// priority of a USN, or the record's priority.
+// priority of a USN, or the record's priority. Alpine's secdb has no
+// severity (its OSV records carry only CVSS), so it is nil and ranking
+// falls back to the CVE's CVSS score (cves), like any unknown priority.
 func affectedSeverity(distro string, a Affected, recordSev *string) *string {
-	if distro == "debian" {
+	switch distro {
+	case "debian":
 		return normSeverity(a.EcosystemSpecific.Urgency)
+	case "alpine":
+		return nil
 	}
 	if s := normSeverity(a.EcosystemSpecific.UbuntuPriority); s != nil {
 		return s
@@ -350,14 +371,37 @@ func normSeverity(s string) *string {
 	return &s
 }
 
+// perCVEPrefixes are the distro prefixes of per-CVE record ids
+// ("DEBIAN-CVE-2024-1234"): the record describes exactly that CVE.
+var perCVEPrefixes = []string{"DEBIAN-", "UBUNTU-", "ALPINE-"}
+
+// wrappedCVE returns the CVE a DEBIAN-/UBUNTU-/ALPINE-CVE- id wraps.
+func wrappedCVE(id string) (string, bool) {
+	for _, p := range perCVEPrefixes {
+		if c, ok := strings.CutPrefix(id, p); ok && IsCVE(c) {
+			return c, true
+		}
+	}
+	return "", false
+}
+
 // IsPerCVE reports whether an advisory id is a per-CVE record (CVE-*,
-// DEBIAN-CVE-*, UBUNTU-CVE-*) rather than a DSA/DLA/USN/LSN notice.
+// DEBIAN-CVE-*, UBUNTU-CVE-*, ALPINE-CVE-*) rather than a DSA/DLA/USN/LSN
+// notice.
 func IsPerCVE(id string) bool {
-	return IsCVE(id) || strings.HasPrefix(id, "DEBIAN-CVE-") || strings.HasPrefix(id, "UBUNTU-CVE-")
+	if IsCVE(id) {
+		return true
+	}
+	for _, p := range perCVEPrefixes {
+		if strings.HasPrefix(id, p+"CVE-") {
+			return true
+		}
+	}
+	return false
 }
 
 // cveIDs collects every CVE the record refers to: its own id, the CVE a
-// DEBIAN-CVE-/UBUNTU-CVE- id wraps, and CVE aliases/upstream ids.
+// DEBIAN-/UBUNTU-/ALPINE-CVE- id wraps, and CVE aliases/upstream ids.
 func cveIDs(r *Record) []string {
 	set := map[string]bool{}
 	add := func(s string) {
@@ -366,10 +410,8 @@ func cveIDs(r *Record) []string {
 		}
 	}
 	add(r.ID)
-	for _, p := range []string{"DEBIAN-", "UBUNTU-"} {
-		if strings.HasPrefix(r.ID, p+"CVE-") {
-			add(strings.TrimPrefix(r.ID, p))
-		}
+	if c, ok := wrappedCVE(r.ID); ok {
+		add(c)
 	}
 	for _, s := range r.Aliases {
 		add(s)
@@ -391,10 +433,8 @@ func vulnKey(id string, cves []string) string {
 	if IsCVE(id) {
 		return id
 	}
-	for _, p := range []string{"DEBIAN-", "UBUNTU-"} {
-		if c := strings.TrimPrefix(id, p); c != id && IsCVE(c) {
-			return c
-		}
+	if c, ok := wrappedCVE(id); ok {
+		return c
 	}
 	if len(cves) == 1 {
 		return cves[0]

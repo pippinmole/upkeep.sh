@@ -1,4 +1,4 @@
-// Package osv parses OSV.dev records for the Debian and Ubuntu ecosystems
+// Package osv parses OSV.dev records for the Debian, Ubuntu and Alpine ecosystems
 // and normalizes them into the advisory schema (migrations/0005,
 // DOMAIN_MODEL.md §2.4): one Advisory per record, one Affected row per
 // (release, source package, channel, introduced) range pair, for supported
@@ -6,7 +6,7 @@
 //
 // It is pure: no I/O besides the HTTP client in client.go. Version strings
 // are passed through untouched; comparing them is the matcher's job
-// (server/internal/debversion).
+// (server/internal/debversion, server/internal/apkversion).
 package osv
 
 import (

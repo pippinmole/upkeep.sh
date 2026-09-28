@@ -1,13 +1,11 @@
 package matcher
 
 import (
+	"fmt"
+
+	"github.com/pippinmole/upkeep.sh/server/internal/apkversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
 )
-
-// NOTE: same API as ecosystems.go in the Alpine branch (PR #6, which adds
-// "apk" and moves Evaluate onto the Comparator). On merge, keep that
-// file; this deb-only copy only exists so image scores can use the same
-// Assessed / ComparatorFor before it lands.
 
 // Comparator orders the versions of one package ecosystem. Advisory
 // versions and installed versions of an ecosystem use the same one.
@@ -33,6 +31,7 @@ type ecosystem struct {
 // here is inventoried but "not assessed", never "no vulnerabilities".
 var ecosystems = map[string]ecosystem{
 	"deb": {debComparator{}, set("debian", "ubuntu")},
+	"apk": {apkComparator{}, set("alpine")},
 }
 
 // ComparatorFor returns the version comparator of an ecosystem; ok is
@@ -76,3 +75,24 @@ func (debComparator) Validate(v string) error {
 }
 
 func (debComparator) Compare(a, b string) (int, error) { return debversion.CompareStrings(a, b) }
+
+// apkComparator: apk-tools ordering (apkversion). Invalid versions are
+// rejected rather than ordered the way apk orders them, as for deb.
+type apkComparator struct{}
+
+func (apkComparator) Validate(v string) error {
+	if !apkversion.Valid(v) {
+		return fmt.Errorf("apkversion: invalid version %q", v)
+	}
+	return nil
+}
+
+func (c apkComparator) Compare(a, b string) (int, error) {
+	if err := c.Validate(a); err != nil {
+		return 0, err
+	}
+	if err := c.Validate(b); err != nil {
+		return 0, err
+	}
+	return apkversion.Compare(a, b), nil
+}

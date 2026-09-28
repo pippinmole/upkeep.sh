@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/matcher"
 )
 
@@ -131,12 +130,14 @@ func (s *Store) matchChunk(ctx context.Context, ids []int64) (MatchResult, error
 	)
 	for _, r := range svs {
 		var ms []matcher.Match
+		// Resolve only sets a source for ecosystems with a comparator.
+		c, _ := matcher.ComparatorFor(r.ecosystem)
 		if r.target.Source != "" {
-			if v, err := debversion.Parse(r.target.Version); err != nil {
+			if err := c.Validate(r.target.Version); err != nil {
 				res.BadVersions++
 			} else {
 				var st matcher.Stats
-				ms, st = matcher.Evaluate(v, advRows[sourceKey{r.distro, r.release, r.target.Source}])
+				ms, st = matcher.Evaluate(r.target.Version, c, advRows[sourceKey{r.distro, r.release, r.target.Source}])
 				res.BadVersions += st.BadVersions
 			}
 		}
@@ -160,7 +161,11 @@ func (s *Store) matchChunk(ctx context.Context, ids []int64) (MatchResult, error
 		upSrc = append(upSrc, strPtrOrNil(r.target.Source))
 		upVer = append(upVer, strPtrOrNil(r.target.Version))
 		upKernel = append(upKernel, strPtrOrNil(r.target.KernelRelease))
-		upMaxFix = append(upMaxFix, matcher.MaxStandardFix(ms))
+		if len(ms) > 0 {
+			upMaxFix = append(upMaxFix, matcher.MaxStandardFix(c, ms))
+		} else {
+			upMaxFix = append(upMaxFix, nil)
+		}
 	}
 
 	if len(changed) > 0 {

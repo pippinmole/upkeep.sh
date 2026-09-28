@@ -2,13 +2,15 @@
 // version (DOMAIN_MODEL.md §2.5, §2.6). It is pure: the store loads a
 // version's advisory_affected rows (same distro, release and source
 // package), calls Evaluate, and materializes the result in
-// software_vulnerabilities. Versions are compared with debversion (dpkg
-// semantics), never in SQL.
+// software_vulnerabilities. Versions are compared in Go with the
+// ecosystem's Comparator (ecosystems.go: debversion for deb, apkversion
+// for apk), never in SQL.
 //
 // # Keys
 //
 // Every match is keyed by a vuln_key: a CVE id wherever one is known.
-// Per-CVE records (DEBIAN-CVE-*, UBUNTU-CVE-*, CVE-*) key by their CVE.
+// Per-CVE records (DEBIAN-CVE-*, UBUNTU-CVE-*, ALPINE-CVE-*, CVE-*) key by
+// their CVE.
 // Notices (DSA, DLA, USN, LSN) are expanded to every CVE they cite, so a
 // USN fixing eight CVEs yields eight CVE-keyed matches instead of one
 // USN-keyed match that would duplicate the per-CVE ones. A notice citing
@@ -58,7 +60,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/osv"
 )
 
@@ -66,7 +67,13 @@ import (
 // store's match materialization changes output for the same inputs. The
 // worker's matcher_sweep then re-evaluates every software_versions row
 // whose matcher_version is lower, in batches.
-const Version = 1
+//
+//	1  P1b: deb only (debversion).
+//	2  Per-ecosystem comparators: apk versions (image packages, interned
+//	   since migration 0014 and evaluated as "not matched" under 1) are
+//	   now matched with apkversion. deb results are unchanged; their
+//	   re-evaluation only restamps matcher_version.
+const Version = 2
 
 // Channels, as in advisory_affected.channel.
 const (
@@ -128,8 +135,9 @@ const (
 
 // Evaluate returns the matches of installed source version v against rows
 // (all rows for v's distro, release and source package), sorted by
-// VulnKey.
-func Evaluate(v debversion.Version, rows []Row) ([]Match, Stats) {
+// VulnKey. c is the ecosystem's comparator; the caller has checked that
+// v is valid (c.Validate), so a comparison error means a bad row.
+func Evaluate(v string, c Comparator, rows []Row) ([]Match, Stats) {
 	var st Stats
 	type group struct {
 		perCVE, notice []int // indexes into rows
@@ -169,8 +177,8 @@ func Evaluate(v debversion.Version, rows []Row) ([]Match, Stats) {
 				std = append(std, i)
 			}
 		}
-		sv, bad1 := channelVerdict(v, rows, std)
-		pv, bad2 := channelVerdict(v, rows, pro)
+		sv, bad1 := channelVerdict(v, c, rows, std)
+		pv, bad2 := channelVerdict(v, c, rows, pro)
 		st.BadVersions += bad1 + bad2
 		m, ok := combine(sv, pv)
 		if !ok {
@@ -194,10 +202,9 @@ type verdict struct {
 	fix      *string // lowest fixed version among affected rows
 	fixFrom  string  // its advisory
 	severity *string
-	fixV     debversion.Version
 }
 
-func channelVerdict(v debversion.Version, rows []Row, idx []int) (verdict, int) {
+func channelVerdict(v string, c Comparator, rows []Row, idx []int) (verdict, int) {
 	var (
 		out      verdict
 		bad      int
@@ -207,7 +214,7 @@ func channelVerdict(v debversion.Version, rows []Row, idx []int) (verdict, int) 
 	)
 	for _, i := range idx {
 		r := rows[i]
-		s, fixV, ok := rowState(v, r)
+		s, ok := rowState(v, c, r)
 		if !ok {
 			bad++
 			continue
@@ -218,8 +225,9 @@ func channelVerdict(v debversion.Version, rows []Row, idx []int) (verdict, int) 
 			anyFixed = true
 		case affected:
 			out.affected = true
-			if r.Fixed != nil && (out.fix == nil || debversion.Compare(fixV, out.fixV) < 0) {
-				out.fix, out.fixV, out.fixFrom, fixSev = r.Fixed, fixV, r.AdvisoryID, r.Severity
+			// rowState compared r.Fixed successfully, so both parse.
+			if r.Fixed != nil && (out.fix == nil || less(c, *r.Fixed, *out.fix)) {
+				out.fix, out.fixFrom, fixSev = r.Fixed, r.AdvisoryID, r.Severity
 			}
 			if firstSev == nil {
 				firstSev = r.Severity
@@ -237,37 +245,43 @@ func channelVerdict(v debversion.Version, rows []Row, idx []int) (verdict, int) 
 	return out, bad
 }
 
-func rowState(v debversion.Version, r Row) (state, debversion.Version, bool) {
+func rowState(v string, c Comparator, r Row) (state, bool) {
 	if r.Introduced != "" && r.Introduced != "0" {
-		intro, err := debversion.Parse(r.Introduced)
+		d, err := c.Compare(v, r.Introduced)
 		if err != nil {
-			return 0, debversion.Version{}, false
+			return 0, false
 		}
-		if debversion.Compare(v, intro) < 0 {
-			return outOfRange, debversion.Version{}, true
+		if d < 0 {
+			return outOfRange, true
 		}
 	}
 	switch {
 	case r.Fixed != nil:
-		f, err := debversion.Parse(*r.Fixed)
+		d, err := c.Compare(v, *r.Fixed)
 		if err != nil {
-			return 0, debversion.Version{}, false
+			return 0, false
 		}
-		if debversion.Compare(v, f) < 0 {
-			return affected, f, true
+		if d < 0 {
+			return affected, true
 		}
-		return fixedApplied, debversion.Version{}, true
+		return fixedApplied, true
 	case r.LastAffected != nil:
-		l, err := debversion.Parse(*r.LastAffected)
+		d, err := c.Compare(v, *r.LastAffected)
 		if err != nil {
-			return 0, debversion.Version{}, false
+			return 0, false
 		}
-		if debversion.Compare(v, l) <= 0 {
-			return affected, debversion.Version{}, true
+		if d <= 0 {
+			return affected, true
 		}
-		return fixedApplied, debversion.Version{}, true
+		return fixedApplied, true
 	}
-	return affected, debversion.Version{}, true
+	return affected, true
+}
+
+// less reports a < b; false when either doesn't parse.
+func less(c Comparator, a, b string) bool {
+	d, err := c.Compare(a, b)
+	return err == nil && d < 0
 }
 
 // combine applies the channel rules from the package doc.
@@ -299,22 +313,16 @@ func combine(std, pro verdict) (Match, bool) {
 // MaxStandardFix is the highest standard-channel fixed version among ms
 // (software_versions.max_fixed_version: "upgrading to this from the normal
 // archive fixes everything fixable"), or nil. Pro-only fixes are left out:
-// they are not installable without Ubuntu Pro.
-func MaxStandardFix(ms []Match) *string {
-	var (
-		best  *string
-		bestV debversion.Version
-	)
+// they are not installable without Ubuntu Pro. c is the ecosystem's
+// comparator; fixed versions that don't parse are skipped.
+func MaxStandardFix(c Comparator, ms []Match) *string {
+	var best *string
 	for _, m := range ms {
-		if m.FixChannel != ChannelStandard || m.FixedVersion == nil {
+		if m.FixChannel != ChannelStandard || m.FixedVersion == nil || c.Validate(*m.FixedVersion) != nil {
 			continue
 		}
-		v, err := debversion.Parse(*m.FixedVersion)
-		if err != nil {
-			continue
-		}
-		if best == nil || debversion.Compare(v, bestV) > 0 {
-			best, bestV = m.FixedVersion, v
+		if best == nil || less(c, *best, *m.FixedVersion) {
+			best = m.FixedVersion
 		}
 	}
 	return best

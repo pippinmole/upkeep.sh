@@ -120,6 +120,17 @@ func TestResolve(t *testing.T) {
 			Version: "5.15.0-91.101", Source: "linux-image-5.15.0-91-generic", SourceVersion: "5.15.0-91.101", SourceInferred: true},
 			Target{}},
 		{"non-deb", Binary{Ecosystem: "homebrew", Name: "openssl", Version: "3.0", Source: "openssl", SourceVersion: "3.0"}, Target{}},
+		{"not yet assessed (npm)", Binary{Ecosystem: "npm", Name: "lodash", Version: "4.17.20", Source: "lodash", SourceVersion: "4.17.20"}, Target{}},
+		// apk: the origin is the advisory source; no kernel mapping.
+		{"apk subpackage by origin", Binary{Ecosystem: "apk", Distro: "alpine", Name: "libcrypto3", Version: "3.3.2-r0",
+			Source: "openssl", SourceVersion: "3.3.2-r0"},
+			Target{Source: "openssl", Version: "3.3.2-r0"}},
+		{"apk inferred origin", Binary{Ecosystem: "apk", Distro: "alpine", Name: "musl", Version: "1.2.5-r0",
+			Source: "musl", SourceVersion: "1.2.5-r0", SourceInferred: true},
+			Target{Source: "musl", Version: "1.2.5-r0"}},
+		{"apk kernel is an ordinary package", Binary{Ecosystem: "apk", Distro: "alpine", Name: "linux-lts", Version: "6.6.52-r0",
+			Source: "linux-lts", SourceVersion: "6.6.52-r0"},
+			Target{Source: "linux-lts", Version: "6.6.52-r0"}},
 	}
 	for _, tt := range tests {
 		if got := Resolve(tt.b); got != tt.want {

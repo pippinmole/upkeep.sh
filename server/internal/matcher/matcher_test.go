@@ -3,9 +3,9 @@ package matcher
 import (
 	"reflect"
 	"testing"
-
-	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
 )
+
+var deb, _ = ComparatorFor("deb")
 
 func sp(s string) *string { return &s }
 
@@ -34,7 +34,7 @@ func notice(id string, cves []string, channel string, fixed *string) Row {
 
 func eval(t *testing.T, v string, rows ...Row) []Match {
 	t.Helper()
-	ms, st := Evaluate(debversion.MustParse(v), rows)
+	ms, st := Evaluate(v, deb, rows)
 	if st.BadVersions != 0 {
 		t.Fatalf("unexpected bad versions: %d", st.BadVersions)
 	}
@@ -109,8 +109,8 @@ func TestMatchCarriesFix(t *testing.T) {
 	if !reflect.DeepEqual(ms, want) {
 		t.Errorf("got %+v, want %+v", ms, want)
 	}
-	if MaxStandardFix(ms) == nil || *MaxStandardFix(ms) != "1.0-2" {
-		t.Errorf("MaxStandardFix = %v", MaxStandardFix(ms))
+	if MaxStandardFix(deb, ms) == nil || *MaxStandardFix(deb, ms) != "1.0-2" {
+		t.Errorf("MaxStandardFix = %v", MaxStandardFix(deb, ms))
 	}
 }
 
@@ -159,7 +159,7 @@ func TestProChannel(t *testing.T) {
 			}
 		})
 	}
-	if MaxStandardFix(eval(t, "2.0-1", pro(sp("2.0-1ubuntu0.1~esm2")))) != nil {
+	if MaxStandardFix(deb, eval(t, "2.0-1", pro(sp("2.0-1ubuntu0.1~esm2")))) != nil {
 		t.Error("MaxStandardFix must ignore Pro-only fixes")
 	}
 }
@@ -252,7 +252,7 @@ func TestSkipsBadAndNonAffectedRows(t *testing.T) {
 		perCVE("CVE-2024-8", ChannelStandard, "0", sp("not a version!"), ""),
 		{AdvisoryID: "DEBIAN-CVE-2024-9", VulnKey: "CVE-2024-9", Channel: ChannelStandard, Status: "not_affected"},
 	}
-	ms, st := Evaluate(debversion.MustParse("1.0"), rows)
+	ms, st := Evaluate("1.0", deb, rows)
 	if len(ms) != 0 || st.BadVersions != 1 {
 		t.Errorf("got %+v, %+v", ms, st)
 	}
