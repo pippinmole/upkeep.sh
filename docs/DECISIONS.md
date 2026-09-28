@@ -301,6 +301,94 @@ container image packages + vulnerabilities".
 - **Agent-side Syft size** is measured in the agent task before choosing
   between full Syft and an OS-package-only catalogue.
 
+## Scheduled reports: a separate feature, about state rather than events
+
+Considered (2026-09-28): some users don't want an alert every time
+something changes. They want "every week, a report of my whole estate:
+what do I need to patch". Options: a new mode on alert rules (a longer
+digest), or a separate feature.
+
+**Decided: a separate feature, scheduled reports.** A digest batches
+**events** (opened / reopened / resolved within the interval), so it
+can't say "you still have 40 unpatched CVEs". A finding that was open
+last week and is still open produces no event, so a quiet week gives an
+empty digest. A report describes **state**: everything open at the
+moment it runs, ranked into actions, plus how that changed since the
+previous report. Alert rules filter events; report schedules run on a
+calendar over state. Folding reports into rules would give rules a mode
+where most of their fields (event types, dedup window) don't apply.
+
+- **Configured under Settings → Notification settings**, next to the
+  channels (user decision). "Who to" means channels: reports are sent
+  to existing notification channels (email, webhook, ntfy), so there's
+  no second list of recipients or SMTP settings (see "Email notifier"
+  above). "How often" means a schedule: weekly (weekday and hour) or
+  monthly (day and hour), in a timezone the user picks.
+- **Whole estate for now** (user decision): every non-archived host and
+  its images. Scoping (like `alert_rules.host_ids`) can come later.
+- **Organised by action, not by CVE.** One line per upgrade
+  (package → fixed version), with the hosts it affects and the CVEs it
+  closes. Sections: patch now (KEV), patch this week (critical/high with
+  a fix, or high EPSS), images to update (re-pull or rebuild), reboots
+  needed, no fix available yet (tracked, nothing to do), coverage gaps
+  (agents not reporting, hosts without Docker collection). Ranking uses
+  the existing `severity` rules (KEV first, then EPSS, CVSS only breaks
+  ties). Host packages and images stay separate, as on the Overview
+  page: they are fixed differently. The coverage section is always
+  present, because a report that says "all clear" when agents have
+  stopped reporting gives false reassurance.
+- **Every generated report is stored** as a JSON snapshot (a `reports`
+  row per run). Week-on-week changes ("13 more urgent CVEs than last
+  week, +12%") compare against the previous stored report of the same
+  schedule, so storing each run is what makes them possible. Storing
+  also means a retried delivery sends exactly the same content, and the
+  dashboard can list past reports.
+  - Absolute changes are always shown. Percentages only appear when the
+    previous value is large enough to be meaningful (at least 10):
+    0 → 3 is not "+∞%" and 1 → 2 is not "+100%".
+  - Each snapshot records the ranking version it used. When the
+    definitions change between two reports (what counts as "urgent"),
+    no change is shown for the affected numbers, rather than comparing
+    different things.
+  - Snapshots keep per-host counts, so a change can be attributed ("9 of
+    the 13 are on web-4, added this week"). Otherwise, adding a host
+    looks like the estate got worse.
+- **Generated and delivered by the Go worker**, like alerts: a River
+  job finds due schedules, builds the snapshot in one read transaction,
+  stores it and queues one delivery per channel through the existing
+  `notifications` / `notification_deliveries` / `alert_deliver` path
+  (retries, backoff and the delivery log unchanged). A new notification
+  kind, `report`, is rendered per channel: the whole report by email,
+  the snapshot JSON by webhook (WEBHOOKS.md), a summary line and a
+  dashboard link on ntfy (its 4 KB limit).
+
+## Report email HTML: React Email, rendered by Next.js
+
+Decided (2026-09-28, user decisions): report emails are HTML (with a
+plain-text part), built with [React Email](https://react.email/).
+
+- **Package: `react-email`, pinned to an exact version** (no `^`),
+  the latest when it's installed. As of 2026-09-28 that's `6.11.0`.
+  `@react-email/components` is deprecated on npm; the components now
+  ship in `react-email` itself. Check the registry again at install
+  time rather than trusting this version (see "Version policy").
+- **Rendered by an internal endpoint in Next.js, sent by the Go
+  worker.** React Email renders JSX in JavaScript, but delivery (SMTP,
+  retries, delivery log) lives in the worker. The worker posts the
+  stored snapshot to an internal route in `web/` that returns
+  `{subject, html, text}` and is authenticated with a shared secret. It
+  must not be reachable through the public site. The worker then sends
+  as today. The templates live in `web/`, next to the dashboard code
+  that already knows how to show findings. Cost: sending a report email
+  depends on `web` being up. A failed render is treated like a
+  retryable send failure (same backoff), never as a permanent one.
+  Rejected: a Bun render script inside the worker image (a second
+  runtime to ship) and generating reports in Next.js (splits
+  scheduling and delivery across two runtimes).
+- **Reports only.** Alert emails (single events and digests) stay
+  plain text rendered in Go (`internal/notify/render`). Revisit once
+  the render path has proven itself on reports.
+
 ## Next.js deploys as a Docker standalone image, not on Vercel
 
 The whole pitch is self-hosting on your own VPS via Dokploy/Coolify.

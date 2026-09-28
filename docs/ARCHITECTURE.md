@@ -422,6 +422,24 @@ Rules, evaluation, dedup, digests, retries, "Send test" and the delivery
 log need no change; `jobs/alerting_integration_test.go` runs the pipeline
 with a fake channel type registered next to the webhook to prove it.
 
+## Reports (planned)
+
+Not built yet (TASKS.md "Phase 1.7 — scheduled estate reports";
+DECISIONS.md "Scheduled reports" and "Report email HTML"). Planned
+shape:
+
+```
+report_due (1m)  schedules with next_run_at <= now -> build snapshot
+                 (one read tx) -> reports row -> report notification +
+                 one notification_deliveries row per channel -> alert_deliver
+alert_deliver    email: POST snapshot to web's internal render route
+                 (React Email -> {subject, html, text}), then SMTP;
+                 webhook: snapshot JSON; ntfy: summary + report link
+```
+
+This is the first place the worker depends on `web` at runtime. A
+failed render is retried like a failed send.
+
 ## Protocol
 
 See [PROTOCOL.md](PROTOCOL.md) for the full agent↔server wire format and
