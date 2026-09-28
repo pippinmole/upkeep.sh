@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "ranking_version": 1,
+  "generated_at": "2026-09-28T07:00:04Z",
+  "period": {
+    "start": "2026-09-21T07:00:03Z",
+    "end": "2026-09-28T07:00:04Z"
+  },
+  "trigger": "scheduled",
+  "schedule": {
+    "id": "6f1c2b1e-3d4a-4c5b-9e8f-0a1b2c3d4e5f",
+    "name": "Monday patch list",
+    "cadence": "weekly",
+    "timezone": "Europe/London"
+  },
+  "estate": {
+    "hosts": 4,
+    "containers": 7,
+    "images": 3
+  },
+  "headline": {
+    "patch_now": 1,
+    "patch_this_week": 2,
+    "when_convenient": 1,
+    "images_to_update": 1,
+    "reboots_required": 1,
+    "no_fix_findings": 14,
+    "total_open_findings": 42,
+    "opened_since_last": 15,
+    "resolved_since_last": 3,
+    "stale_agents": 1
+  },
+  "host_actions": [
+    {
+      "tier": "patch_now",
+      "package": "openssl",
+      "binary_packages": ["libssl3", "openssl"],
+      "fixed_version": "3.0.2-0ubuntu1.18",
+      "fix_channel": "standard",
+      "requires_pro": false,
+      "kev": true,
+      "worst_severity": "critical",
+      "max_epss": 0.94312,
+      "cves": ["CVE-2026-1001", "CVE-2026-1002", "CVE-2026-1003"],
+      "cve_count": 3,
+      "hosts": [
+        { "id": "0b8e7f52-1c3d-4e5f-8a9b-1c2d3e4f5a6b", "name": "db-1" },
+        { "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "name": "web-1" },
+        { "id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e", "name": "web-2" }
+      ],
+      "host_count": 3,
+      "oldest_open_at": "2026-09-03T14:22:10Z"
+    },
+    {
+      "tier": "patch_this_week",
+      "package": "curl",
+      "binary_packages": ["curl", "libcurl4"],
+      "fixed_version": "7.81.0-1ubuntu1.21",
+      "fix_channel": "standard",
+      "requires_pro": false,
+      "kev": false,
+      "worst_severity": "high",
+      "max_epss": 0.00871,
+      "cves": ["CVE-2026-2210"],
+      "cve_count": 1,
+      "hosts": [
+        { "id": "0b8e7f52-1c3d-4e5f-8a9b-1c2d3e4f5a6b", "name": "db-1" },
+        { "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "name": "web-1" }
+      ],
+      "host_count": 2,
+      "oldest_open_at": "2026-09-24T09:05:00Z"
+    },
+    {
+      "tier": "when_convenient",
+      "package": "vim",
+      "binary_packages": ["vim", "vim-common", "vim-runtime", "xxd"],
+      "fixed_version": "2:8.2.3995-1ubuntu2.22+esm1",
+      "fix_channel": "ubuntu-pro",
+      "requires_pro": true,
+      "kev": false,
+      "worst_severity": "medium",
+      "max_epss": null,
+      "cves": ["CVE-2025-9012", "CVE-2026-0433"],
+      "cve_count": 2,
+      "hosts": [{ "id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e", "name": "web-2" }],
+      "host_count": 1,
+      "oldest_open_at": "2026-07-11T18:40:31Z"
+    }
+  ],
+  "image_actions": [
+    {
+      "tier": "patch_this_week",
+      "image_id": "sha256:4f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a19",
+      "image_refs": ["nginx:1.27", "nginx:latest"],
+      "os": "linux",
+      "arch": "arm64",
+      "variant": "v8",
+      "kev": false,
+      "worst_severity": "high",
+      "max_epss": 0.1234,
+      "open_findings": 18,
+      "fixable_findings": 11,
+      "containers": ["proxy", "static-site"],
+      "hosts": [
+        { "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "name": "web-1" },
+        { "id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e", "name": "web-2" }
+      ],
+      "oldest_open_at": "2026-08-30T02:11:47Z"
+    }
+  ],
+  "reboots_required": [
+    {
+      "host_id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "host_name": "web-2",
+      "packages": ["linux-image-5.15.0-122-generic"],
+      "since": "2026-09-25T03:14:00Z"
+    }
+  ],
+  "no_fix": {
+    "findings": 14,
+    "kev_findings": 0,
+    "worst_severity": "high",
+    "host_package_findings": 9,
+    "image_findings": 5
+  },
+  "coverage": {
+    "stale_agents": [
+      {
+        "agent_id": "9c8b7a6f-5e4d-4c3b-2a1f-0e9d8c7b6a5f",
+        "name": "backup-agent",
+        "last_seen_at": "2026-09-19T22:47:12Z",
+        "hosts": [{ "id": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f", "name": "backup-1" }]
+      }
+    ],
+    "hosts_without_docker": [{ "id": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f", "name": "backup-1" }],
+    "images_not_scored": [
+      {
+        "image_id": "sha256:7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a194f2a9c1d8e7b6a5f4e3d2c1b0a9f8e",
+        "image_refs": ["ghcr.io/example/internal-api:2026.09.2"],
+        "os": "linux",
+        "arch": "amd64",
+        "variant": "",
+        "status": "unavailable"
+      }
+    ]
+  },
+  "hosts": [
+    {
+      "id": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+      "name": "backup-1",
+      "patch_now": 0,
+      "patch_this_week": 0,
+      "when_convenient": 0,
+      "images_to_update": 0,
+      "reboot_required": false,
+      "no_fix_findings": 1,
+      "total_open_findings": 1
+    },
+    {
+      "id": "0b8e7f52-1c3d-4e5f-8a9b-1c2d3e4f5a6b",
+      "name": "db-1",
+      "patch_now": 1,
+      "patch_this_week": 1,
+      "when_convenient": 0,
+      "images_to_update": 0,
+      "reboot_required": false,
+      "no_fix_findings": 2,
+      "total_open_findings": 9
+    },
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "web-1",
+      "patch_now": 1,
+      "patch_this_week": 2,
+      "when_convenient": 0,
+      "images_to_update": 1,
+      "reboot_required": false,
+      "no_fix_findings": 5,
+      "total_open_findings": 18
+    },
+    {
+      "id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "name": "web-2",
+      "patch_now": 1,
+      "patch_this_week": 1,
+      "when_convenient": 1,
+      "images_to_update": 1,
+      "reboot_required": true,
+      "no_fix_findings": 6,
+      "total_open_findings": 14
+    }
+  ],
+  "changes": {
+    "previous_report_id": "d4e5f6a7-b8c9-4d0e-8f1a-2b3c4d5e6f7a",
+    "previous_generated_at": "2026-09-21T07:00:03Z",
+    "comparable": true,
+    "metrics": {
+      "patch_now": { "previous": 0, "current": 1, "delta": 1, "percent": null },
+      "patch_this_week": { "previous": 2, "current": 2, "delta": 0, "percent": null },
+      "when_convenient": { "previous": 1, "current": 1, "delta": 0, "percent": null },
+      "images_to_update": { "previous": 1, "current": 1, "delta": 0, "percent": null },
+      "reboots_required": { "previous": 0, "current": 1, "delta": 1, "percent": null },
+      "no_fix_findings": { "previous": 12, "current": 14, "delta": 2, "percent": 16.7 },
+      "total_open_findings": { "previous": 30, "current": 42, "delta": 12, "percent": 40 },
+      "opened_since_last": { "previous": 4, "current": 15, "delta": 11, "percent": null },
+      "resolved_since_last": { "previous": 6, "current": 3, "delta": -3, "percent": null },
+      "stale_agents": { "previous": 1, "current": 1, "delta": 0, "percent": null }
+    },
+    "hosts_added": [
+      {
+        "id": "0b8e7f52-1c3d-4e5f-8a9b-1c2d3e4f5a6b",
+        "name": "db-1",
+        "contribution": {
+          "patch_now": 1,
+          "patch_this_week": 1,
+          "no_fix_findings": 2,
+          "total_open_findings": 9
+        }
+      }
+    ],
+    "hosts_archived": []
+  }
+}
