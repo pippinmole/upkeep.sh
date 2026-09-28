@@ -793,6 +793,5 @@ func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logA
 		return res, err
 	}
 	res.Reports = tag.RowsAffected()
-	res.Dedup = tag.RowsAffected()
 	return res, nil
 }
