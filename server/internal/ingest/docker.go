@@ -28,7 +28,6 @@ const (
 	maxDockerRefsPerImage     = 100
 	maxDockerLayersPerImage   = 512
 	maxDockerSubnetsPerNet    = 50
-	maxDockerLabelsPerItem    = 64
 	maxDockerInspectErrorSize = 256
 )
 
@@ -135,28 +134,8 @@ func rfc3339(s string) any {
 	return t.UTC()
 }
 
-// dockerLabels clips keys and values and keeps at most
-// maxDockerLabelsPerItem (the lexically first keys). The agent already
-// filtered them to its allowlist; the server doesn't second-guess which
-// keys, it only bounds size. Never nil (the column is NOT NULL).
-func dockerLabels(in map[string]string) map[string]string {
-	keys := make([]string, 0, len(in))
-	for k := range in {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	out := map[string]string{}
-	for _, k := range keys {
-		if len(out) == maxDockerLabelsPerItem {
-			break
-		}
-		if ck := hostfacts.Clip(k, 256); ck != "" {
-			out[ck] = hostfacts.Clip(in[k], 1024)
-		}
-	}
-	return out
-}
-
+// labelText reads one label for a derived column. labels must already be
+// filtered (dockerLabels), so the column can only hold an allowlisted key.
 func labelText(labels map[string]string, key string) any {
 	return nullText(labels[key], 256)
 }

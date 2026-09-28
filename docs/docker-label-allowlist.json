@@ -1,0 +1,35 @@
+{
+  "_comment": "Docker label allowlist shared by the agent (agent/internal/collector/types_docker.go: dockerLabelKeys, ociLabelPrefix, MaxDockerLabels) and the server (server/internal/ingest/labels.go). Both modules' tests check their copy against this file; change all three together. PROTOCOL.md \"Docker sections\", \"Never sent\".",
+  "exact_keys": [
+    "com.docker.compose.config-hash",
+    "com.docker.compose.container-number",
+    "com.docker.compose.depends_on",
+    "com.docker.compose.engine",
+    "com.docker.compose.hook",
+    "com.docker.compose.image",
+    "com.docker.compose.image-volume-digest",
+    "com.docker.compose.image.builder",
+    "com.docker.compose.oneoff",
+    "com.docker.compose.project",
+    "com.docker.compose.project.config_files",
+    "com.docker.compose.project.environment_file",
+    "com.docker.compose.project.working_dir",
+    "com.docker.compose.relay",
+    "com.docker.compose.replace",
+    "com.docker.compose.service",
+    "com.docker.compose.slug",
+    "com.docker.compose.version",
+    "com.docker.stack.image",
+    "com.docker.stack.namespace",
+    "com.docker.swarm.node.id",
+    "com.docker.swarm.service.id",
+    "com.docker.swarm.service.name",
+    "com.docker.swarm.task",
+    "com.docker.swarm.task.id",
+    "com.docker.swarm.task.name"
+  ],
+  "prefixes": [
+    "org.opencontainers.image."
+  ],
+  "max_labels": 64
+}
