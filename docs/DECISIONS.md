@@ -274,6 +274,33 @@ per bucket, with max CVSS and a KEV flag (the existing `severity.Key`
 ranking), not a new composite number. Tasks: TASKS.md "Phase 2a —
 container image packages + vulnerabilities".
 
+**Follow-up decisions (2026-09-28, before implementation):**
+
+- **Findings vs score.** An image used by at least one container on a
+  host, in any state (an exited container can be started again), gets
+  per-host `vulnerable_image` findings and therefore alerts. An image
+  present with no container gets a score only: no findings, no alerts.
+- **Trust in package lists.** Lists the server obtained itself (registry
+  attestation, server-side Syft, both by digest) are shared fleet-wide
+  per image key. Lists sent by an agent are stored per (user, image key)
+  and used only for that user's hosts, so one user's agent can't clean
+  or poison another user's results. A server-obtained list wins over an
+  agent one for the same image key. (`container_images` metadata is
+  still first-writer-wins across users; noted as a gap.)
+- **Alerting.** Image findings use the existing `finding.*` events.
+  Alert rules gain a finding-kind filter (`vulnerable_package`,
+  `vulnerable_image`), and existing rules default to both. Users tune
+  the first-scan burst with the existing min severity, KEV-only and
+  digest settings.
+- **Which registries the server contacts.** Any registry host named in
+  an image's repo digests, anonymously, through `netguard` (public
+  addresses only) with timeouts, size caps and per-registry backoff.
+  Internal or private registries fail into "private or local image,
+  needs the agent". A server setting disables all outbound image
+  fetching for air-gapped installs. It is on by default.
+- **Agent-side Syft size** is measured in the agent task before choosing
+  between full Syft and an OS-package-only catalogue.
+
 ## Next.js deploys as a Docker standalone image, not on Vercel
 
 The whole pitch is self-hosting on your own VPS via Dokploy/Coolify.
