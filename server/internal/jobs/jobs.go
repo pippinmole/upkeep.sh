@@ -6,7 +6,8 @@
 //   - "feeds":    OSV / KEV / EPSS syncs. Few, long, I/O and CPU heavy.
 //   - "matcher":  match_versions, advisory_rematch, matcher_sweep
 //     (software_vulnerabilities writers; see matching.go).
-//   - "findings": reconcile_host, findings_rerank.
+//   - "findings": reconcile_host, findings_rerank, reconcile_image,
+//     image_score, image_score_sweep (imagefindings.go).
 //   - "alerts":   alert_evaluate, alert_digest, alert_deliver, agent_health,
 //     alert_prune (see alerting.go).
 //   - "maintenance": credential_cleanup (maintenance.go).
@@ -200,6 +201,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	river.AddWorker(workers, &ReconcileHostWorker{Store: st})
 	river.AddWorker(workers, &FindingsRerankWorker{Store: st})
 	river.AddWorker(workers, &CredentialCleanupWorker{Store: st})
+	imageWorkers(workers, st)
 
 	acfg := cfg.Alerting
 	if acfg.Notifiers == nil {
@@ -226,6 +228,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 		river.NewPeriodicJob(river.PeriodicInterval(matcherEvery),
 			func() (river.JobArgs, *river.InsertOpts) { return AdvisoryRematchArgs{}, nil },
 			&river.PeriodicJobOpts{ID: "advisory_rematch", RunOnStart: true}),
+		imageScoreSweepJob(matcherEvery),
 	}
 	if cfg.DisableMatcherSchedule {
 		periodic = nil

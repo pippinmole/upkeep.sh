@@ -54,7 +54,10 @@ func insertFindingEvents(ctx context.Context, tx pgx.Tx, hostID string, keys, ty
 		           'packages', to_jsonb(f.packages), 'installed_version', f.installed_version,
 		           'fixed_version', f.fixed_version, 'fix_channel', f.fix_channel,
 		           'severity', f.severity, 'severity_rank', f.severity_rank, 'kev', f.is_kev,
-		           'epss', f.epss_score, 'status', f.status, 'first_seen_at', f.first_seen_at))
+		           'epss', f.epss_score, 'status', f.status, 'first_seen_at', f.first_seen_at)
+		           || CASE WHEN f.image_id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
+		                'image_id', f.image_id, 'image_refs', to_jsonb(f.image_refs),
+		                'containers', to_jsonb(f.container_names)) END)
 		FROM unnest($2::text[], $3::text[]) AS t(dedup_key, type)
 		JOIN findings f ON f.host_id = $1 AND f.dedup_key = t.dedup_key
 		JOIN hosts h ON h.id = f.host_id
@@ -173,7 +176,7 @@ type channelRef struct{ id, name, typ string }
 func loadRules(ctx context.Context, tx pgx.Tx, userIDs []string, ruleIDs []string) (map[string][]*ruleWithChannels, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT r.id::text, r.user_id::text, r.name, r.event_types, r.min_severity_rank, r.kev_only,
-		       r.host_ids::text[], r.dedup_window_seconds, r.digest, r.digest_interval_seconds,
+		       r.finding_kinds, r.host_ids::text[], r.dedup_window_seconds, r.digest, r.digest_interval_seconds,
 		       r.last_digest_at, r.created_at,
 		       array_agg(c.id::text ORDER BY c.name), array_agg(c.name ORDER BY c.name), array_agg(c.type ORDER BY c.name)
 		FROM alert_rules r
@@ -195,7 +198,7 @@ func loadRules(ctx context.Context, tx pgx.Tx, userIDs []string, ruleIDs []strin
 			cids, cnames, ctyp []string
 		)
 		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.EventTypes, &r.MinSeverityRank, &r.KEVOnly,
-			&r.HostIDs, &dedup, &r.Digest, &interval, &r.LastDigestAt, &r.CreatedAt, &cids, &cnames, &ctyp); err != nil {
+			&r.FindingKinds, &r.HostIDs, &dedup, &r.Digest, &interval, &r.LastDigestAt, &r.CreatedAt, &cids, &cnames, &ctyp); err != nil {
 			return nil, err
 		}
 		r.DedupWindow = time.Duration(dedup) * time.Second
@@ -230,6 +233,10 @@ func eventURL(base string, ev notify.Event) string {
 		return ""
 	}
 	switch {
+	case ev.Finding != nil && ev.Host != nil && ev.Finding.ImageID != "":
+		// Until the image detail page exists (Phase 2a "Dashboard"): the
+		// host's Images tab.
+		return base + "/dashboard/hosts/" + url.PathEscape(ev.Host.ID) + "/images"
 	case ev.Finding != nil && ev.Host != nil:
 		return base + "/dashboard/hosts/" + url.PathEscape(ev.Host.ID) + "/vulnerabilities?v=" + url.QueryEscape(ev.Finding.VulnKey)
 	case ev.Agent != nil:
@@ -269,7 +276,8 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 		return res, 0, err
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id, user_id::text, type, subject, host_ids::text[], severity_rank, is_kev, payload, occurred_at
+		SELECT id, user_id::text, type, subject, host_ids::text[], severity_rank, is_kev,
+		       coalesce(payload->'finding'->>'kind', ''), payload, occurred_at
 		FROM alert_events WHERE processed_at IS NULL ORDER BY id LIMIT $1
 	`, limit)
 	if err != nil {
@@ -280,7 +288,7 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 	for rows.Next() {
 		var e eventRow
 		if err := rows.Scan(&e.meta.ID, &e.meta.UserID, &e.meta.Type, &e.meta.Subject, &e.meta.HostIDs,
-			&e.meta.SeverityRank, &e.meta.KEV, &e.payload, &e.at); err != nil {
+			&e.meta.SeverityRank, &e.meta.KEV, &e.meta.FindingKind, &e.payload, &e.at); err != nil {
 			rows.Close()
 			return res, 0, err
 		}

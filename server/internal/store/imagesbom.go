@@ -72,7 +72,8 @@ type ImageSBOMInput struct {
 // ImageSBOMResult reports what WriteImageSBOM did.
 type ImageSBOMResult struct {
 	SBOMID   int64
-	Packages int // distinct interned versions in the list
+	Key      ImageKey // the list's image key (ImageSBOMInput.Key)
+	Packages int      // distinct interned versions in the list
 	// Added / Removed are software ids that entered or left this list
 	// (both empty on an idempotent rewrite).
 	Added, Removed []int64
@@ -126,7 +127,7 @@ func (s *Store) WriteImageSBOM(ctx context.Context, in ImageSBOMInput) (res Imag
 	if err != nil {
 		return res, err
 	}
-	res.Packages = len(paths)
+	res.Packages, res.Key = len(paths), in.Key
 
 	generated := in.GeneratedAt
 	if generated.IsZero() {

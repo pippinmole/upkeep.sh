@@ -13,6 +13,9 @@ package jobs
 //	  set changed ─────────────────────> reconcile_host{host} per host having them
 //	KEV / EPSS / OSV sync changed cves ─> findings_rerank{since}   [findings]
 //
+// Container images (vulnerable_image findings, image scores) hook into
+// the same triggers; see imagefindings.go.
+//
 // Every matcher write is serialized by a Postgres advisory lock (store
 // matcherLock), so the matcher queue's concurrency only affects waiting.
 // reconcile_host snoozes while the host has versions not yet evaluated,
@@ -87,7 +90,9 @@ func EnqueueAfterIngest(ctx context.Context, client *river.Client[pgx.Tx], tx pg
 	if ids := res.RematchSoftwareIDs(); len(ids) > 0 {
 		params = append(params, river.InsertManyParams{Args: MatchVersionsArgs{IDs: ids}})
 	}
-	if res.InventoryChanged() || res.KernelChanged {
+	// ImageUseChanged: a container or image range opened or closed, so the
+	// images in the host's vulnerable_image scope may have changed.
+	if res.InventoryChanged() || res.KernelChanged || res.ImageUseChanged() {
 		params = append(params, river.InsertManyParams{Args: ReconcileHostArgs{HostID: hostID}})
 	}
 	if len(params) == 0 {
@@ -97,16 +102,18 @@ func EnqueueAfterIngest(ctx context.Context, client *river.Client[pgx.Tx], tx pg
 	return err
 }
 
-// EnqueueAfterImageSBOM enqueues matching for the versions an image
-// package list interned (store.ImageSBOMInput.AfterWrite), inside its
-// transaction, exactly as ingest does for a host. Image findings
-// reconciliation is not queued here yet (Phase 2a "Matching").
+// EnqueueAfterImageSBOM enqueues the work a written image package list
+// implies (store.ImageSBOMInput.AfterWrite), inside its transaction,
+// exactly as ingest does for a host: matching for the versions it
+// interned, and reconcile_image for its key (score the list, then
+// reconcile the hosts having the image; imagefindings.go). Every writer of
+// a list (the image_sbom worker, later the agent path) sets it.
 func EnqueueAfterImageSBOM(ctx context.Context, client *river.Client[pgx.Tx], tx pgx.Tx, res store.ImageSBOMResult) error {
-	ids := res.RematchSoftwareIDs()
-	if len(ids) == 0 {
-		return nil
+	params := []river.InsertManyParams{{Args: ReconcileImageFor(res.Key)}}
+	if ids := res.RematchSoftwareIDs(); len(ids) > 0 {
+		params = append(params, river.InsertManyParams{Args: MatchVersionsArgs{IDs: ids}})
 	}
-	_, err := client.InsertTx(ctx, tx, MatchVersionsArgs{IDs: ids}, nil)
+	_, err := client.InsertManyTx(ctx, tx, params)
 	return err
 }
 
@@ -224,27 +231,28 @@ func (w *FindingsRerankWorker) Work(ctx context.Context, job *river.Job[Findings
 	if err != nil {
 		return err
 	}
-	log.Printf("findings_rerank since %s: %d open findings checked, %d re-ranked",
-		job.Args.Since.Format(time.RFC3339), res.Checked, res.Updated)
+	lists, err := rescoreForCVEs(ctx, w.Store, job.Args.Since)
+	if err != nil {
+		return err
+	}
+	log.Printf("findings_rerank since %s: %d open findings checked, %d re-ranked; %d image lists re-scored",
+		job.Args.Since.Format(time.RFC3339), res.Checked, res.Updated, lists)
 	return nil
 }
 
 // reconcileHostsOf queues a reconcile for every host currently carrying
-// one of the changed versions.
+// one of the changed versions, installed or in an image it has, and
+// re-scores the image lists holding them (imagefindings.go).
 func reconcileHostsOf(ctx context.Context, st *store.Store, changed []int64) (int, error) {
 	hosts, err := st.HostsWithSoftware(ctx, changed)
-	if err != nil || len(hosts) == 0 {
+	if err != nil {
 		return 0, err
 	}
-	client := river.ClientFromContext[pgx.Tx](ctx)
-	params := make([]river.InsertManyParams, len(hosts))
-	for i, h := range hosts {
-		params[i] = river.InsertManyParams{Args: ReconcileHostArgs{HostID: h}}
-	}
-	if _, err := client.InsertMany(ctx, params); err != nil {
+	if err := insertReconcileHosts(ctx, hosts); err != nil {
 		return 0, err
 	}
-	return len(hosts), nil
+	n, err := imageWorkOf(ctx, st, changed, hosts)
+	return len(hosts) + n, err
 }
 
 // enqueueRerank queues a findings re-rank for cves changed since start (a

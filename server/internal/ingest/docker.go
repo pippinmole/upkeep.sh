@@ -33,8 +33,8 @@ const (
 
 // Fact kinds (host_fact_state.kind) and the swarm_services set's kind.
 const (
-	KindDockerContainers = "containers:docker"
-	KindDockerImages     = "images:docker"
+	KindDockerContainers = store.FactKindDockerContainers
+	KindDockerImages     = store.FactKindDockerImages
 	KindSwarmServices    = "services:swarm"
 )
 

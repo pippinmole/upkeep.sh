@@ -6,10 +6,12 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { pool } from "@/lib/db";
 import {
+  ALL_FINDING_KINDS,
   channelType,
   DEDUP_WINDOWS,
   DIGEST_INTERVALS,
   EVENT_TYPES,
+  isFindingEvent,
   validateChannelValues,
 } from "@/lib/notifiers";
 import { enqueueAlertDelivery } from "@/lib/river";
@@ -245,6 +247,7 @@ export type RuleInput = {
   eventTypes: string[];
   minSeverityRank: number;
   kevOnly: boolean;
+  findingKinds: string[];
   hostScope: "all" | "selected";
   hostIds: string[];
   channelIds: string[];
@@ -270,6 +273,12 @@ async function validateRule(
   if (!Number.isInteger(minSeverityRank) || minSeverityRank < 0 || minSeverityRank > 6) {
     errors.minSeverityRank = "Invalid severity";
   }
+  // Rules without finding events keep every kind (the column is never empty).
+  let findingKinds = Array.isArray(input.findingKinds)
+    ? ALL_FINDING_KINDS.filter((k) => input.findingKinds.includes(k))
+    : ALL_FINDING_KINDS;
+  if (!eventTypes.some(isFindingEvent)) findingKinds = ALL_FINDING_KINDS;
+  else if (findingKinds.length === 0) errors.findingKinds = "Pick at least one kind of finding";
   const dedup = Number(input.dedupWindowSeconds);
   if (!DEDUP_WINDOWS.includes(dedup)) errors.dedupWindowSeconds = "Invalid dedup window";
   const interval = Number(input.digestIntervalSeconds);
@@ -309,6 +318,7 @@ async function validateRule(
       eventTypes,
       minSeverityRank,
       kevOnly: input.kevOnly === true,
+      findingKinds,
       hostIds,
       channelIds,
       dedupWindowSeconds: dedup,
@@ -332,19 +342,20 @@ async function writeRule(userId: string, id: string | null, r: CleanRule): Promi
       r.dedupWindowSeconds,
       r.digest,
       r.digestIntervalSeconds,
+      r.findingKinds,
     ];
     const res = id
       ? await client.query<{ id: string }>(
           `UPDATE alert_rules SET name = $2, event_types = $3, min_severity_rank = $4, kev_only = $5,
                   host_ids = $6, dedup_window_seconds = $7, digest = $8, digest_interval_seconds = $9,
-                  updated_at = now()
-           WHERE id = $10 AND user_id = $1 RETURNING id`,
+                  finding_kinds = $10, updated_at = now()
+           WHERE id = $11 AND user_id = $1 RETURNING id`,
           [...params, id],
         )
       : await client.query<{ id: string }>(
           `INSERT INTO alert_rules (user_id, name, event_types, min_severity_rank, kev_only, host_ids,
-                                    dedup_window_seconds, digest, digest_interval_seconds)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+                                    dedup_window_seconds, digest, digest_interval_seconds, finding_kinds)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
           params,
         );
     const ruleId = res.rows[0]?.id;

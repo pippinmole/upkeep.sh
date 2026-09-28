@@ -194,7 +194,7 @@ agent_health (1m)     ──> alert_events on online <-> stale changes
 alerts queue:
   alert_evaluate  (per trigger + every 1m) advisory-locked; for each pending
                   event x enabled rule of its user: alerting.Match (types,
-                  min severity, KEV-only, host scope) -> dedup on
+                  min severity, KEV-only, finding kinds, host scope) -> dedup on
                   (rule, type|subject) within the rule's window ->
                     immediate: one notification per rule per pass
                     digest:    alert_digest_items
@@ -207,6 +207,15 @@ alerts queue:
   alert_prune     (1h) events 30d, delivery log 90d
 ```
 
+- **Finding kinds** (migration 0015): `alert_rules.finding_kinds` selects
+  which findings a rule's `finding.*` events cover, `vulnerable_package`
+  (host packages) and/or `vulnerable_image` (packages of an image a
+  container on the host uses). Never empty; existing and new rules default
+  to both. An explicit list rather than NULL = all, so a kind added later
+  is opt-in for existing rules (its migration decides). Agent events
+  ignore it. Evaluation reads the kind from the event payload
+  (`finding.kind`); events without one aren't filtered. Image findings
+  use the same `finding.*` events, lifecycle and severity/KEV filters.
 - **Never slows ingest**: ingest doesn't touch alerting; the reconcile
   transaction only adds an `INSERT … SELECT` into the outbox, and delivery
   is always a separate job.

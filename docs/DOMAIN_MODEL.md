@@ -656,6 +656,61 @@ version, `fix_channel`/`requires_pro`, `advisory_ids`, distro severity,
 and CVSS changes don't re-match: `findings_rerank` recomputes severity
 for open findings whose `cves` row changed since the sync started.
 
+**Image findings and scores (P2a, migration 0015).** Container image
+package lists (§4.5) are in `software_versions`, and nothing in the
+matcher was host-only: `match_versions`, `advisory_rematch` and
+`matcher_sweep` evaluate image versions by (distro, release, source)
+exactly like host ones. What was host-only was the fan-out after a
+version's matches change (`HostsWithSoftware`); it now also re-scores
+every ok list holding the version (`image_software` reverse index) and
+queues `reconcile_host` for hosts having such an image
+(`HostsWithImageSoftware`).
+
+- *Findings, kind `vulnerable_image`*: one per (host, image, source
+  package, vuln_key), `dedup_key = 'img:<image_id>:<source>:<vuln_key>'`.
+  Scope: an image present on the host (open `host_images` range,
+  inspected, so its platform key is known) that at least one current
+  container on the host uses (open `host_containers` range, any state,
+  same `image_id`). An image with no container gets a score only. The
+  package list is `image_sbom_effective(host owner)`: the server's list,
+  else the owner's agent list, never another user's. Grouping, snapshot
+  columns, severity and lifecycle are the package ones
+  (`findings.BuildImage` shares `findings.Build`'s grouping; one
+  `findings.Reconcile` over both kinds in the same `reconcile_host`
+  transaction), plus `image_id`/`image_os`/`image_arch`/`image_variant`,
+  `image_refs` (repo tags on the host, digests when untagged) and
+  `container_names`. Kernel binaries inside an image never raise
+  (containers run the host's kernel). The lowest installed version per
+  group is chosen with the ecosystem's comparator
+  (`matcher.ComparatorFor`). `reconcile_host` snoozes while an in-scope
+  list has unevaluated versions, as for host packages.
+- *Triggers*: a list written (`WriteImageSBOM` with
+  `jobs.EnqueueAfterImageSBOM` queues `reconcile_image{key}` in its
+  transaction: score the key's lists, snoozing until matched, then
+  `reconcile_host` for every host having the key); a version's matches
+  changed (above); ingest opened/closed a container or image range
+  (`SnapshotResult.ImageUseChanged`); KEV/EPSS/CVSS changes
+  (`findings_rerank` re-ranks both kinds and re-scores lists matched to
+  the changed CVEs).
+- *Scores*: `image_sbom_scores` per list (so identical for every user
+  seeing it): worst bucket, counts per bucket, top `severity_key`, KEV
+  count, fixable count, max CVSS, package count and `not_assessed_count`
+  (packages outside `matcher.Assessed(ecosystem, distro, release)`, the
+  single Go list of assessed ecosystems). Computed in Go
+  (`findings.ScoreOf`, the finding grouping) because buckets come from
+  `severity.Assess`; never written while versions are unevaluated.
+  `image_score_sweep` (worker start + matcher cadence) scores lists whose
+  score is missing, older than the list, or from an older
+  `matcher.Version` (coverage changes bump it).
+- *Read model*: `image_scores(user)` per `container_images` key: list
+  status (`ok` / `unavailable` / `error` with reason / `none` = never
+  attempted), source, and the effective list's score, with `scored`
+  false until a current score exists. Clean = ok, scored, 0 vulns, 0 not
+  assessed; no list is never clean. Inlined by the planner; callers
+  restrict to the user's hosts' images (fleet) or one host's
+  (`store.FleetImageScores`, `HostImageScores`, `ImageScoreOf`, and the
+  SQL examples in the migration).
+
 ---
 
 ## 3. Packages in the dashboard
@@ -1305,6 +1360,11 @@ a plain set, replaced as a whole when re-generated, not ranges.
   with `source_inferred`, as host ingest does. Names use OSV's form:
   npm `@scope/name`, PyPI PEP 503 normalised, Go module path, Maven
   `group:artifact`; versions are verbatim (Go keeps its `v`).
+- **Findings and scores (migration 0015, §2.6 "Image findings and
+  scores").** A host gets `vulnerable_image` findings for an image only
+  while a current container on it uses the image; every image gets a
+  score (`image_sbom_scores`, `image_scores(user)`). A container or
+  image range opening or closing at ingest queues `reconcile_host`.
 
 ### 4.6 Target schema sketch (identity and topology)
 

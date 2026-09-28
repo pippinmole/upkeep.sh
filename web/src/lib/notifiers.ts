@@ -50,6 +50,14 @@ export function eventTypeLabel(t: string): string {
 
 export const isFindingEvent = (t: string) => t.startsWith("finding.");
 
+// Finding kinds a rule's finding events can be narrowed to
+// (alert_rules.finding_kinds; its CHECK lists the same kinds).
+export const FINDING_KINDS = [
+  { kind: "vulnerable_package", label: "Host packages" },
+  { kind: "vulnerable_image", label: "Container images" },
+];
+export const ALL_FINDING_KINDS = FINDING_KINDS.map((k) => k.kind);
+
 // Rule option choices (seconds). Bounds match the alert_rules CHECKs.
 export const DEDUP_WINDOWS = [0, 900, 3600, 6 * 3600, 86400, 7 * 86400];
 export const DIGEST_INTERVALS = [900, 3600, 6 * 3600, 86400, 7 * 86400];

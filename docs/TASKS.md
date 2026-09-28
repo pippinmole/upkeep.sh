@@ -527,14 +527,24 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       registry auth, optional platform-wide Docker Hub token for the
       rate limit. Cache per image key fleet-wide; never refetch an `ok`
       one. Timeouts, size caps and `netguard` for outbound fetches.
-- [ ] Matching: intern image packages into `software_versions` so the
-      existing matcher, `software_vulnerabilities` and re-match
-      triggers cover them; findings per host for images it runs
-      (kind `vulnerable_image`, dedup key
-      `img:<image_id>:<source>:<vuln_key>`), reconciled when an image is
-      matched and when a host's image/container set changes. Ranking and
-      KEV/EPSS/CVSS unchanged. Decide whether an image present but not
-      used by any container gets findings or only a score.
+- [x] Matching (done 2026-09-28, migration 0015, DOMAIN_MODEL.md §2.6
+      "Image findings and scores"; `findings/image.go`,
+      `store/imagefindings.go`, `store/imagescore*.go`,
+      `jobs/imagefindings.go`): image packages are interned into
+      `software_versions`, so the matcher, `software_vulnerabilities`
+      and re-match triggers cover them unchanged (nothing in the matcher
+      was host-only; the host-only part was the fan-out after a version's
+      matches change, now also through `image_software`). Findings per
+      host, kind `vulnerable_image`, dedup key
+      `img:<image_id>:<source>:<vuln_key>`, only for images a current
+      container on the host uses (any state), from the list effective for
+      the host's owner; same snapshot, ranking and lifecycle as
+      `vulnerable_package`, reconciled in the same `reconcile_host`.
+      Triggers: a list written (`EnqueueAfterImageSBOM` ->
+      `reconcile_image`), a version's matches changed, a container/image
+      range opened or closed at ingest, KEV/EPSS rerank. Every image, used
+      or not, gets a score (`image_sbom_scores`, read through
+      `image_scores(user)`). Alert rules gained `finding_kinds`.
 - [ ] Dashboard: image detail page with **Packages** (all of them,
       vulnerable or not, filter by ecosystem, TanStack server-driven
       table) and **Vulnerabilities** tabs; score column on the fleet
@@ -574,6 +584,14 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       and explain every difference.
 
 ### Cross-cutting gaps worth closing before real users
+- [ ] `container_images` metadata (created, layers, labels) is
+      first-writer-wins across users: the first agent to report an image
+      key writes it and nobody can change it afterwards. Package lists
+      are already trust-scoped (server lists fleet-wide, agent lists per
+      user, DECISIONS.md "Container image vulnerabilities"), but this row
+      is not: one user's agent could plant wrong labels for an image id
+      another user also has. Scope it per user or only accept it from
+      server-side inspection before the dashboard shows it as fact.
 - [ ] Tests: dpkg status parsing, OS detection and the inventory range
       diff / set hash / old-agent rules now have tests (server store tests
       need `SW_TEST_DATABASE_URL`, otherwise skipped). Still missing: dpkg

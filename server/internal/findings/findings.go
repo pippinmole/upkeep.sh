@@ -1,10 +1,16 @@
-// Package findings turns a host's current matches into vulnerable_package
-// findings and runs their open/resolved lifecycle (DOMAIN_MODEL.md §2.6).
-// It is pure; the store loads the inputs and writes the Plan.
+// Package findings turns a host's current matches into findings and runs
+// their open/resolved lifecycle (DOMAIN_MODEL.md §2.6). It is pure; the
+// store loads the inputs and writes the Plan.
 //
-// One finding per (host, source package, vuln_key), with
-// dedup_key = "pkg:<source>:<vuln_key>", so one openssl CVE is one finding
-// however many binaries (libssl3, openssl, libssl-dev) carry it.
+// Two kinds share the grouping and the lifecycle:
+//
+//   - vulnerable_package: the host's own packages. One finding per (host,
+//     source package, vuln_key), dedup_key = "pkg:<source>:<vuln_key>", so
+//     one openssl CVE is one finding however many binaries (libssl3,
+//     openssl, libssl-dev) carry it.
+//   - vulnerable_image: packages of a container image the host runs
+//     (image.go). One per (host, image, source package, vuln_key),
+//     dedup_key = "img:<image_id>:<source>:<vuln_key>".
 //
 // Lifecycle, per dedup_key:
 //
@@ -22,16 +28,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/matcher"
 	"github.com/pippinmole/upkeep.sh/server/internal/severity"
 )
 
 const (
 	KindVulnerablePackage = "vulnerable_package"
+	KindVulnerableImage   = "vulnerable_image"
 	StatusOpen            = "open"
 	StatusResolved        = "resolved"
 )
+
+// VulnKinds are the finding kinds reconciled from matches (and re-ranked
+// on KEV/EPSS changes).
+var VulnKinds = []string{KindVulnerablePackage, KindVulnerableImage}
 
 // DedupKey is findings.dedup_key for a package vulnerability.
 func DedupKey(source, vulnKey string) string { return "pkg:" + source + ":" + vulnKey }
@@ -41,6 +51,7 @@ func DedupKey(source, vulnKey string) string { return "pkg:" + source + ":" + vu
 // software_vulnerabilities.
 type HostMatch struct {
 	SoftwareID    int64
+	Ecosystem     string // software_versions.ecosystem; "" = deb (host packages)
 	Package       string // binary name
 	Source        string // software_versions.match_source
 	Version       string // software_versions.match_version (compared source version)
@@ -58,6 +69,7 @@ type CVE struct {
 
 // Desired is one finding that should be open.
 type Desired struct {
+	Kind                      string // KindVulnerablePackage | KindVulnerableImage
 	DedupKey, VulnKey, Source string
 	InstalledVersion          string // lowest installed source version carrying it
 	FixedVersion              *string
@@ -71,6 +83,7 @@ type Desired struct {
 	RunningKernelUnknown      bool
 	CVE                       CVE
 	Severity                  severity.Result
+	Image                     *Image // KindVulnerableImage only
 }
 
 // RequiresPro: the only available fix is in Ubuntu Pro.
@@ -90,26 +103,36 @@ func Assess(distroSeverity *string, fixChannel string, c CVE) severity.Result {
 	})
 }
 
-// Build groups a host's current matches into desired findings, applying
-// the running-kernel policy (matcher.RaisesFinding). runningKernel is ""
-// when unknown. cves maps vuln_key to its enrichment (missing = none).
-// The result is sorted by DedupKey.
+// Build groups a host's current matches into desired vulnerable_package
+// findings, applying the running-kernel policy (matcher.RaisesFinding).
+// runningKernel is "" when unknown. cves maps vuln_key to its enrichment
+// (missing = none). The result is sorted by DedupKey.
 func Build(rows []HostMatch, runningKernel string, cves map[string]CVE) []Desired {
+	return group(rows, cves, func(r HostMatch) (string, bool, bool) {
+		raise, unknown := matcher.RaisesFinding(r.KernelRelease, runningKernel)
+		return DedupKey(r.Source, r.Match.VulnKey), raise, unknown
+	}, func(d *Desired) { d.Kind = KindVulnerablePackage })
+}
+
+// group accumulates match rows into one Desired per key, sorted by key.
+// keyOf returns a row's dedup key, whether it raises a finding at all, and
+// whether it is raised only because the running kernel is unknown; init
+// fills the kind-specific fields of each new Desired.
+func group(rows []HostMatch, cves map[string]CVE, keyOf func(HostMatch) (string, bool, bool), init func(*Desired)) []Desired {
 	type acc struct {
-		d    Desired
-		minV debversion.Version
-		ok   bool // minV set
+		d  Desired
+		ok bool // d.InstalledVersion is a valid version of its ecosystem
 	}
 	by := map[string]*acc{}
 	for _, r := range rows {
-		raise, unknown := matcher.RaisesFinding(r.KernelRelease, runningKernel)
+		key, raise, unknown := keyOf(r)
 		if !raise || r.Source == "" {
 			continue
 		}
-		key := DedupKey(r.Source, r.Match.VulnKey)
 		a := by[key]
 		if a == nil {
 			a = &acc{d: Desired{DedupKey: key, VulnKey: r.Match.VulnKey, Source: r.Source}}
+			init(&a.d)
 			by[key] = a
 		}
 		a.d.SoftwareIDs = append(a.d.SoftwareIDs, r.SoftwareID)
@@ -118,13 +141,12 @@ func Build(rows []HostMatch, runningKernel string, cves map[string]CVE) []Desire
 		a.d.RunningKernelUnknown = a.d.RunningKernelUnknown || unknown
 		// The binary with the lowest installed version decides what the
 		// finding shows (installed, fixed-in, fix channel): it is the one
-		// still needing the upgrade.
-		v, err := debversion.Parse(r.Version)
-		lower := err == nil && (!a.ok || debversion.Compare(v, a.minV) < 0)
+		// still needing the upgrade. Versions are ordered by the row's
+		// ecosystem comparator (matcher.ComparatorFor); one that isn't
+		// valid never replaces a valid one.
+		valid, lower := compareInstalled(r, a.d.InstalledVersion, a.ok)
 		if lower || a.d.InstalledVersion == "" {
-			if err == nil {
-				a.minV, a.ok = v, true
-			}
+			a.ok = a.ok || valid
 			a.d.InstalledVersion = r.Version
 			a.d.FixedVersion = r.Match.FixedVersion
 			a.d.FixChannel = r.Match.FixChannel
@@ -150,7 +172,26 @@ func Build(rows []HostMatch, runningKernel string, cves map[string]CVE) []Desire
 	return out
 }
 
-// Existing is the lifecycle state of a stored vulnerable_package finding.
+// compareInstalled reports whether r.Version is a valid version of r's
+// ecosystem and whether it is lower than cur (always lower when cur is
+// not a valid version, curOK false).
+func compareInstalled(r HostMatch, cur string, curOK bool) (valid, lower bool) {
+	eco := r.Ecosystem
+	if eco == "" {
+		eco = "deb"
+	}
+	c, ok := matcher.ComparatorFor(eco)
+	if !ok || c.Validate(r.Version) != nil {
+		return false, false
+	}
+	if !curOK {
+		return true, true
+	}
+	n, err := c.Compare(r.Version, cur)
+	return true, err == nil && n < 0
+}
+
+// Existing is the lifecycle state of a stored finding (either kind).
 type Existing struct {
 	ID          string
 	DedupKey    string
