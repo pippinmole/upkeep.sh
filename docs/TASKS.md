@@ -594,6 +594,22 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       pages still list only `vulnerable_package`; the web mirrors
       `severity.Assess` in SQL (`web/src/lib/severity-sql.ts`) and
       `matcher.Assessed` (`web/src/lib/assessed.ts`).)
+- [x] Overview page (`/dashboard`) folds in container images, kept apart
+      from host packages (never one summed total: an image is fixed by
+      rebuilding or re-pulling, a host package by upgrading the host).
+      Host cards and bars are labelled "Host packages"; a **Container
+      images** section shows vulnerable / scored images, open image
+      findings (images, hosts), KEV, severity bars, the 5 most vulnerable
+      images in use (score cell, hosts and containers, links to the image
+      page) and a "not scored" line (needs the agent / no SBOM / fetch
+      failing / waiting). "Most urgent vulnerabilities" ranks both kinds
+      and badges each row "Host package" and/or "Image"; an image-only CVE
+      in one image links to that image's Vulnerabilities tab filtered to
+      it. No Docker data: one line pointing at Images.
+      (Done 2026-09-28, DOMAIN_MODEL.md §3.6 "Overview";
+      `web/src/lib/queries-overview-images.ts`,
+      `web/src/components/overview/`.) Follow-up: the "View all" link and
+      the CVE page are still host-package only (item below).
 - [ ] One copy of the ranking rules: have `ScoreImageSBOM` persist the
       per-(source, vuln_key) rows it already assesses, and switch the
       image Vulnerabilities tab to read them instead of the SQL mirror

@@ -1044,6 +1044,29 @@ package changes across fleet".
   distinct vulns, KEV findings and hosts, reboot pending (newest
   snapshot), findings by severity, fix available / Pro-only / no fix,
   top 5 vulnerabilities. No "recent package changes" feed yet.
+- Overview with container images (P2a): host numbers and image numbers
+  are shown side by side, never summed (an image is fixed by rebuilding
+  or re-pulling it, a host package by upgrading the host). The host
+  cards and bars count `vulnerable_package` only and say "Host
+  packages". The **Container images** section
+  (`web/src/lib/queries-overview-images.ts`,
+  `web/src/components/overview/image-section.tsx`) starts from the
+  user's current `host_images` on non-archived hosts (inspected keys)
+  joined to `image_scores(user)`: images with vulnerabilities of images
+  scored; open `vulnerable_image` findings with image, host and KEV
+  counts and severity bars; the 5 most vulnerable images a current
+  container uses (the list's `top_severity_key`, then vuln count) with
+  `ImageScoreCell`, hosts and containers; and one line of images not
+  scored (`imageScoreState`: local/private = needs the agent, other
+  `unavailable` = no SBOM, `error` = fetch failing, none / scoring =
+  waiting). No current image or container at all: a single line linking
+  to Images instead of the section. "Most urgent vulnerabilities" groups
+  open findings of both kinds by `vuln_key` (same `severity_key`
+  ranking) and badges where each is: "Host package" (packages, hosts)
+  and/or "Image" (the image or image count, packages, hosts). The CVE
+  link goes to the CVE page when a host package is affected, else to
+  the single image's Vulnerabilities tab filtered to the CVE (the CVE
+  page lists host findings only).
 - Severity colours live in one component
   (`web/src/components/vuln/badges.tsx`).
 
