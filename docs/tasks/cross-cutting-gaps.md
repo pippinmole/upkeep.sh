@@ -12,7 +12,10 @@
       need `SW_TEST_DATABASE_URL`, otherwise skipped). Still missing: dpkg
       version comparison (once written), `/proc/net/tcp` parsing, and the
       ingest handler's auth path.
-- [ ] No CI pipeline (build/test/lint on push) configured.
+- [x] CI pipeline: `.github/workflows/ci.yml` builds, vets, lints and
+      tests agent, server (store/jobs/ingest integration tests against a
+      migrated Postgres service) and web on every push and PR, and builds
+      all three Docker images (no push).
 - [x] Agent credential rotation: `POST /v1/agent/rotate`, agent-initiated
       on a push-response signal (dashboard request, 90-day age, or use of
       the pre-rotation secret), 1h grace for the old secret, atomic
