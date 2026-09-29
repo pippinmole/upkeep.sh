@@ -1,6 +1,6 @@
 package store
 
-// image_sbom_vulns (migration 0018): the per-(source, vuln_key) rows
+// image_sbom_vulns (migration 0019): the per-(source, vuln_key) rows
 // ScoreImageSBOM persists with its score. Skipped unless
 // SW_TEST_DATABASE_URL is set; built on the image fixture.
 
@@ -128,7 +128,7 @@ func TestImageSBOMVulnsPersisted(t *testing.T) {
 	}
 
 	// Backfill: a score counting vulnerabilities without rows (scored
-	// before migration 0018) is stale until re-scored.
+	// before migration 0019) is stale until re-scored.
 	if _, err := f.s.Pool.Exec(ctx, `DELETE FROM image_sbom_vulns WHERE sbom_id = $1`, res.SBOMID); err != nil {
 		t.Fatal(err)
 	}

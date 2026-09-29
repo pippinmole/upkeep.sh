@@ -5,7 +5,7 @@ import { isSeverity, type Severity } from "./severity";
 
 // The image detail page's Vulnerabilities tab: the rows of the image's
 // effective package list (image_sbom_effective(user)) in image_sbom_vulns
-// (migration 0018), one per (source package, vuln_key) exactly as
+// (migration 0019), one per (source package, vuln_key) exactly as
 // store.ScoreImageSBOM grouped and assessed them (findings.BuildImage,
 // severity.Assess): the web only displays, filters and sorts what Go
 // wrote, so the rows add up to the image's score and a row's severity

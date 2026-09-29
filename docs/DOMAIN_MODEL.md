@@ -415,7 +415,7 @@ its records:
   fetching or counting them (`OSVStats.malicious`); they would otherwise
   force a full import almost every hour. Of npm's 229,533 records,
   222,028 are `MAL-`; of PyPI's 25,757, 11,787.
-- **Several ranges from one version** (migration 0022): a record may
+- **Several ranges from one version** (migration 0021): a record may
   list a package more than once with the same `introduced` (Go:
   `github.com/CosmWasm/wasmvm/v2` three times from `0`, fixed 2.0.6,
   2.1.5, 2.2.2). Keeping only the first, as for a distro's duplicate
@@ -521,7 +521,7 @@ this way here for readability.)
 **As built (migration 0005)**, differences from the sketch above:
 
 - `advisory_affected` gained `channel` (`standard` | `ubuntu-pro`, part
-  of the primary key; Q9), `seq` (migration 0022, also in the key:
+  of the primary key; Q9), `seq` (migration 0021, also in the key:
   several ranges of one language package from the same `introduced`,
   §2.3), `last_affected` (OSV's rare inclusive upper
   bound, used instead of `fixed`) and `ecosystem` (as published);
@@ -720,7 +720,7 @@ ecosystem is one comparator plus its feed. Language ecosystems:
   buster) or one not in `distro_releases` matches nothing and its
   packages are "not assessed", never "no vulnerabilities"
   (`matcher.ReleaseStatus`: supported / out_of_support / unknown).
-  Migration 0019 lists common end-of-life Debian, Ubuntu and Alpine
+  Migration 0020 lists common end-of-life Debian, Ubuntu and Alpine
   releases (`supported = false`, with their EOL date) so the dashboard
   can say "out of support since ..." rather than "not recognised".
 - The store joins `advisory_affected` on (distro, release,
@@ -917,8 +917,8 @@ queues `reconcile_host` for hosts having such an image
   score is missing, older than the list, or from an older
   `matcher.Version` (coverage changes bump it), or that count
   vulnerabilities but have no `image_sbom_vulns` rows (lists scored
-  before migration 0018: the backfill).
-- *Rows* (`image_sbom_vulns`, migration 0018): the groups a score
+  before migration 0019: the backfill).
+- *Rows* (`image_sbom_vulns`, migration 0019): the groups a score
   counts, one per (list, source package, vuln_key), written by
   `ScoreImageSBOM` in the same transaction as the score and replaced as
   a whole: representative row (lowest installed version by the

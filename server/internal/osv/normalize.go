@@ -177,7 +177,7 @@ type AffectedRow struct {
 	Status         string  `json:"st"`
 	Ecosystem      string  `json:"e"`
 	// Seq numbers the ranges of one package that start at the same
-	// version (language records only; migration 0022). 0 otherwise.
+	// version (language records only; migration 0021). 0 otherwise.
 	Seq int `json:"q,omitempty"`
 }
 

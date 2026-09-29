@@ -116,7 +116,7 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       image Vulnerabilities tab to read them instead of the SQL mirror
       of `severity.Assess` (checked equal on real data 2026-09-28: 502
       findings and both image totals). Do before the Phase 2a stack
-      merges. (Done 2026-09-29: `image_sbom_vulns`, migration 0018,
+      merges. (Done 2026-09-29: `image_sbom_vulns`, migration 0019,
       written with the score in `store.ScoreImageSBOM`
       (`imagescore_vulns.go`); the image Vulnerabilities tab and the
       Packages tab's worst severity read it, `web/src/lib/severity-sql.ts`
@@ -198,11 +198,11 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       unfixed ones, so an Alpine package is never "affected, no fix".)
 - [x] End-of-life base images (e.g. `debian:buster`): show "release out
       of support, not assessed" rather than hiding them or claiming
-      clean. (Done 2026-09-29, migration 0019, `matcher.Version` 3;
+      clean. (Done 2026-09-29, migration 0020, `matcher.Version` 3;
       DOMAIN_MODEL.md §2.5 "As built", §2.6, §3.8. `matcher.Assessed`
       takes the release's `distro_releases.supported`: a release out of
       support or not listed counts every distro package as not
-      assessed, so the image is never clean. 0019 lists Debian 8-10,
+      assessed, so the image is never clean. 0020 lists Debian 8-10,
       Ubuntu 14.04/16.04/18.04 and the EOL interim releases, Alpine
       3.14-3.18, unsupported with EOL dates. Dashboard: "Release out of
       support" + release + EOL date in score cells, image header and
@@ -221,7 +221,7 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
 - [x] Language ecosystems, one at a time, each with its OSV feed and
       comparator: npm, PyPI, Go. Until an ecosystem is added its
       packages are listed but marked "not assessed". (Done 2026-09-29,
-      migration 0022, `matcher.Version` 4-6; DOMAIN_MODEL.md §2.3 "As
+      migration 0021, `matcher.Version` 4-6; DOMAIN_MODEL.md §2.3 "As
       built (P2a, language ecosystems)", §2.4, §2.5. `osv/language.go`:
       OSV `npm`, `PyPI`, `Go` feeds, rows under ('', ecosystem, package
       name) (`matcher.AdvisoryScope`), MAL- records skipped, vuln_key =

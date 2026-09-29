@@ -9,7 +9,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/findings"
 )
 
-// Image list vulnerabilities (image_sbom_vulns, migration 0018): the
+// Image list vulnerabilities (image_sbom_vulns, migration 0019): the
 // per-(source package, vuln_key) groups ScoreImageSBOM counted, one row
 // each with the severity.Assess result, so the dashboard lists them
 // without re-deriving the ranking rules (DOMAIN_MODEL.md §3.8).

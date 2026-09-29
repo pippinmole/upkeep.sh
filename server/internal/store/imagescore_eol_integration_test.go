@@ -1,6 +1,6 @@
 package store
 
-// Image scores of end-of-life base images (migration 0019, matcher.Version
+// Image scores of end-of-life base images (migration 0020, matcher.Version
 // 3) against a real database: skipped unless SW_TEST_DATABASE_URL is set.
 // A release out of support, or one distro_releases doesn't know, matches
 // no advisories (only supported releases are imported), so its packages

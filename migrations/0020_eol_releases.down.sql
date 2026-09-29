@@ -1,4 +1,4 @@
--- Removes the end-of-life releases 0019 listed. Nothing was imported for
+-- Removes the end-of-life releases 0020 listed. Nothing was imported for
 -- them (never supported); their image packages go back to "release not
 -- recognised", which is still not assessed.
 

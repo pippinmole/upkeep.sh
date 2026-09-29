@@ -147,7 +147,7 @@ func TestNpmMatching(t *testing.T) {
 	}
 
 	// Two ranges of one package from the same version (Seq 0 and 1,
-	// migration 0022) are both stored; the wider one matches 1.3.0.
+	// migration 0021) are both stored; the wider one matches 1.3.0.
 	narrow, wide := rng("left-pad", "0", sp("1.0.0"), nil), rng("left-pad", "0", sp("5.0.0"), nil)
 	wide.Seq = 1
 	upsert(ghsa("GHSA-"+f.tag[7:11]+"-cccc-dddd", []string{}, "low", "", narrow, wide))

@@ -173,7 +173,7 @@ func (s *Store) ImageSBOMsWithCVEsChangedSince(ctx context.Context, since time.T
 // StaleImageScores returns the ok lists whose score is missing, older than
 // the list (rewritten since) or from an older matcher.Version (coverage
 // may have changed), or counts vulnerabilities that have no
-// image_sbom_vulns rows (scored before migration 0018: the backfill):
+// image_sbom_vulns rows (scored before migration 0019: the backfill):
 // image_score_sweep's work, and the backstop for a lost scoring job. At
 // most limit ids, oldest list first.
 func (s *Store) StaleImageScores(ctx context.Context, limit int) ([]int64, error) {
