@@ -121,6 +121,28 @@ func (s *Store) ImageSBOMSweep(ctx context.Context, limit int, retryDisabled boo
 	return collectImageKeys(rows)
 }
 
+// ImageScanSweep returns up to limit image keys on server-side Syft's work
+// list (server rows unavailable with SBOMReasonNoAttestation) that some
+// host still reports with a repo digest: rows image_sbom handed over
+// whose image_scan job was lost, and rows recorded before scanning was
+// enabled. Retries of failed scans aren't here: they are error rows on a
+// timer, which ImageSBOMSweep returns (the attestation is checked first).
+func (s *Store) ImageScanSweep(ctx context.Context, limit int) ([]ImageKey, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT s.image_id, s.os, s.arch, s.variant FROM image_sbom_state s
+		WHERE s.owner_user_id IS NULL AND s.status = 'unavailable' AND s.reason = $2
+		  AND EXISTS (SELECT 1 FROM host_images hi
+			WHERE hi.image_id = s.image_id AND hi.os = s.os AND hi.arch = s.arch AND hi.variant = s.variant
+			  AND hi.removed_at IS NULL AND cardinality(hi.repo_digests) > 0)
+		ORDER BY 1, 2, 3, 4
+		LIMIT $1
+	`, limit, SBOMReasonNoAttestation)
+	if err != nil {
+		return nil, err
+	}
+	return collectImageKeys(rows)
+}
+
 func collectImageKeys(rows pgx.Rows) ([]ImageKey, error) {
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (ImageKey, error) {
 		var k ImageKey

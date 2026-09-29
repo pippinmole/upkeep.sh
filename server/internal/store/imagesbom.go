@@ -276,10 +276,15 @@ type ImageSBOMFailure struct {
 	Reason           string // shown to users as is
 	// NextAttemptAt is when to try again; nil = not on a timer.
 	NextAttemptAt *time.Time
+	// Handover: not a failed attempt but a hand-over to the next
+	// producer (image_sbom found no attestation and queued the
+	// server-side scan). attempts stays as it is, so the scan's retry
+	// backoff counts failures, not hand-overs.
+	Handover bool
 }
 
 // RecordImageSBOMFailure notes a failed attempt: status, reason, attempts
-// + 1, last/next attempt. It never overwrites an ok list (a good list
+// + 1 (unless Handover), last/next attempt. It never overwrites an ok list (a good list
 // stays good; image content doesn't change) and then reports false.
 func (s *Store) RecordImageSBOMFailure(ctx context.Context, f ImageSBOMFailure) (bool, error) {
 	if f.Status != SBOMStatusUnavailable && f.Status != SBOMStatusError {
@@ -292,15 +297,15 @@ func (s *Store) RecordImageSBOMFailure(ctx context.Context, f ImageSBOMFailure) 
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO image_sbom_state
 			(image_id, os, arch, variant, owner_workspace_id, status, reason, attempts, last_attempt_at, next_attempt_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 1, now(), $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $9 THEN 0 ELSE 1 END, now(), $8)
 		ON CONFLICT ON CONSTRAINT image_sbom_state_key DO UPDATE SET
 			status = EXCLUDED.status, reason = EXCLUDED.reason,
-			attempts = image_sbom_state.attempts + 1, last_attempt_at = now(),
+			attempts = image_sbom_state.attempts + CASE WHEN $9 THEN 0 ELSE 1 END, last_attempt_at = now(),
 			next_attempt_at = EXCLUDED.next_attempt_at, updated_at = now()
 		WHERE image_sbom_state.status <> 'ok'
 		RETURNING id
 	`, f.Key.ImageID, f.Key.OS, f.Key.Arch, f.Key.Variant, nilIfEmpty(f.OwnerWorkspaceID),
-		f.Status, f.Reason, f.NextAttemptAt).Scan(&id)
+		f.Status, f.Reason, f.NextAttemptAt, f.Handover).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

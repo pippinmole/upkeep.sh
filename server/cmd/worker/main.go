@@ -17,7 +17,11 @@
 // SW_IMAGE_SBOM_MAX_BYTES, SW_IMAGE_MANIFEST_MAX_BYTES, and optional
 // platform-wide Docker Hub credentials SW_DOCKERHUB_USERNAME /
 // SW_DOCKERHUB_TOKEN (only sent to Docker Hub, only to raise the anonymous
-// pull rate limit).
+// pull rate limit). Server-side Syft for public images without an
+// attestation (internal/imagescan): SW_IMAGE_SCAN_ENABLED (default true;
+// needs fetching on), SW_IMAGE_SCAN_WORKERS, SW_IMAGE_SCAN_DIR,
+// SW_IMAGE_SCAN_MAX_COMPRESSED_BYTES, SW_IMAGE_SCAN_MAX_UNCOMPRESSED_BYTES,
+// SW_IMAGE_SCAN_TIMEOUT, SW_IMAGE_SCAN_CPUS, SW_IMAGE_SCAN_MEMORY_BYTES.
 //
 //	worker                         run the River client until SIGINT/SIGTERM
 //	worker sync osv Debian [-full] run one sync in the foreground and exit
@@ -27,6 +31,9 @@
 //	worker rerank                  recompute severity of every open finding, then exit
 //	worker image-sbom <image_id> <os> <arch> [variant]
 //	                               fetch one image key's registry SBOM, then exit
+//	worker image-scan <image_id> <os> <arch> [variant]
+//	                               pull and scan one image key (server-side Syft), then exit
+//	worker syft-catalog <rootfs>   (internal) the scan's catalog child
 //
 // The one-shot commands run the same code as the jobs, in the foreground;
 // they are for operators and debugging (the scheduled jobs do all of this
@@ -52,6 +59,7 @@ import (
 	"time"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/feeds"
+	"github.com/pippinmole/upkeep.sh/server/internal/imagescan"
 	"github.com/pippinmole/upkeep.sh/server/internal/jobs"
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify/email"
@@ -107,6 +115,15 @@ func envBool(key string, fallback bool) bool {
 }
 
 func main() {
+	// The scan's catalog child (internal/imagescan): no database, no
+	// network, only the extracted rootfs.
+	if len(os.Args) > 1 && os.Args[1] == imagescan.CatalogCommand {
+		if err := imagescan.RunChild(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		log.Fatal("DATABASE_URL is required")
@@ -151,9 +168,11 @@ func main() {
 		case "rerank":
 			err = runRerank(ctx, db)
 		case "image-sbom":
-			err = runImageSBOM(ctx, db, imagesConfig(), os.Args[2:])
+			err = runImageSBOM(ctx, db, imagesConfig(), false, os.Args[2:])
+		case "image-scan":
+			err = runImageSBOM(ctx, db, imagesConfig(), true, os.Args[2:])
 		default:
-			log.Fatalf("unknown command %q (want no arguments, `sync`, `match`, `reconcile`, `rerank` or `image-sbom`)", os.Args[1])
+			log.Fatalf("unknown command %q (want no arguments, `sync`, `match`, `reconcile`, `rerank`, `image-sbom` or `image-scan`)", os.Args[1])
 		}
 		if err != nil {
 			log.Fatal(err)
@@ -191,6 +210,12 @@ func main() {
 		CleanupInterval: envDuration("SW_CLEANUP_INTERVAL", jobs.DefaultCleanupInterval),
 		Images:          imagesConfig(),
 	}
+	if jcfg.Images.FetchEnabled && jcfg.Images.Scan {
+		// Scans a killed worker left behind (the dir is this process's).
+		if err := imagescan.SweepDir(jcfg.Images.Scanner.Dir); err != nil {
+			log.Printf("WARNING: image scan dir sweep: %v", err)
+		}
+	}
 	client, err := jobs.NewClient(db.Pool, db, syncer, jcfg)
 	if err != nil {
 		log.Fatalf("river client: %v", err)
@@ -198,9 +223,9 @@ func main() {
 	if err := client.Start(ctx); err != nil {
 		log.Fatalf("river start: %v", err)
 	}
-	log.Printf("worker %s started (periodic syncs: %v, osv ecosystems: %v, osv every %s, full every %s, kev/epss every %s, image fetching: %v)",
+	log.Printf("worker %s started (periodic syncs: %v, osv ecosystems: %v, osv every %s, full every %s, kev/epss every %s, image fetching: %v, image scanning: %v)",
 		version, jcfg.PeriodicSyncs, jcfg.OSVEcosystems, jcfg.OSVInterval, fcfg.FullSyncInterval, jcfg.CVEFeedsInterval,
-		jcfg.Images.FetchEnabled)
+		jcfg.Images.FetchEnabled, jcfg.Images.FetchEnabled && jcfg.Images.Scan)
 
 	<-ctx.Done()
 	log.Printf("shutting down: waiting up to 30s for running jobs")
