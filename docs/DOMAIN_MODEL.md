@@ -767,7 +767,21 @@ queues `reconcile_host` for hosts having such an image
   `severity.Assess`; never written while versions are unevaluated.
   `image_score_sweep` (worker start + matcher cadence) scores lists whose
   score is missing, older than the list, or from an older
-  `matcher.Version` (coverage changes bump it).
+  `matcher.Version` (coverage changes bump it), or that count
+  vulnerabilities but have no `image_sbom_vulns` rows (lists scored
+  before migration 0018: the backfill).
+- *Rows* (`image_sbom_vulns`, migration 0018): the groups a score
+  counts, one per (list, source package, vuln_key), written by
+  `ScoreImageSBOM` in the same transaction as the score and replaced as
+  a whole: representative row (lowest installed version by the
+  ecosystem comparator: installed / fixed version, fix channel and
+  advisory, distro severity, ecosystem), binaries and their
+  `software_versions` ids, advisory ids, the assessed bucket / rank /
+  `severity_key` and the KEV / EPSS / CVSS it was assessed with. So the
+  ranking rules have one copy, in Go: the dashboard lists these rows,
+  they add up to `image_sbom_scores`, and a row's key equals its
+  `vulnerable_image` findings'. Current only while the score is
+  (`computed_at >= image_sbom_state.updated_at`); readers check that.
 - *Read model*: `image_scores(user)` per `container_images` key: list
   status (`ok` / `unavailable` / `error` with reason / `none` = never
   attempted), source, and the effective list's score, with `scored`
@@ -1105,19 +1119,20 @@ through `image_sbom_effective(user)`, never by list id.
   `matcher.Assessed` (mirrored in `web/src/lib/assessed.ts`) or a distro
   release with `distro_releases.supported` false: never "no
   vulnerabilities".
-- *Vulnerabilities tab* (`queries-image-vulns.ts`):
-  `software_vulnerabilities` through the list, one row per (source
-  package, vuln_key) like `findings.BuildImage` (kernel binaries
-  skipped), so images no container uses work too; per row the user's
-  `vulnerable_image` findings (host, open since / resolved). Facets
-  severity, KEV, fix; sort severity (default), vuln, package, EPSS, CVSS.
-- *Severity per row*: Go stores buckets on findings and only totals per
-  list, so the web assesses matches with a SQL mirror of
-  `severity.Assess` (`web/src/lib/severity-sql.ts`); rows add up to
-  `image_sbom_scores`, and keys equal `findings.severity_key` where
-  findings exist (checked on real data). The representative row of a
-  group is the lowest match version in text order (Go uses the
-  ecosystem comparator; equal in practice).
+- *Vulnerabilities tab* (`queries-image-vulns.ts`): the effective
+  list's `image_sbom_vulns` rows (§2.6 "Image findings and scores"), one
+  per (source package, vuln_key) as `ScoreImageSBOM` grouped and
+  assessed them (kernel binaries skipped), so images no container uses
+  work too; per row the user's `vulnerable_image` findings (host, open
+  since / resolved). Facets severity, KEV, fix; sort severity (default),
+  vuln, package, EPSS, CVSS. Read only while the list's score is
+  current; until then the tab says matching is in progress.
+- *Severity per row*: the bucket and `severity_key` Go wrote; the web
+  never re-derives the ranking rules (the former SQL mirror of
+  `severity.Assess` is gone). Rows add up to `image_sbom_scores` and
+  keys equal `findings.severity_key` (checked on real data 2026-09-29:
+  1021 rows over 6 lists, 290 open findings). A Packages tab row's worst
+  severity is the worst of the rows whose `software_ids` hold it.
 - *States instead of empty tables* (`list-state.tsx`): not inspected on
   any host (no platform), no package list yet, local image (no repo
   digest) needs the agent, `unavailable` with its reason verbatim

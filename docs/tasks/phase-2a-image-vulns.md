@@ -93,8 +93,8 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       Image finding notifications link to the page (`store.ImageFindingURL`).
       Follow-ups: the host Vulnerabilities tab and fleet vulnerability
       pages still list only `vulnerable_package`; the web mirrors
-      `severity.Assess` in SQL (`web/src/lib/severity-sql.ts`) and
-      `matcher.Assessed` (`web/src/lib/assessed.ts`).)
+      `matcher.Assessed` (`web/src/lib/assessed.ts`). Its SQL mirror of
+      `severity.Assess` is gone, item below.)
 - [x] Overview page (`/dashboard`) folds in container images, kept apart
       from host packages (never one summed total: an image is fixed by
       rebuilding or re-pulling, a host package by upgrading the host).
@@ -111,12 +111,25 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       `web/src/lib/queries-overview-images.ts`,
       `web/src/components/overview/`.) Follow-up: the "View all" link and
       the CVE page are still host-package only (item below).
-- [ ] One copy of the ranking rules: have `ScoreImageSBOM` persist the
+- [x] One copy of the ranking rules: have `ScoreImageSBOM` persist the
       per-(source, vuln_key) rows it already assesses, and switch the
       image Vulnerabilities tab to read them instead of the SQL mirror
       of `severity.Assess` (checked equal on real data 2026-09-28: 502
       findings and both image totals). Do before the Phase 2a stack
-      merges.
+      merges. (Done 2026-09-29: `image_sbom_vulns`, migration 0018,
+      written with the score in `store.ScoreImageSBOM`
+      (`imagescore_vulns.go`); the image Vulnerabilities tab and the
+      Packages tab's worst severity read it, `web/src/lib/severity-sql.ts`
+      deleted; `StaleImageScores` re-scores lists with vulnerabilities
+      but no rows, the backfill. On a copy of dev data the rows equal
+      the old SQL's output exactly (1021 rows, 6 lists, keys, installed
+      versions), per-list totals equal `image_sbom_scores`, and all 290
+      open image findings' `severity_key`s match. DOMAIN_MODEL.md §2.6,
+      §3.8.)
+- [ ] Drop the web mirror of `matcher.Assessed`
+      (`web/src/lib/assessed.ts`): persist a per-package "assessed" flag
+      (or the not-assessed reason) with the list so the Packages tab and
+      list states read Go's answer.
 - [ ] Image findings on the host Vulnerabilities tab and the fleet
       vulnerability pages (they list only `vulnerable_package` today).
 - [ ] Server-side Syft for public images without an SBOM attestation:
