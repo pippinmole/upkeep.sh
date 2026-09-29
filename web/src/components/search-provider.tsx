@@ -2,8 +2,6 @@
 
 import { createContext, useContext } from "react";
 
-import { CommandMenu } from "./command-menu";
-
 interface SearchContextType {
   open: boolean;
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -21,13 +19,10 @@ interface Props {
   value: SearchContextType;
 }
 
+// Holds the command menu's open state; the dashboard layout renders the
+// menu itself (CommandMenu), since it needs the nav counts and sidebar.
 export default function SearchProvider({ children, value }: Props) {
-  return (
-    <SearchContext.Provider value={value}>
-      {children}
-      <CommandMenu />
-    </SearchContext.Provider>
-  );
+  return <SearchContext.Provider value={value}>{children}</SearchContext.Provider>;
 }
 
 export const useSearch = () => {

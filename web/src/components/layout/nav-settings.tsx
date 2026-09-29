@@ -11,6 +11,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+import { checkIsActive } from "./nav-group";
 import { SETTINGS_URL, settingsSections } from "./settings-sections";
 
 // Settings sits in the sidebar footer, just above the user menu, rather
@@ -18,7 +19,7 @@ import { SETTINGS_URL, settingsSections } from "./settings-sections";
 export function NavSettings() {
   const { setOpenMobile } = useSidebar();
   const pathname = usePathname();
-  const active = pathname === SETTINGS_URL || pathname.startsWith(`${SETTINGS_URL}/`);
+  const active = checkIsActive(pathname, { url: SETTINGS_URL }, [SETTINGS_URL]);
   return (
     <SidebarMenu>
       <SidebarMenuItem>
