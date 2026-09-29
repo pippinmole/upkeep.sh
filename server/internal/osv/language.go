@@ -33,6 +33,7 @@ import (
 var Languages = map[string]string{
 	"npm":  "npm",
 	"PyPI": "pypi",
+	"Go":   "golang",
 }
 
 // LanguageFor returns the software ecosystem of an imported OSV language

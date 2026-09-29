@@ -40,7 +40,7 @@
 // re-open it); otherwise any "affected" row makes the channel affected,
 // with the lowest fixed version among its affected rows as the fix.
 //
-// # Language ecosystems (npm, ...)
+// # Language ecosystems (npm, PyPI, Go)
 //
 // Language advisories (GHSA-, PYSEC-, GO- records from OSV) are none of
 // the above: they are keyed like notices (their CVE aliases, else their
@@ -97,7 +97,8 @@ import (
 //	4  npm packages are matched (npmversion, OSV range semantics; see
 //	   "Language ecosystems"), evaluated as "not matched" before.
 //	5  PyPI packages are matched (pep440).
-const Version = 5
+//	6  Go modules and the Go standard library are matched (goversion).
+const Version = 6
 
 // Channels, as in advisory_affected.channel.
 const (

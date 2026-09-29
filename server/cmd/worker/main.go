@@ -1,5 +1,5 @@
 // Command worker runs upkeep.sh background jobs on River: the OSV
-// Debian/Ubuntu/Alpine/npm/PyPI advisory sync (hourly incremental, weekly full), the CISA
+// Debian/Ubuntu/Alpine/npm/PyPI/Go advisory sync (hourly incremental, weekly full), the CISA
 // KEV and FIRST EPSS syncs (daily), the vulnerability matcher and findings
 // reconciliation (see internal/jobs/matching.go), alerting: rule
 // evaluation, digests, agent staleness and notification delivery (see
@@ -241,7 +241,7 @@ func main() {
 func runOnce(ctx context.Context, s *feeds.Syncer, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	full := fs.Bool("full", false, "osv: force a full all.zip import")
-	usage := "usage: worker sync osv <Debian|Ubuntu|Alpine|npm|PyPI> [-full] | worker sync kev | worker sync epss"
+	usage := "usage: worker sync osv <Debian|Ubuntu|Alpine|npm|PyPI|Go> [-full] | worker sync kev | worker sync epss"
 	if len(args) == 0 {
 		return fmt.Errorf("%s", usage)
 	}

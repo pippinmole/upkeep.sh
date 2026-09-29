@@ -5,6 +5,7 @@ import (
 
 	"github.com/pippinmole/upkeep.sh/server/internal/apkversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
+	"github.com/pippinmole/upkeep.sh/server/internal/goversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/npmversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/pep440"
 )
@@ -39,10 +40,11 @@ func (e ecosystem) language() bool { return e.distros[""] }
 // language); everything not listed here is inventoried but "not
 // assessed", never "no vulnerabilities".
 var ecosystems = map[string]ecosystem{
-	"deb":  {debComparator{}, set("debian", "ubuntu")},
-	"apk":  {apkComparator{}, set("alpine")},
-	"npm":  {osvRanges{npmComparator{}}, set("")},
-	"pypi": {osvRanges{pypiComparator{}}, set("")},
+	"deb":    {debComparator{}, set("debian", "ubuntu")},
+	"apk":    {apkComparator{}, set("alpine")},
+	"npm":    {osvRanges{npmComparator{}}, set("")},
+	"pypi":   {osvRanges{pypiComparator{}}, set("")},
+	"golang": {osvRanges{goComparator{}}, set("")},
 }
 
 // osvRanges wraps the comparator of a language ecosystem. Evaluate
@@ -177,3 +179,15 @@ func (pypiComparator) Validate(v string) error {
 }
 
 func (pypiComparator) Compare(a, b string) (int, error) { return pep440.CompareStrings(a, b) }
+
+// goComparator: Go module semver (goversion over golang.org/x/mod/semver),
+// with or without the "v" (OSV Go ranges drop it), pseudo-versions,
+// "+incompatible", and Go releases for the standard library.
+type goComparator struct{}
+
+func (goComparator) Validate(v string) error {
+	_, err := goversion.Canonical(v)
+	return err
+}
+
+func (goComparator) Compare(a, b string) (int, error) { return goversion.Compare(a, b) }

@@ -152,6 +152,68 @@ func TestNormalizePyPIGHSAAndPYSEC(t *testing.T) {
 	}
 }
 
+// Go fixtures from Go/all.zip (2026-09-29, `versions` lists removed): a
+// stdlib record with two branches, and a GO- record without a CVE plus
+// the GHSA it aliases.
+func TestNormalizeGo(t *testing.T) {
+	s, ok := load(t, "go_stdlib.json", "osv-go")
+	if !ok {
+		t.Fatal("stdlib record must be relevant")
+	}
+	if s.VulnKey != "CVE-2025-22873" || len(s.Affected) != 2 {
+		t.Fatalf("stdlib: key %s rows %+v", s.VulnKey, s.Affected)
+	}
+	// Range events keep OSV's spelling (no "v"); goversion canonicalises.
+	for i, want := range [][2]string{{"0", "1.23.9"}, {"1.24.0-0", "1.24.3"}} {
+		r := s.Affected[i]
+		if r.Release != "golang" || r.SourcePackage != "stdlib" || r.Introduced != want[0] ||
+			str(r.FixedVersion) != want[1] || r.DistroSeverity != nil {
+			t.Errorf("stdlib row %d = %+v", i, r)
+		}
+	}
+
+	g, _ := load(t, "go_ghsa_alias.json", "osv-go")
+	h, _ := load(t, "go_ghsa.json", "osv-go")
+	// No CVE: the GO record keys by the GHSA it aliases, so both are one
+	// finding.
+	if g.VulnKey != "GHSA-hxjg-93wc-h8p8" || h.VulnKey != "GHSA-hxjg-93wc-h8p8" {
+		t.Errorf("keys = %s / %s", g.VulnKey, h.VulnKey)
+	}
+	// Only the GHSA owns a severity and the key's CVSS.
+	if g.CVSSv3Vector != "" || h.Affected[0].DistroSeverity == nil || *h.Affected[0].DistroSeverity != "high" {
+		t.Errorf("GO cvss %q, GHSA severity %s", g.CVSSv3Vector, str(h.Affected[0].DistroSeverity))
+	}
+	if h.CVSSv3Vector != "" && h.CVSSIfMissing {
+		t.Error("the GHSA's own key: its CVSS is authoritative")
+	}
+	if r := g.Affected[0]; r.SourcePackage != "github.com/komari-monitor/komari" ||
+		str(r.FixedVersion) != "0.0.0-20260609084633-98122fa4d110" {
+		t.Errorf("GO row = %+v", r)
+	}
+}
+
+// A package listed several times from the same version (as GO-2025-3448
+// lists github.com/CosmWasm/wasmvm/v2): every distinct range is kept,
+// numbered by Seq; an identical one is dropped.
+func TestNormalizeLanguageSameIntroduced(t *testing.T) {
+	rec, err := Parse([]byte(`{"id":"GO-2025-3448","modified":"2025-02-10T00:00:00Z","aliases":["CVE-2025-24362"],
+		"affected":[
+		 {"package":{"name":"github.com/CosmWasm/wasmvm/v2","ecosystem":"Go"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"2.0.6"}]}]},
+		 {"package":{"name":"github.com/CosmWasm/wasmvm/v2","ecosystem":"Go"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"2.1.5"}]}]},
+		 {"package":{"name":"github.com/CosmWasm/wasmvm/v2","ecosystem":"Go"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"2.1.5"}]}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok, err := Normalize(rec, "osv-go", testReleases)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if len(a.Affected) != 2 || a.Affected[0].Seq != 0 || a.Affected[1].Seq != 1 ||
+		str(a.Affected[0].FixedVersion) != "2.0.6" || str(a.Affected[1].FixedVersion) != "2.1.5" {
+		t.Errorf("rows = %+v", a.Affected)
+	}
+}
+
 func TestLanguageNamePyPI(t *testing.T) {
 	for in, want := range map[string]string{"Django": "django", "zope.interface": "zope-interface",
 		"Foo__Bar-.baz": "foo-bar-baz", "jinja2": "jinja2"} {

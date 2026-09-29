@@ -1,0 +1,38 @@
+# golang.org/x/mod semver/semver_test.go `tests` table (master, fetched
+# 2026-09-29), Copyright 2018 The Go Authors, BSD-3-Clause (see
+# golang.org/x/mod LICENSE); used as test data only. Lines: "in<TAB>out"
+# in order: out is the canonical form, "" = invalid; valid versions
+# sort in this order, equal outs compare equal.
+
+bad	
+v1-alpha.beta.gamma	
+v1-pre	
+v1+meta	
+v1-pre+meta	
+v1.2-pre	
+v1.2+meta	
+v1.2-pre+meta	
+v1.0.0-alpha	v1.0.0-alpha
+v1.0.0-alpha.1	v1.0.0-alpha.1
+v1.0.0-alpha.beta	v1.0.0-alpha.beta
+v1.0.0-beta	v1.0.0-beta
+v1.0.0-beta.2	v1.0.0-beta.2
+v1.0.0-beta.11	v1.0.0-beta.11
+v1.0.0-rc.1	v1.0.0-rc.1
+v1	v1.0.0
+v1.0	v1.0.0
+v1.0.0	v1.0.0
+v1.2	v1.2.0
+v1.2.0	v1.2.0
+v1.2.3-456	v1.2.3-456
+v1.2.3-456.789	v1.2.3-456.789
+v1.2.3-456-789	v1.2.3-456-789
+v1.2.3-456a	v1.2.3-456a
+v1.2.3-pre	v1.2.3-pre
+v1.2.3-pre+meta	v1.2.3-pre
+v1.2.3-pre.1	v1.2.3-pre.1
+v1.2.3-zzz	v1.2.3-zzz
+v1.2.3	v1.2.3
+v1.2.3+meta	v1.2.3
+v1.2.3+meta-pre	v1.2.3
+v1.2.3+meta-pre.sha.256a	v1.2.3

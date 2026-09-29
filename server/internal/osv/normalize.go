@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -175,6 +176,9 @@ type AffectedRow struct {
 	DistroSeverity *string `json:"s,omitempty"`
 	Status         string  `json:"st"`
 	Ecosystem      string  `json:"e"`
+	// Seq numbers the ranges of one package that start at the same
+	// version (language records only; migration 0022). 0 otherwise.
+	Seq int `json:"q,omitempty"`
 }
 
 // Key is the (distro, release, source package) the matcher re-evaluates
@@ -187,7 +191,8 @@ func (a AffectedRow) Key() Key { return Key{a.Distro, a.Release, a.SourcePackage
 
 // pk is the advisory_affected primary key within one advisory.
 func (a AffectedRow) pk() string {
-	return a.Distro + "\x00" + a.Release + "\x00" + a.SourcePackage + "\x00" + a.Channel + "\x00" + a.Introduced
+	return a.Distro + "\x00" + a.Release + "\x00" + a.SourcePackage + "\x00" + a.Channel + "\x00" + a.Introduced +
+		"\x00" + strconv.Itoa(a.Seq)
 }
 
 var cveRe = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]+$`)
@@ -235,16 +240,27 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 		rows         []AffectedRow
 		keep         []int
 		keepVersions = map[int]bool{}
-		seen         = map[string]bool{}
+		seen         = map[string]int{} // pk -> index in rows
 		language     bool
 	)
-	add := func(row AffectedRow) bool {
-		// Duplicate keys happen when OSV lists a package twice for one
-		// release (e.g. "Ubuntu:26.04" and "Ubuntu:26.04:LTS"); keep the first.
-		if seen[row.pk()] {
-			return false
+	// add appends a row unless its key is taken. Duplicate keys happen
+	// when OSV lists a package twice for one release (e.g. "Ubuntu:26.04"
+	// and "Ubuntu:26.04:LTS"): the first is kept. For a language record
+	// (multi) a second range from the same version is another range, not
+	// a duplicate listing: it is kept with the next Seq unless it is
+	// identical to one already kept.
+	add := func(row AffectedRow, multi bool) bool {
+		for {
+			i, dup := seen[row.pk()]
+			if !dup {
+				break
+			}
+			if !multi || sameRange(rows[i], row) {
+				return false
+			}
+			row.Seq++
 		}
-		seen[row.pk()] = true
+		seen[row.pk()] = len(rows)
 		rows = append(rows, row)
 		return true
 	}
@@ -287,7 +303,7 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 				default:
 					row.Status = "unfixed"
 				}
-				added = add(row) || added
+				added = add(row, false) || added
 			}
 		}
 		if added {
@@ -336,7 +352,7 @@ type langRows struct {
 // last_affected = the version). The severity is the GHSA's reviewed one
 // (MODERATE is kept as "moderate"; severity.ParsePriority ranks it as
 // medium); PYSEC and GO records have none.
-func languageRows(r *Record, i int, eco string, add func(AffectedRow) bool) (langRows, error) {
+func languageRows(r *Record, i int, eco string, add func(AffectedRow, bool) bool) (langRows, error) {
 	var out langRows
 	a := r.Affected[i]
 	base := AffectedRow{
@@ -357,7 +373,7 @@ func languageRows(r *Record, i int, eco string, add func(AffectedRow) bool) (lan
 			if row.FixedVersion != nil {
 				row.Status = "fixed"
 			}
-			if add(row) {
+			if add(row, true) {
 				out.rows++
 			}
 		}
@@ -375,12 +391,18 @@ func languageRows(r *Record, i int, eco string, add func(AffectedRow) bool) (lan
 		}
 		row := base
 		row.Introduced, row.LastAffected, row.Status = v, &v, "unfixed"
-		if add(row) {
+		if add(row, true) {
 			out.rows++
 			out.fromVersions = true
 		}
 	}
 	return out, nil
+}
+
+// sameRange reports whether two rows of one key close the same way.
+func sameRange(a, b AffectedRow) bool {
+	eq := func(x, y *string) bool { return (x == nil) == (y == nil) && (x == nil || *x == *y) }
+	return eq(a.FixedVersion, b.FixedVersion) && eq(a.LastAffected, b.LastAffected)
 }
 
 // cvssV3 returns the first CVSS v3 vector of a severity list.

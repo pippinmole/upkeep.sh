@@ -135,7 +135,7 @@ func (s *Store) UpsertAdvisories(ctx context.Context, advs []osv.Advisory) (Advi
 		newSigs := map[osv.Key][]string{}
 		for _, r := range a.Affected {
 			copyRows = append(copyRows, []any{a.ID, r.Distro, r.Release, r.SourcePackage, r.Channel,
-				r.Introduced, r.FixedVersion, r.LastAffected, r.DistroSeverity, r.Status, r.Ecosystem})
+				r.Introduced, r.FixedVersion, r.LastAffected, r.DistroSeverity, r.Status, r.Ecosystem, int16(r.Seq)})
 			newSigs[r.Key()] = append(newSigs[r.Key()], rowSig(r.Channel, r.Introduced, r.FixedVersion, r.LastAffected, r.DistroSeverity, r.Status))
 		}
 		for k := range diffKeys(old[id], newSigs) {
@@ -145,7 +145,7 @@ func (s *Store) UpsertAdvisories(ctx context.Context, advs []osv.Advisory) (Advi
 	if len(copyRows) > 0 {
 		n, err := tx.CopyFrom(ctx, pgx.Identifier{"advisory_affected"},
 			[]string{"advisory_id", "distro", "release", "source_package", "channel",
-				"introduced", "fixed_version", "last_affected", "distro_severity", "status", "ecosystem"},
+				"introduced", "fixed_version", "last_affected", "distro_severity", "status", "ecosystem", "seq"},
 			pgx.CopyFromRows(copyRows))
 		if err != nil {
 			return res, fmt.Errorf("copy advisory_affected: %w", err)

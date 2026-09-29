@@ -25,6 +25,7 @@ func TestAssessed(t *testing.T) {
 		{"npm", "", "", true, true},
 		{"npm", "debian", "12", true, false}, // language packages are never distro-scoped
 		{"pypi", "", "", false, true},
+		{"golang", "", "", false, true},
 		{"gem", "", "", false, false},
 		{"homebrew", "", "", false, false},
 	}
@@ -227,5 +228,48 @@ func TestEvaluatePyPI(t *testing.T) {
 	// A legacy (non-PEP 440) installed version is invalid, never guessed.
 	if py.Validate("0.1.0.dev-120828c") == nil {
 		t.Error("legacy version accepted")
+	}
+}
+
+// Go: OSV ranges without "v" against installed versions with or without
+// it, the stdlib by Go release, pseudo-versions.
+func TestEvaluateGo(t *testing.T) {
+	gc, ok := ComparatorFor("golang")
+	if !ok {
+		t.Fatal("golang not registered")
+	}
+	const cve = "CVE-2025-22873"
+	stdlib := []Row{
+		langRow("GO-2026-4403", cve, []string{cve}, "0", sp("1.23.9"), nil),
+		langRow("GO-2026-4403", cve, []string{cve}, "1.24.0-0", sp("1.24.3"), nil),
+	}
+	for _, tt := range []struct {
+		v    string
+		rows []Row
+		fix  string // "" = not matched
+	}{
+		{"1.23.8", stdlib, "1.23.9"},
+		{"go1.23.8", stdlib, "1.23.9"},
+		{"1.23.9", stdlib, ""},
+		{"1.24.0", stdlib, "1.24.3"},
+		{"go1.24rc1", stdlib, "1.24.3"}, // 1.24.0-rc.1 >= 1.24.0-0
+		{"1.24.3", stdlib, ""},
+		{"1.24.6", stdlib, ""},
+		{"v0.0.0-20260101000000-aaaaaaaaaaaa", []Row{langRow("GO-2026-6449", "GHSA-hxjg-93wc-h8p8", nil, "0",
+			sp("0.0.0-20260609084633-98122fa4d110"), nil)}, "0.0.0-20260609084633-98122fa4d110"},
+		{"v0.1.0", []Row{langRow("GO-2026-6449", "GHSA-hxjg-93wc-h8p8", nil, "0",
+			sp("0.0.0-20260609084633-98122fa4d110"), nil)}, ""},
+		{"v2.3.0+incompatible", []Row{langRow("GO-X", "GO-X", nil, "2.0.0", sp("2.3.1"), nil)}, "2.3.1"},
+	} {
+		ms, st := Evaluate(tt.v, gc, tt.rows)
+		if st.BadVersions != 0 {
+			t.Errorf("%s: bad versions %d", tt.v, st.BadVersions)
+		}
+		switch {
+		case tt.fix == "" && len(ms) != 0:
+			t.Errorf("%s: matched %+v", tt.v, ms)
+		case tt.fix != "" && (len(ms) != 1 || *ms[0].FixedVersion != tt.fix):
+			t.Errorf("%s: %+v, want fix %s", tt.v, ms, tt.fix)
+		}
 	}
 }

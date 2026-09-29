@@ -145,4 +145,16 @@ func TestNpmMatching(t *testing.T) {
 		"@"+f.tag+"/%").Scan(&left); err != nil || left != 0 {
 		t.Errorf("advisory_changes left: %d (%v)", left, err)
 	}
+
+	// Two ranges of one package from the same version (Seq 0 and 1,
+	// migration 0022) are both stored; the wider one matches 1.3.0.
+	narrow, wide := rng("left-pad", "0", sp("1.0.0"), nil), rng("left-pad", "0", sp("5.0.0"), nil)
+	wide.Seq = 1
+	upsert(ghsa("GHSA-"+f.tag[7:11]+"-cccc-dddd", []string{}, "low", "", narrow, wide))
+	if _, err := f.s.DrainAdvisoryChanges(ctx, DrainOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := matches(); len(got[name("left-pad")]) != 1 || got[name("left-pad")][0] != "GHSA-"+f.tag[7:11]+"-cccc-dddd 5.0.0 low" {
+		t.Fatalf("same-introduced ranges: %v", got)
+	}
 }
