@@ -174,8 +174,9 @@ func (l *Local) SocketWarning(socks []string) string {
 		". Anything that can connect() to them controls the host (a read-only mount doesn't stop connect()), whether or not Docker collection is enabled. "
 	recursive := slices.ContainsFunc(socks, func(s string) bool { return strings.HasPrefix(s, "run/") })
 	if recursive {
-		return msg + "The host mount is recursive: mount the host's / with bind-recursive=disabled (Docker 25 or later; " +
-			"on older Docker the option is ignored or rejected), as in agent/docker-compose.example.yml."
+		return msg + "The host mount is recursive: mount the host's / non-recursively, as in agent/docker-compose.example.yml " +
+			"(compose `bind: {recursive: disabled}`, or docker run --mount ...,bind-recursive=disabled; " +
+			"a docker CLI older than 25 spells it bind-nonrecursive=true)."
 	}
 	return msg + "They sit on the host's root filesystem itself, which the non-recursive host mount still carries; " +
 		"see agent/docker-compose.example.yml."

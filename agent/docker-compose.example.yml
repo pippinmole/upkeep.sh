@@ -35,11 +35,18 @@
 # derives a pending reboot by comparing the running kernel with the
 # installed linux-image-* packages (docs/PROTOCOL.md).
 #
-# Requires Docker Engine 25 or newer (bind-recursive=disabled). On older
-# Docker the option is rejected or silently ignored (a recursive mount);
-# the agent logs a startup WARN and reports the host_mount collector as
-# an error if any host socket is reachable under /host, so upgrade Docker
-# or run the agent as a bare-metal systemd service instead.
+# Docker versions: `bind: recursive: disabled` needs a Compose that
+# supports the key (checked with Compose v5.5.1). The engine side is
+# BindOptions.NonRecursive, honoured since Docker Engine 19.03 (checked on
+# 24.0.9 and 29.8.1). For `docker run`, the flag is
+# bind-recursive=disabled from docker CLI 25 on; a docker 24 CLI rejects
+# that ("unexpected key") and wants bind-nonrecursive=true instead, which
+# CLI 25+ rejects in turn. Only an engine older than 19.03 would ignore it
+# and silently mount recursively. Whatever the cause, the agent checks at
+# startup: if any host socket is reachable under /host it logs a WARN and
+# reports the host_mount collector as an error. To check a host by hand:
+#   docker compose run --rm upkeep-agent check-mounts
+# (exit 1 if any socket is reachable).
 #
 # upkeep-agent-data is the agent's persistent data directory (a folder):
 # credentials.json and the agent's SSH key for remote hosts (ssh/). Keep
