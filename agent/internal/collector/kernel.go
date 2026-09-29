@@ -16,9 +16,8 @@ import (
 // deployment that is the agent container's own /proc, which is correct
 // for the host: the kernel release is global to the kernel, not
 // namespaced, so every container on a host sees the host kernel's
-// release. The /:/host bind mount's host/proc is deliberately not used: a
-// non-recursive bind (or a host without /proc mounted there) would show an
-// empty directory.
+// release. /host/proc is deliberately not used: the Docker deployment binds
+// the host's / non-recursively, so /host/proc is an empty directory.
 func CollectKernelRelease(procFS fs.FS) (string, error) {
 	const p = "sys/kernel/osrelease"
 	b, err := fs.ReadFile(procFS, p)
