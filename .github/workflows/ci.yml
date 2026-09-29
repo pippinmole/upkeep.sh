@@ -18,7 +18,7 @@ permissions:
 jobs:
   agent:
     name: Agent (Go)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
@@ -44,7 +44,7 @@ jobs:
 
   server:
     name: Server (Go)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
@@ -109,7 +109,7 @@ jobs:
 
   web:
     name: Web (Next.js)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
@@ -147,7 +147,7 @@ jobs:
 
   docker:
     name: Docker build (${{ matrix.image }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
