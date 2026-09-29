@@ -281,3 +281,33 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       Trivy / Grype on a fixed set of images (`postgres:17`,
       `nginx:1.27`, an Alpine variant, an EOL `debian:buster` image)
       and explain every difference.
+      (Checked 2026-09-30, not ticked yet:
+      [Image vulnerability verification](../decisions/image-vuln-verification.md).
+      linux/arm64, pinned digests, plus `node:22-bookworm-slim` for
+      npm; Trivy 0.74.0 and Grype 0.119.0, `docker scout cves` needs a
+      login so it wasn't run. Package lists equal Syft's and Trivy's;
+      vulnerability sets and fix states agree up to advisory-data
+      differences; Go and npm sets identical. Fixed on the way
+      (`internal/sbom/spdx.go`): Scout's apk origin entries were listed
+      as installed packages (postgres:17-alpine 61 -> 45), and nested Go
+      module paths written as a purl subpath lost their last segment.
+      Follow-ups below.)
+- [ ] Decide the severity of issues whose source gives none (Debian
+      "not yet assigned", most Debian CVEs; Go standard library): today
+      "unknown" (CVSS only breaks ties), where Trivy/Grype use NVD CVSS
+      (nginx:1.27: 85 of our 299 unknown are high/critical in Trivy).
+      See the verification note for options.
+- [ ] Third-party deb packages with a Debian name (nginx.org's `nginx`
+      in `nginx:1.27`) are matched against Debian's advisories: false
+      positives, including KEV-critical CVE-2023-44487. Tell origin by
+      dpkg Maintainer / apt origin, or by a version outside the
+      release's archive versions.
+- [ ] Debian tracker states OSV doesn't export (`<no-dsa>`,
+      `<ignored>`, `<postponed>`, undetermined, TEMP ids): all show as
+      "no fix yet"; consider the tracker's JSON as a second source.
+- [ ] A language package present at several versions (npm `pacote`
+      19.0.2 and 20.0.1 in `node:22`) shows one installed version per
+      `image_sbom_vulns` row; list every affected version.
+- [ ] Lists parsed before an SBOM parser fix keep the old parse (ok
+      lists are never refetched): add a parser version that re-fetches
+      attestation lists, as `matcher.Version` re-scores.
