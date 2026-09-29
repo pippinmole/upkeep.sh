@@ -109,6 +109,16 @@ func TestParseSPDXAlpine(t *testing.T) {
 	if _, ok := pk["apk:alpine-baselayout"]; !ok {
 		t.Error("alpine-baselayout (a binary and an origin) dropped")
 	}
+	// openssl is only the origin of libssl3 and libcrypto3: every file it
+	// CONTAINS is one of theirs.
+	if _, ok := pk["apk:openssl"]; ok {
+		t.Error("source-only origin openssl listed")
+	}
+	for _, bin := range []string{"apk:libssl3", "apk:libcrypto3"} {
+		if got := pk[bin].PURL.Qualifier("upstream"); got != "openssl@3.5.8-r0" {
+			t.Errorf("%s origin = %q", bin, got)
+		}
+	}
 	if got := pk["apk:musl"].Paths; !slices.Equal(got, []string{"/lib/apk/db/installed"}) {
 		t.Errorf("musl paths = %v", got)
 	}

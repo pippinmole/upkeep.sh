@@ -139,6 +139,25 @@
     ]
    },
    {
+    "name": "libcrypto3",
+    "SPDXID": "SPDXRef-Package-6d5b9f58339a4d978f946365cf917a09",
+    "versionInfo": "3.5.8-r0",
+    "supplier": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "originator": "Person: Natanael Copa \\u003cncopa@alpinelinux.org\\u003e",
+    "downloadLocation": "https://www.openssl.org/",
+    "filesAnalyzed": true,
+    "licenseConcluded": "NOASSERTION",
+    "licenseDeclared": "Apache-2.0",
+    "description": "Crypto library from openssl",
+    "externalRefs": [
+     {
+      "referenceCategory": "PACKAGE-MANAGER",
+      "referenceType": "purl",
+      "referenceLocator": "pkg:apk/alpine/libcrypto3@3.5.8-r0?os_name=alpine&os_version=3.24"
+     }
+    ]
+   },
+   {
     "name": "libssl3",
     "SPDXID": "SPDXRef-Package-0f136e3f14eb33bae4880ecfae64687c",
     "versionInfo": "3.5.8-r0",
@@ -502,6 +521,27 @@
    },
    {
     "spdxElementId": "SPDXRef-Package-0f136e3f14eb33bae4880ecfae64687c",
+    "relatedSpdxElement": "SPDXRef-Package-91932a7786f1cc7c626197d1302ff152",
+    "relationshipType": "GENERATED_FROM"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-6d5b9f58339a4d978f946365cf917a09",
+    "relatedSpdxElement": "SPDXRef-File-ffc09b6666de47ba78f9ab48b7494011",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-6d5b9f58339a4d978f946365cf917a09",
+    "relatedSpdxElement": "SPDXRef-File-b3c8003fc2ae98965d15bb9ce0ddb9d3",
+    "relationshipType": "CONTAINS"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-6d5b9f58339a4d978f946365cf917a09",
+    "relatedSpdxElement": "SPDXRef-File-1b94a1218c3be1e675b2e6ad815074ee",
+    "relationshipType": "OTHER",
+    "comment": "evident-by: indicates the package's existence is evident by the given file"
+   },
+   {
+    "spdxElementId": "SPDXRef-Package-6d5b9f58339a4d978f946365cf917a09",
     "relatedSpdxElement": "SPDXRef-Package-91932a7786f1cc7c626197d1302ff152",
     "relationshipType": "GENERATED_FROM"
    }

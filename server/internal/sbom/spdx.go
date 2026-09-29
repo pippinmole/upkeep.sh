@@ -21,6 +21,13 @@ import (
 //     entries that aren't also an installed binary (glibc, gcc-14) are
 //     dropped: their dpkg evidence names only other packages. They are
 //     still covered through the binaries built from them.
+//   - The same for apk: binaries are GENERATED_FROM an entry for their
+//     origin (libssl3, libcrypto3 -> openssl), and origins that aren't
+//     installed (openssl, krb5, alpine-base in postgres:17-alpine: 16 of
+//     61 entries) are listed as apk packages too. apk has one database
+//     file, so the evidence can't tell them apart; the files can: an
+//     installed origin (alpine-baselayout, busybox) CONTAINS files of its
+//     own, a source-only one only files its binaries CONTAIN as well.
 //   - Docker Scout scopes distro purls with os_name / os_version /
 //     os_distro qualifiers; Syft with distro=<id>-<version>. Neither
 //     wrote an OPERATING-SYSTEM package, but newer generators may, and
@@ -83,12 +90,22 @@ func parseSPDX(b []byte) (*Document, error) {
 	}
 	generatedFrom := map[string]string{} // binary id -> source id
 	isSource := map[string]bool{}
-	evidence := map[string][]string{} // package id -> file names
+	binaries := map[string][]string{}        // source id -> binary ids
+	contains := map[string]map[string]bool{} // package id -> file ids
+	evidence := map[string][]string{}        // package id -> file names
 	for _, r := range d.Relationships {
 		switch {
 		case r.Type == "GENERATED_FROM":
 			generatedFrom[r.Element] = r.Related
 			isSource[r.Related] = true
+			if r.Element != r.Related {
+				binaries[r.Related] = append(binaries[r.Related], r.Element)
+			}
+		case r.Type == "CONTAINS":
+			if contains[r.Element] == nil {
+				contains[r.Element] = map[string]bool{}
+			}
+			contains[r.Element][r.Related] = true
 		case r.Type == "OTHER" && strings.HasPrefix(r.Comment, "evident-by"):
 			if f, ok := files[r.Related]; ok {
 				evidence[r.Element] = append(evidence[r.Element], f)
@@ -122,6 +139,9 @@ func parseSPDX(b []byte) (*Document, error) {
 			continue
 		}
 		if isSource[p.SPDXID] && u.Type == "deb" && debSourceOnly(u.Name, evidence[p.SPDXID]) {
+			continue
+		}
+		if isSource[p.SPDXID] && u.Type == "apk" && filesCovered(contains, p.SPDXID, binaries[p.SPDXID]) {
 			continue
 		}
 		if src, ok := purls[generatedFrom[p.SPDXID]]; ok && src.Type == u.Type && u.Qualifier("upstream") == "" {
@@ -161,6 +181,29 @@ func debSourceOnly(name string, evidence []string) bool {
 		}
 	}
 	return info && !own
+}
+
+// filesCovered reports whether every file the source entry id CONTAINS is
+// also CONTAINed by one of its binaries: the entry is only an origin,
+// not an installed package (an installed one has files of its own). An
+// entry with no binaries is never covered.
+func filesCovered(contains map[string]map[string]bool, id string, binaries []string) bool {
+	if len(binaries) == 0 {
+		return false
+	}
+	for f := range contains[id] {
+		covered := false
+		for _, b := range binaries {
+			if contains[b][f] {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return false
+		}
+	}
+	return true
 }
 
 // sourceInfoPaths reads Syft's "acquired package info from <what>: <path>,
