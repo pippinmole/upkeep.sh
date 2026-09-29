@@ -147,9 +147,28 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       as EOL. Live: 3,480 advisories, ~3,100-3,400 affected rows per
       branch. Alpine's feed has **fixed** CVEs only: secdb doesn't track
       unfixed ones, so an Alpine package is never "affected, no fix".)
-- [ ] End-of-life base images (e.g. `debian:buster`): show "release out
+- [x] End-of-life base images (e.g. `debian:buster`): show "release out
       of support, not assessed" rather than hiding them or claiming
-      clean.
+      clean. (Done 2026-09-29, migration 0019, `matcher.Version` 3;
+      DOMAIN_MODEL.md §2.5 "As built", §2.6, §3.8. `matcher.Assessed`
+      takes the release's `distro_releases.supported`: a release out of
+      support or not listed counts every distro package as not
+      assessed, so the image is never clean. 0019 lists Debian 8-10,
+      Ubuntu 14.04/16.04/18.04 and the EOL interim releases, Alpine
+      3.14-3.18, unsupported with EOL dates. Dashboard: "Release out of
+      support" + release + EOL date in score cells, image header and
+      note, Packages tab titles, and a count on the Overview. Real data:
+      `node:18-buster-slim` (attestation, 318 packages) and
+      `debian:bullseye-slim` went from 199 / 0 not assessed (bullseye
+      scored clean) to 318 / 96.)
+- [ ] Host packages on an end-of-life release have the same gap: a host
+      on Debian 10 / 11 gets no findings (no advisories imported) and
+      looks clean. Show the host's release support on the host page
+      and the Overview.
+- [ ] Re-score image lists when a release's `distro_releases.supported`
+      flips (today only a `matcher.Version` bump or a list rewrite
+      re-scores; a data migration that ends a release's support should
+      bump it or clear the affected `image_sbom_scores`).
 - [ ] Language ecosystems, one at a time, each with its OSV feed and
       comparator: likely npm, PyPI, Go, then crates.io / Maven. Until an
       ecosystem is added its packages are listed but marked "not

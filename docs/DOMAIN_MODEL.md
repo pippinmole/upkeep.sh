@@ -575,16 +575,24 @@ ecosystem (npm, PyPI, Go: task G) is one comparator plus its feed.
   (source, source version) as interned (apk: the origin from the purl's
   `upstream` qualifier, else the binary name, `source_inferred`); the
   kernel mapping and Ubuntu Pro channels stay deb-only.
-- `matcher.Assessed(ecosystem, distro, release)` is the single answer to
-  "is this package matched at all" (for "not assessed" counts): `deb` on
-  debian/ubuntu and `apk` on alpine, with a release. Whether that
-  release is supported (end of life) is data: join `distro_releases`.
+- `matcher.Assessed(ecosystem, distro, release, supported)` is the
+  single answer to "is this package matched at all" (for "not assessed"
+  counts): `deb` on debian/ubuntu and `apk` on alpine, with a release
+  that `distro_releases` lists as supported. Advisories are imported
+  only for supported releases, so a release out of support (Debian 10
+  buster) or one not in `distro_releases` matches nothing and its
+  packages are "not assessed", never "no vulnerabilities"
+  (`matcher.ReleaseStatus`: supported / out_of_support / unknown).
+  Migration 0019 lists common end-of-life Debian, Ubuntu and Alpine
+  releases (`supported = false`, with their EOL date) so the dashboard
+  can say "out of support since ..." rather than "not recognised".
 - The store joins `advisory_affected` on (distro, release,
   source_package) exactly as for deb: an apk package in an Alpine 3.22
   image is (`alpine`, `3.22`, origin).
 - `matcher.Version` 2: apk versions interned before this were stamped
   "evaluated, nothing to match" under 1; the bump re-evaluates them.
-  deb results are unchanged.
+  deb results are unchanged. 3: `Assessed` needs a supported release;
+  matches are unchanged, the bump re-scores image lists.
 - Host findings (`findings.Build`) still pick the lowest installed
   version with debversion; hosts only send deb today.
 
@@ -761,8 +769,9 @@ queues `reconcile_host` for hosts having such an image
 - *Scores*: `image_sbom_scores` per list (so identical for every user
   seeing it): worst bucket, counts per bucket, top `severity_key`, KEV
   count, fixable count, max CVSS, package count and `not_assessed_count`
-  (packages outside `matcher.Assessed(ecosystem, distro, release)`, the
-  single Go list of assessed ecosystems). Computed in Go
+  (packages outside `matcher.Assessed`, the single Go list of assessed
+  ecosystems, including every distro package of a release out of support
+  or unknown). Computed in Go
   (`findings.ScoreOf`, the finding grouping) because buckets come from
   `severity.Assess`; never written while versions are unevaluated.
   `image_score_sweep` (worker start + matcher cadence) scores lists whose
@@ -1116,8 +1125,8 @@ through `image_sbom_effective(user)`, never by list id.
   effective list, server-driven DataTable (`?q` name/source/path, facets
   `?ecosystem=` and `?status=vulnerable,not-assessed,pending,no-known`,
   `?sort=status|name|ecosystem`, paging). Not assessed = outside
-  `matcher.Assessed` (mirrored in `web/src/lib/assessed.ts`) or a distro
-  release with `distro_releases.supported` false: never "no
+  `matcher.Assessed` (mirrored in `web/src/lib/assessed.ts`, which
+  takes the release's `distro_releases.supported` too): never "no
   vulnerabilities".
 - *Vulnerabilities tab* (`queries-image-vulns.ts`): the effective
   list's `image_sbom_vulns` rows (§2.6 "Image findings and scores"), one
@@ -1138,8 +1147,13 @@ through `image_sbom_effective(user)`, never by list id.
   digest) needs the agent, `unavailable` with its reason verbatim
   ("private or local image, needs the agent", "registry has no SBOM
   attestation for this image", ...), error with the retry time, release
-  not assessed (distro not imported, release out of support or unknown),
-  matching in progress (list ok, score not current).
+  not assessed (release out of support with its EOL date, release not
+  recognised, or distro not imported), matching in progress (list ok,
+  score not current). The same "release out of support" state (never the
+  green "no known vulnerabilities") is what score cells, the image
+  header and the Overview's container images section show
+  (`imageScoreState` kind `release_not_assessed`; the Overview counts
+  such images apart from scored ones).
 
 **Score columns** (`components/image/score-cell.tsx`, `ImageScoreCell`):
 worst bucket with its count, KEV count, total and max CVSS, or the state
