@@ -13,6 +13,8 @@ package target
 import (
 	"io/fs"
 	"os"
+	"path"
+	"strings"
 )
 
 // Mode is how the agent reaches a target. Values match agent_hosts.mode in
@@ -72,8 +74,10 @@ type ProcFiles interface {
 
 // Local is the agent's own host.
 type Local struct {
-	fsys     fs.FS
-	procRoot string
+	fsys      fs.FS
+	hostRoot  string
+	extraRoot string
+	procRoot  string
 }
 
 // NewLocal returns the local target whose filesystem is visible at
@@ -86,7 +90,42 @@ type Local struct {
 // container's root, not hostRoot. Collectors therefore read canonical
 // paths (run/..., not var/run/...) rather than rely on host symlinks.
 func NewLocal(hostRoot, procRoot string) *Local {
-	return &Local{fsys: os.DirFS(hostRoot), procRoot: procRoot}
+	return &Local{fsys: os.DirFS(hostRoot), hostRoot: hostRoot, procRoot: procRoot}
+}
+
+// NewLocalWithExtra is NewLocal for the Docker deployment: the host's /
+// bound non-recursively at hostRoot, plus ExtraPaths bound under
+// extraRoot (see hostmounts.go). Paths missing from extraRoot fall back to
+// hostRoot, so an older compose file without the extra binds still works
+// wherever those directories sit on the root filesystem.
+func NewLocalWithExtra(hostRoot, extraRoot, procRoot string) *Local {
+	return &Local{fsys: newHostFS(hostRoot, extraRoot), hostRoot: hostRoot, extraRoot: extraRoot, procRoot: procRoot}
+}
+
+// HostRoot is where the host's / is visible ("/" on bare metal).
+func (l *Local) HostRoot() string { return l.hostRoot }
+
+// BareMetal reports whether the agent runs directly on the host (host
+// root "/"), where every host path is visible as is.
+func (l *Local) BareMetal() bool { return l.hostRoot == "/" }
+
+// MissingHint explains a path that every host of its kind has but that
+// isn't visible: in a container that means the agent's mounts. On bare
+// metal the path is genuinely missing, so there is no hint.
+func (l *Local) MissingHint(name string) string {
+	if l.hostRoot == "" || l.BareMetal() {
+		return ""
+	}
+	where := l.hostRoot
+	if l.extraRoot != "" {
+		for _, p := range ExtraPaths {
+			if name == p || strings.HasPrefix(name, p+"/") {
+				where += " or " + path.Join(l.extraRoot, p)
+				break
+			}
+		}
+	}
+	return name + " not visible under " + where + "; check the agent's mounts (agent/docker-compose.example.yml)"
 }
 
 func (l *Local) Ref() string      { return LocalRef }
