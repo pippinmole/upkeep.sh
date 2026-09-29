@@ -277,11 +277,11 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       `create_host_path: false`, and extend `agent/test/host-mount/run.sh`
       to check that neither directory carries a reachable socket
       (containerd keeps its sockets in `/run`, but check).
-- [ ] Verification: compare our results with `docker scout cves` /
+- [x] Verification: compare our results with `docker scout cves` /
       Trivy / Grype on a fixed set of images (`postgres:17`,
       `nginx:1.27`, an Alpine variant, an EOL `debian:buster` image)
       and explain every difference.
-      (Checked 2026-09-30, not ticked yet:
+      (Done 2026-09-30:
       [Image vulnerability verification](../decisions/image-vuln-verification.md).
       linux/arm64, pinned digests, plus `node:22-bookworm-slim` for
       npm; Trivy 0.74.0 and Grype 0.119.0, `docker scout cves` needs a
