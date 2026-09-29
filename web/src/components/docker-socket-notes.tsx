@@ -7,6 +7,8 @@
 
 export const DOCKER_SOCKET_MOUNT = "-v /var/run/docker.sock:/var/run/docker.sock";
 
+export { HOST_MOUNTS, HOST_EXTRA_PATHS } from "@/lib/host-mounts";
+
 export function DockerSocketGrant() {
   return (
     <>

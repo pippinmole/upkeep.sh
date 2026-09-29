@@ -1,6 +1,7 @@
 "use server";
 
 import { randomBytes } from "crypto";
+import { resolveAgentImage } from "@/lib/agent-image";
 import { auth } from "@/lib/auth";
 import { pool } from "@/lib/db";
 
@@ -13,10 +14,12 @@ export async function createEnrollmentToken(agentName?: string | null): Promise<
 }
 
 // createEnrollmentToken plus the database's issue time, which
-// getEnrollmentStatus takes (so browser clock skew doesn't matter).
+// getEnrollmentStatus takes (so browser clock skew doesn't matter), and
+// the agent image for the install command (lib/agent-image.ts, resolved
+// here on the server so SW_AGENT_IMAGE works at runtime).
 export async function issueEnrollmentToken(
   agentName?: string | null,
-): Promise<{ token: string; issuedAt: string }> {
+): Promise<{ token: string; issuedAt: string; agentImage: string }> {
   const session = await auth();
   if (!session?.user?.id) throw new Error("not authenticated");
 
@@ -28,7 +31,7 @@ export async function issueEnrollmentToken(
      RETURNING created_at`,
     [token, session.user.id, name || null],
   );
-  return { token, issuedAt: rows[0].created_at.toISOString() };
+  return { token, issuedAt: rows[0].created_at.toISOString(), agentImage: resolveAgentImage() };
 }
 
 export type EnrollmentStatus =

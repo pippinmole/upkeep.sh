@@ -11,6 +11,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"strings"
 	"time"
 
 	"github.com/pippinmole/upkeep.sh/agent/internal/collector"
@@ -192,6 +194,11 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 	if isLinux {
 		svcs, truncated, err := collector.CollectSystemdServices(t.FS(), units)
 		switch {
+		case errors.Is(err, collector.ErrNoSystemd) && pid1IsSystemd(procFS, hasProcFiles):
+			// The host runs systemd, so its unit directories exist: the
+			// agent just can't see them.
+			status[collector.CollectorSystemdServices] = collector.Failed(target.NotVisible(t,
+				&fs.PathError{Op: "readdir", Path: "etc/systemd/system", Err: fs.ErrNotExist}))
 		case errors.Is(err, collector.ErrNoSystemd):
 			status[collector.CollectorSystemdServices] = collector.Skipped(err.Error())
 		case err != nil:
@@ -203,7 +210,7 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 
 		users, truncated, err := collector.CollectLocalUsers(t.FS())
 		if err != nil {
-			status[collector.CollectorLocalUsers] = collector.Failed(err)
+			status[collector.CollectorLocalUsers] = collector.Failed(target.NotVisible(t, err))
 		} else {
 			snap.Users = users
 			status[collector.CollectorLocalUsers] = collector.OKTruncated(truncated)
@@ -233,7 +240,7 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 		if err == nil {
 			facts.UnattendedUpgrades = &uu
 		}
-		status[collector.CollectorUnattendedUpgrades] = result(err)
+		status[collector.CollectorUnattendedUpgrades] = result(target.NotVisible(t, err))
 	} else {
 		status[collector.CollectorUnattendedUpgrades] = collector.Skipped("apt is Debian/Ubuntu only")
 	}
@@ -244,9 +251,23 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 	// The reboot-required flag file is a Debian/Ubuntu convention; its
 	// absence elsewhere would read as a false "no reboot pending".
 	if isLinux && osInfo.Like("debian", "ubuntu") {
-		req, pkgs, err := collector.CollectRebootRequired(t.FS())
-		snap.RebootRequired, snap.RebootPackages = req, pkgs
-		status[collector.CollectorRebootRequired] = result(err)
+		// Without the host's /run (the Docker deployment doesn't mount it)
+		// this is derived from the running kernel vs dpkg's kernels.
+		runVisible := true // remote targets read the real /run
+		if rv, ok := t.(interface{ RunVisible() bool }); ok {
+			runVisible = rv.RunVisible()
+		}
+		r, err := collector.CollectRebootRequired(t.FS(), runVisible, snap.OS.Kernel, debPkgs)
+		switch {
+		case errors.Is(err, collector.ErrRebootUnknown):
+			// Unknown, not "no reboot pending".
+			status[collector.CollectorRebootRequired] = collector.Skipped(err.Error())
+		case err != nil:
+			status[collector.CollectorRebootRequired] = collector.Failed(err)
+		default:
+			snap.RebootRequired, snap.RebootPackages, snap.RebootSource = r.Required, r.Packages, r.Source
+			status[collector.CollectorRebootRequired] = collector.OK()
+		}
 	} else {
 		status[collector.CollectorRebootRequired] = collector.Skipped("no pending-reboot source for this OS")
 	}
@@ -268,7 +289,35 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 
 	snap.Docker = c.collectDocker(ctx, t, isLinux, notLinux, status)
 
+	status[collector.CollectorHostMount] = c.hostMountStatus(t)
+
 	return snap
+}
+
+// hostMountStatus reports host sockets reachable under the local target's
+// host root: the host mount must not carry them (docker-compose.example.yml).
+func (c *Collector) hostMountStatus(t target.Target) collector.CollectorStatus {
+	l, ok := t.(*target.Local)
+	switch {
+	case !ok || t.Mode() != target.ModeLocal:
+		return collector.Skipped("only meaningful for the local host")
+	case l.BareMetal():
+		return collector.Skipped("agent runs on the host (SW_HOST_ROOT=/)")
+	}
+	if socks := l.ReachableSockets(c.DockerSocket); len(socks) > 0 {
+		return collector.Failed(errors.New(l.SocketWarning(socks)))
+	}
+	return collector.OK()
+}
+
+// pid1IsSystemd reports whether the target's PID 1 is systemd, from its
+// procfs (false when there is none).
+func pid1IsSystemd(procFS fs.FS, ok bool) bool {
+	if !ok {
+		return false
+	}
+	b, err := fs.ReadFile(procFS, "1/comm")
+	return err == nil && strings.TrimSpace(string(b)) == "systemd"
 }
 
 func result(err error) collector.CollectorStatus {

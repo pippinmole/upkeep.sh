@@ -90,6 +90,48 @@ Dokploy's domains at the `web` service (port 3000) and `api` service
 Then deploy `agent/docker-compose.example.yml` on each host you want
 monitored, with `SW_SERVER_URL` set to your platform's public API URL.
 
+### What the agent container can see of the host
+
+The agent reads filesystem facts (dpkg database, os-release, apt state,
+systemd units) from a read-only view of the host under `/host`. Keep the
+mounts as `agent/docker-compose.example.yml` has them, and don't
+"simplify" them to `- /:/host:ro`:
+
+- The host's `/` is bound at `/host` **non-recursively**
+  (`bind: recursive: disabled`, or `--mount
+  type=bind,src=/,dst=/host,readonly,bind-recursive=disabled` with
+  `docker run`). A plain `-v /:/host:ro` is recursive, so it also
+  carries the `/run` tmpfs with `docker.sock`, containerd, D-Bus and
+  systemd's private socket. `:ro` doesn't stop `connect()` on a socket,
+  so that mount alone is root on the host, Docker collection or not.
+- The directories the collectors need that are often on a separate
+  mount (`/var/lib/dpkg`, `/var/lib/apt`, `/run/systemd/system`) are
+  bound one by one, read-only, under `/host-extra`, with
+  `create_host_path: false` so a missing one is an error rather than a
+  new empty directory on the host. `/run` and `/var` are never bound
+  whole. The `/run/reboot-required` flag lives on the same tmpfs as the
+  sockets, so it isn't mounted: the agent works out a pending reboot
+  from the running kernel and the installed `linux-image-*` packages.
+
+Docker versions: the Compose file needs a Compose that supports
+`bind.recursive` (tested with Compose v5.5.1); the engine has honoured
+non-recursive binds since 19.03 (tested on Docker Engine 24.0.9 and
+29.8.1). With `docker run`, `bind-recursive=disabled` needs docker CLI 25
+or later; the docker 24 CLI rejects it ("unexpected key") and takes
+`bind-nonrecursive=true` instead.
+
+The agent checks this itself. If any host socket is reachable under
+`/host`, it logs a `WARN:` at startup, before enrolling, and reports the
+`host_mount` collector as an error on the host page. To check a host by
+hand (exit 1 if a socket is reachable):
+
+```sh
+docker compose run --rm upkeep-agent check-mounts
+```
+
+CI runs the same check against the compose example itself
+(`.github/workflows/host-mount.yml`, `agent/test/host-mount/run.sh`).
+
 ### Docker collection (optional)
 
 The agent can inventory a host's Docker containers, images, networks and
@@ -175,7 +217,10 @@ reporting (SOC2/CIS), Windows/macOS support, log analysis/SIEM.
   combine listeners, firewall config and Docker's published ports, and
   say "not protected by the host firewall" rather than guess "public".
 - **Docker socket = root**: with Docker collection enabled (opt-in),
-  the agent is root-equivalent on that host. Its code only makes a
+  the agent is root-equivalent on that host. Without it, the agent can't
+  reach any host control socket, as long as the host's `/` is bound
+  non-recursively (checked at startup and in CI; see "What the agent
+  container can see of the host"). Its code only makes a
   fixed list of reads, and releases must be signed and
   pinned, since a malicious release is the realistic threat (see
   docs/decisions/docker-collection.md).

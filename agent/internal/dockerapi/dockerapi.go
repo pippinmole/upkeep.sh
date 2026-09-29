@@ -17,9 +17,10 @@
 //
 // The engine is reached only through the configured socket path, never via
 // DOCKER_HOST or other DOCKER_* variables, Docker contexts or config.json:
-// with the Docker deployment's /:/host mount, the host's socket is also
-// reachable at /host/run/docker.sock, and the agent must not find it there
-// when Docker collection hasn't been enabled.
+// the socket must be the one deliberately mounted for Docker collection.
+// (The host's own /run/docker.sock isn't under /host at all: the Docker
+// deployment binds the host's / non-recursively, and the host_mount
+// self-check reports it if a recursive mount ever makes it reachable.)
 package dockerapi
 
 import (

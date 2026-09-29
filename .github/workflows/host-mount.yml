@@ -1,0 +1,36 @@
+# Checks that the agent container, mounted exactly as
+# agent/docker-compose.example.yml says, can't reach any host control
+# socket (docker.sock, containerd, D-Bus, systemd) under /host, and that
+# the Docker opt-in line still gives it the Docker socket. The job drives
+# the compose example itself, so it can't drift from the docs; see
+# agent/test/host-mount/run.sh. The job `name:` is a required check, so
+# keep it stable. Actions are pinned by commit SHA (tag in the comment).
+name: Host mount
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: host-mount-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host-mount:
+    name: Agent host mount (no host sockets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Docker and Compose versions
+        run: |
+          docker version --format 'engine {{.Server.Version}} (API {{.Server.APIVersion}})'
+          docker compose version
+      - name: Check the compose example's mounts
+        run: agent/test/host-mount/run.sh agent/docker-compose.example.yml

@@ -43,6 +43,12 @@ type Snapshot struct {
 	ListeningSockets []Socket  `json:"listening_sockets"`
 	RebootRequired   bool      `json:"reboot_required"`
 	RebootPackages   []string  `json:"reboot_required_packages,omitempty"`
+	// RebootSource says which signal reboot_required came from:
+	// "flag_file" (/run/reboot-required was readable) or "kernel" (a newer
+	// kernel than the running one is installed; also used when the flag
+	// file isn't visible). Omitted when the collector isn't ok. Added
+	// without a schema bump.
+	RebootSource string `json:"reboot_required_source,omitempty"`
 
 	// PublicIPv4 / PublicIPv6 are the agent's own best-effort belief about
 	// its public address(es), looked up via an outbound third-party call
@@ -135,6 +141,12 @@ const (
 	CollectorLocalUsers         = "local_users"
 	CollectorDeletedLibs        = "deleted_libs"
 	CollectorUnattendedUpgrades = "unattended_upgrades"
+
+	// CollectorHostMount is the agent's own deployment check, not a host
+	// fact: ok when no host unix socket is reachable under the host root
+	// (target.Local.ReachableSockets), error listing them otherwise,
+	// skipped on remote targets and bare metal. It owns no section.
+	CollectorHostMount = "host_mount"
 
 	// Docker collectors (local targets with the socket mounted; skipped
 	// with a reason otherwise). docker_engine owns docker.engine and

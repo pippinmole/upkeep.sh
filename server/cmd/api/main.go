@@ -17,6 +17,10 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
+// version is the build version, set at build time with
+// -ldflags "-X main.version=..." (server/Dockerfile's VERSION build arg).
+var version = "dev"
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -82,7 +86,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("api listening on %s", addr)
+		log.Printf("api %s listening on %s", version, addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("serve: %v", err)
 		}

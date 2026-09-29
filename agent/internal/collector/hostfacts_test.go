@@ -1,7 +1,9 @@
 package collector
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -193,9 +195,15 @@ APT::Periodic::Update-Package-Lists "1";
 	}
 
 	// Nothing configured, inventory unknown.
-	got, err = CollectUnattendedUpgrades(fstest.MapFS{}, nil)
+	got, err = CollectUnattendedUpgrades(fstest.MapFS{"var/lib/apt": {Mode: 0o755 | os.ModeDir}}, nil)
 	if err != nil || got.Enabled || got.PackageInstalled != nil || got.LastAptUpdate != "" {
 		t.Errorf("empty host: %+v, %v", got, err)
+	}
+
+	// No var/lib/apt at all on an apt host: not visible (e.g. a separate
+	// /var the agent's mounts don't carry), an error, not empty facts.
+	if _, err = CollectUnattendedUpgrades(fstest.MapFS{}, nil); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("no var/lib/apt: err = %v, want ErrNotExist", err)
 	}
 }
 

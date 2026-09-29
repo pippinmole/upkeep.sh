@@ -6,9 +6,47 @@
 #
 # pid: host + network_mode: host let the agent read the REAL host's
 # process table and listening sockets (not the container's own).
-# /:/host:ro is a read-only bind mount used only for filesystem facts
-# (dpkg database, os-release, reboot-required flag) that aren't
-# visible through the host namespaces above.
+#
+# The host filesystem is mounted read-only for filesystem facts (dpkg
+# database, os-release, systemd units, apt state) that aren't visible
+# through the host namespaces above. It is bound in two parts, and the
+# split is deliberate — do not replace it with a plain `- /:/host:ro`:
+#
+#   - The host's / at /host, bound NON-recursively
+#     (bind-recursive=disabled). A plain recursive `-v /:/host:ro` also
+#     exposes every mount nested under /, including the sockets on the
+#     /run tmpfs: /host/run/docker.sock, containerd, systemd's private
+#     socket and D-Bus. `:ro` does NOT stop connect() on a socket, so a
+#     recursive mount is full Docker/root access to the host whether or
+#     not Docker collection (below) is enabled — it makes opting out of
+#     Docker meaningless. bind-recursive=disabled carries only the root
+#     filesystem, so none of those sockets appear under /host.
+#   - The few directories the collectors read that live on a SEPARATE
+#     mount are bound one by one, read-only, under /host-extra (NOT
+#     inside /host: a mountpoint nested in the read-only /host bind can't
+#     be created when its parent is a separate mount). /run is a tmpfs
+#     and /var is often its own filesystem, so var/lib/dpkg, var/lib/apt
+#     and run/systemd/system are listed explicitly. Never bind /run or
+#     /var wholesale: the sockets live directly on /run, and the LXD
+#     socket on /var.
+#
+# The agent's /run/reboot-required flag file sits on the /run tmpfs next
+# to the sockets, so it is intentionally NOT mounted; the agent instead
+# derives a pending reboot by comparing the running kernel with the
+# installed linux-image-* packages (docs/PROTOCOL.md).
+#
+# Docker versions: `bind: recursive: disabled` needs a Compose that
+# supports the key (checked with Compose v5.5.1). The engine side is
+# BindOptions.NonRecursive, honoured since Docker Engine 19.03 (checked on
+# 24.0.9 and 29.8.1). For `docker run`, the flag is
+# bind-recursive=disabled from docker CLI 25 on; a docker 24 CLI rejects
+# that ("unexpected key") and wants bind-nonrecursive=true instead, which
+# CLI 25+ rejects in turn. Only an engine older than 19.03 would ignore it
+# and silently mount recursively. Whatever the cause, the agent checks at
+# startup: if any host socket is reachable under /host it logs a WARN and
+# reports the host_mount collector as an error. To check a host by hand:
+#   docker compose run --rm upkeep-agent check-mounts
+# (exit 1 if any socket is reachable).
 #
 # upkeep-agent-data is the agent's persistent data directory (a folder):
 # credentials.json and the agent's SSH key for remote hosts (ssh/). Keep
@@ -17,7 +55,7 @@
 # key instead, mount it read-only and set SW_SSH_KEY_FILE to its path.
 services:
   upkeep-agent:
-    image: ghcr.io/icondesk/upkeep-agent:latest
+    image: ghcr.io/pippinmole/upkeep-agent:0.1.0
     restart: unless-stopped
     pid: host
     network_mode: host
@@ -27,7 +65,39 @@ services:
     cap_drop:
       - ALL
     volumes:
-      - /:/host:ro
+      # The host's / at /host, non-recursively (see the note above).
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          recursive: disabled
+      # Directories the collectors read that may be on a separate mount,
+      # each bound read-only under /host-extra. Keep this list in step
+      # with target.ExtraPaths in the agent. create_host_path: false makes
+      # a missing source an error instead of Docker silently creating an
+      # empty directory on the host (an empty /run/systemd/system would
+      # make other software think the host boots with systemd). On a host
+      # without dpkg/apt (not Debian/Ubuntu) or without systemd, delete
+      # the matching entry; the collector then reports what isn't visible.
+      - type: bind
+        source: /var/lib/dpkg
+        target: /host-extra/var/lib/dpkg
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /var/lib/apt
+        target: /host-extra/var/lib/apt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/systemd/system
+        target: /host-extra/run/systemd/system
+        read_only: true
+        bind:
+          create_host_path: false
       - upkeep-agent-data:/var/lib/upkeep
       # Optional: Docker containers and images (off by default).
       #
@@ -64,6 +134,13 @@ services:
       # rootful engine), also add the socket's group id, as shown by
       # `stat -c %g <socket>`, e.g.:
       #   group_add: ["1000"]
+      #
+      # Unlike the /host binds above, this is the one socket the agent is
+      # meant to reach: it is mounted at its own path, not under /host, so
+      # the startup self-check and the host_mount collector don't flag it.
+      # (A future agent-side image scan, Phase 2a, will additionally bind
+      # /var/lib/docker and /var/lib/containerd read-only under /host-extra
+      # here; not built yet.)
       #
       # - /var/run/docker.sock:/var/run/docker.sock
     environment:

@@ -8,5 +8,14 @@ assumed from training data. **This will drift.** Re-audit periodically
 rather than assuming pins in this repo stay current; don't trust a
 memory or doc snapshot of "latest" over checking again.
 
-One deliberate non-bump: `server/Dockerfile`'s runtime stage stays on
-`alpine:3.20` — out of scope of the last audit pass, not yet re-checked.
+Last re-audit: 2026-09-29, against Docker Hub tags
+(`registry.hub.docker.com/v2/repositories/<repo>/tags`), go.dev/dl,
+nodejs.org's `dist/index.json` + the nodejs/Release schedule, and the
+oven-sh/bun GitHub releases:
+
+- `server/Dockerfile` runtime: `alpine:3.20` → `alpine:3.24` (3.24.2 is
+  the newest tag; no 3.25 exists yet).
+- `golang:1.27.1-alpine` (agent, server build): current (Go 1.27.1).
+- `oven/bun:1.4.2-alpine` (web build): current (bun v1.4.2).
+- `node:24-alpine` (web runtime): kept. Node 24 is still Active LTS
+  (v24.21.0); Node 26 isn't LTS until 2026-10-28, so revisit after that.

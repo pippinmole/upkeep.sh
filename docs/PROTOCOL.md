@@ -98,7 +98,8 @@ Content-Type: application/json
     "systemd_services": { "status": "ok" },
     "local_users":     { "status": "ok" },
     "deleted_libs":    { "status": "ok" },
-    "unattended_upgrades": { "status": "ok" }
+    "unattended_upgrades": { "status": "ok" },
+    "host_mount":      { "status": "ok" }
   },
   "packages": [
     { "name": "libssl3", "version": "3.0.2-0ubuntu1.15", "arch": "amd64",
@@ -111,6 +112,7 @@ Content-Type: application/json
   ],
   "reboot_required": false,
   "reboot_required_packages": [],
+  "reboot_required_source": "kernel",
   "public_ipv4": "203.0.113.7",
   "public_ipv6": "2001:db8::1"
 }
@@ -205,7 +207,7 @@ Collector names and the sections they own:
 | `deb_packages` | `packages` entries with `ecosystem: "deb"` | Debian-like Linux (`ID` or `ID_LIKE` contains `debian`/`ubuntu`) |
 | `tcp_listeners` | `listening_sockets` entries with `proto` `tcp`/`tcp6` | Linux with live procfs (local target) |
 | `udp_listeners` | `listening_sockets` entries with `proto` `udp`/`udp6` | Linux with live procfs (local target) |
-| `reboot_required` | `reboot_required`, `reboot_required_packages` | Debian-like Linux |
+| `reboot_required` | `reboot_required`, `reboot_required_packages`, `reboot_required_source` | Debian-like Linux (`skipped` when neither signal can decide, see "Other fields") |
 | `public_ip` | `public_ipv4`, `public_ipv6` | local target (best-effort: `ok` with no IPs is normal) |
 | `uptime` | `uptime_seconds` | Linux with live procfs |
 | `arch` | `os.arch` | Linux |
@@ -213,6 +215,7 @@ Collector names and the sections they own:
 | `local_users` | `users` | Linux |
 | `deleted_libs` | `facts.needs_restart` | Linux with live procfs |
 | `unattended_upgrades` | `facts.unattended_upgrades` | Debian-like Linux |
+| `host_mount` | nothing (a health check) | the agent in a container (`skipped` on bare metal and remote targets): `error` when any host unix socket is reachable under the host root, listing them and the fix |
 
 A collector whose list hit the agent's size cap reports
 `{"status": "ok", "truncated": true}` and sends a deterministic prefix
@@ -220,6 +223,20 @@ A collector whose list hit the agent's size cap reports
 only**: it opens and replaces rows, never closes one it doesn't list.
 Caps: 1000 listeners per transport, 2000 services, 2000 users, 200
 processes × 20 libraries for `needs_restart`.
+
+In the container deployment the agent reads the host's files through
+`/host` (the host's `/`, bound non-recursively) and `/host-extra`
+(`var/lib/dpkg`, `var/lib/apt`, `run/systemd/system`; see
+`agent/docker-compose.example.yml`). A file a collector needs that isn't
+visible there is an `error` naming the path and the mount to check
+(`deb_packages`, `local_users`, `unattended_upgrades`, and
+`systemd_services` when PID 1 is systemd), never an empty `ok`.
+`host_mount` owns no section and the server stores it like any other
+status (`snapshots.collector_status`); an `error` means the agent can
+connect to host control sockets (docker.sock, containerd, D-Bus,
+systemd) whether or not Docker collection is on. The `host_mount`
+collector and `reboot_required_source` are additive: older servers
+ignore them, and older agents simply don't send them.
 
 Future package sources (rpm, apk, Windows programs, Homebrew…) each add
 their own `<ecosystem>_packages`-style collector and their own
@@ -583,11 +600,35 @@ data. `truncated` (or a server cap) makes a section additive.
 
 ### Other fields
 
-`reboot_required` / `reboot_required_packages` come from the host's
-`/run/reboot-required{,.pkgs}`. The agent reads `/run` directly, not
-`/var/run`: on modern hosts `/var/run` is an absolute symlink to `/run`,
-which under the `/:/host` bind mount would resolve inside the agent's own
-container.
+`reboot_required` / `reboot_required_packages` come from two signals,
+and the optional `reboot_required_source` (`"flag_file"` or `"kernel"`,
+omitted by older agents; the server doesn't store it) says which one
+decided:
+
+- **The flag file** `/run/reboot-required{,.pkgs}`, read only when the
+  host's `/run` is visible: bare metal, remote (SSH) targets, and a
+  recursive host mount. The container deployment deliberately doesn't
+  mount `/run` (its tmpfs holds the host's control sockets); the agent
+  tells by device (`/host/run` on the same device as `/host` means the
+  tmpfs isn't there, whatever stale directories the root filesystem has
+  under it). When visible, it decides (`flag_file`); a missing file is
+  the normal "no reboot pending". The agent reads `/run` directly, not
+  `/var/run`, which is an absolute symlink to `/run` on modern hosts and
+  would resolve inside the agent's own container.
+- **The kernel**: a reboot is pending when dpkg has a newer
+  `linux-image-[unsigned-]<release>` package of the running kernel's
+  flavour (e.g. `generic`) installed than the running one
+  (`/proc/sys/kernel/osrelease`), by Debian version ordering. The newer
+  kernel packages go in `reboot_required_packages`. It decides when the
+  flag file isn't visible, and is OR-ed in when it is (`kernel` is then
+  the source only when the flag file said no).
+
+When the flag file isn't visible and the kernel can't decide (the
+running kernel isn't a dpkg-installed one, or there's no package
+inventory), `reboot_required` is `skipped` with a reason starting
+"pending reboot unknown", never a false "no". The kernel signal covers
+kernels only: a pending reboot flagged for another package (libc6, dbus)
+shows only where the flag file is visible.
 
 `public_ipv4` / `public_ipv6` are the agent's own best-effort belief about
 its public address(es) (looked up via an outbound-only call to ipify, the

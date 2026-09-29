@@ -34,10 +34,16 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "check-mounts" {
+		os.Exit(checkMounts(os.Stdout))
+	}
 	serverURL := envOr("SW_SERVER_URL", "")
 	if serverURL == "" {
 		log.Fatal("SW_SERVER_URL is required")
 	}
+	// Before anything else, so it shows even if enrollment then fails.
+	local := localTarget()
+	warnReachableSockets(local, dockerSocket())
 	dataDir := resolveDataDir()
 	interval := 15 * time.Minute
 	if v := os.Getenv("SW_INTERVAL"); v != "" {
@@ -54,15 +60,11 @@ func main() {
 		log.Fatalf("enrollment failed: %v", err)
 	}
 
-	// The host the agent runs on, visible read-only under SW_HOST_ROOT
-	// (the /:/host bind mount in Docker; "/" for a bare-metal install).
-	hostRoot := envOr("SW_HOST_ROOT", "/host")
-	local := target.NewLocal(hostRoot, "/proc")
 	collect := snapshot.New()
 	collect.Agent = &collector.Agent{Version: version, Platform: platform(), IntervalSeconds: int(interval.Seconds())}
 	// Docker collection is opt-in: it runs only if the engine socket is
 	// mounted at this path (docs/decisions/docker-collection.md).
-	collect.DockerSocket = envOr("SW_DOCKER_SOCKET", dockerapi.DefaultSocket)
+	collect.DockerSocket = dockerSocket()
 	// Remote targets never touch the socket: Collect already skips Docker
 	// for any non-local target before looking at the path, and their
 	// collector has no socket configured at all.
@@ -166,5 +168,35 @@ func logCollectorErrors(t target.Target, snap collector.Snapshot) {
 		if st := snap.Collectors[name]; st.Status == collector.StatusError {
 			log.Printf("[%s] collector %s failed: %s", t.Ref(), name, st.Error)
 		}
+	}
+}
+
+// localTarget is the host the agent runs on, visible read-only under
+// SW_HOST_ROOT: in Docker the host's / bound non-recursively at /host,
+// plus the few nested directories the collectors read bound under
+// SW_HOST_EXTRA_ROOT (agent/docker-compose.example.yml); "/" for a
+// bare-metal install.
+func localTarget() *target.Local {
+	hostRoot := envOr("SW_HOST_ROOT", "/host")
+	if hostRoot == "/" {
+		return target.NewLocal(hostRoot, "/proc")
+	}
+	return target.NewLocalWithExtra(hostRoot, envOr("SW_HOST_EXTRA_ROOT", target.DefaultExtraRoot), "/proc")
+}
+
+func dockerSocket() string { return envOr("SW_DOCKER_SOCKET", dockerapi.DefaultSocket) }
+
+// warnReachableSockets is the startup self-check: host control sockets
+// (Docker, containerd, systemd, D-Bus...) must not be reachable under the
+// host root, or opting out of Docker collection means nothing. It is also
+// reported on every push as the host_mount collector.
+func warnReachableSockets(l *target.Local, dockerSocket string) {
+	socks := l.ReachableSockets(dockerSocket)
+	if len(socks) == 0 {
+		return
+	}
+	log.Printf("WARN: %s", l.SocketWarning(socks))
+	for _, s := range socks {
+		log.Printf("WARN: reachable host socket: %s", filepath.Join(l.HostRoot(), s))
 	}
 }

@@ -1,8 +1,8 @@
 # Standalone test image for running the agent WITHOUT a host bind mount.
 #
 # The production agent/Dockerfile is `FROM scratch` and relies entirely on
-# `-v /:/host:ro` to see the real host's /etc/os-release and dpkg database
-# (see agent/docker-compose.example.yml). That's fine on a real Linux VPS,
+# its read-only /host and /host-extra binds to see the real host's
+# /etc/os-release and dpkg database (see agent/docker-compose.example.yml). That's fine on a real Linux VPS,
 # but on macOS (and Windows without WSL) there's no real Debian/Ubuntu
 # filesystem to mount — Docker Desktop's own VM isn't one either.
 #

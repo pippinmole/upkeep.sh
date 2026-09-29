@@ -69,23 +69,60 @@ storage/UI, then firewall + exposure on top.
       `/:/host` mount behave differently, so listeners (and likely
       deleted-libs) would describe the wrong namespace. Verify on a real
       host; either document it as unsupported or detect and report the
-      affected collectors `skipped`.
-- [ ] Make opting out real: `/:/host:ro` is a recursive bind, so the
-      host's `/run/docker.sock` is already reachable at
-      `/host/run/docker.sock` whether or not the socket is mounted (`:ro`
-      doesn't stop `connect()` on a socket). Reproduced 2026-09-27
-      (Docker Desktop, Engine 29.8.0) with the agent's exact hardening
-      (`cap_drop: ALL`, `no-new-privileges`, `read_only`, uid 0): `GET
-      /version` and `POST /containers/create` both succeeded. The agent
-      code never touches it. A non-recursive bind
-      (`bind-recursive=disabled`, Docker 25+) hides the socket but also
-      every nested mount: `/run` (the `reboot_required` collector reads
-      `/host/run/reboot-required{,.pkgs}`) and any separately mounted
-      `/var`, `/boot` or `/usr`. Options: non-recursive `/` plus explicit
-      read-only binds for what the collectors read (not `/run` itself,
-      it holds the socket); or masking known sockets (`docker.sock`,
-      `containerd/*.sock`, `podman/*.sock`, `/run/user/*/docker.sock`),
-      a fragile denylist. Verify on a real Ubuntu host.
+      affected collectors `skipped`. Also unverified there: that
+      rootlesskit honours the non-recursive `/` bind (the host's `/run`
+      would otherwise be reachable; the `host_mount` self-check would
+      report it), and that `/host-extra` binds of root-owned paths work.
+- [x] Make opting out real (done 2026-09-29): `/:/host:ro` was a
+      recursive bind, so the host's `/run/docker.sock` was reachable at
+      `/host/run/docker.sock` whether or not the socket was mounted
+      (`:ro` doesn't stop `connect()`). Reproduced 2026-09-27 (Docker
+      Desktop, Engine 29.8.0) and again on Ubuntu 24.04 / Engine 29.8.1
+      with the agent's exact hardening: `GET /version` and `POST
+      /containers/create` succeeded; containerd, D-Bus and systemd's
+      private socket were present and accepted connections. Now: the
+      host's `/` is bound non-recursively at `/host` (compose `bind:
+      recursive: disabled`, `docker run --mount
+      ...,bind-recursive=disabled`), and `var/lib/dpkg`, `var/lib/apt`
+      and `run/systemd/system` are bound read-only under `/host-extra`
+      with `create_host_path: false` (`target.ExtraPaths`, overlaid by
+      `hostFS` in `agent/internal/target/hostmounts.go`; a bind nested
+      inside the read-only `/host` can't be created when its parent is a
+      separate mount). `/run` and `/var` are never bound whole.
+      `reboot_required` no longer needs `/run/reboot-required`: it is
+      derived from the running kernel vs installed `linux-image-*`
+      packages when the host's `/run` isn't visible (decided by device,
+      `target/device.go`), `skipped` when neither signal can decide, with
+      the new optional wire field `reboot_required_source`. Missing paths
+      are errors naming the mount to check (`target.NotVisible`). A
+      socket self-check (`target/sockets.go`: a known list plus a walk of
+      `run/`, symlinks resolved against the host root) runs at startup
+      (`WARN:` before enrollment), as the `host_mount` collector status,
+      and as `agent check-mounts`. The Register agent dialog builds its
+      mount lines from `web/src/lib/host-mounts.ts`, which
+      `host-mounts.test.ts` checks against the compose example. CI:
+      `.github/workflows/host-mount.yml` ("Agent host mount (no host
+      sockets)") runs `agent/test/host-mount/run.sh` on the compose
+      example itself, opt-out and opt-in; it fails on the old recursive
+      mount. Docker versions: the engine has honoured non-recursive binds
+      since 19.03 (tested 24.0.9 and 29.8.1, with Compose v5.5.1); the
+      docker CLI spells it `bind-recursive=disabled` from 25 and
+      `bind-nonrecursive=true` before (each rejects the other's
+      spelling). Not verified: sockets on the root filesystem itself
+      (e.g. the LXD snap's socket when `/var` isn't separate) stay
+      reachable under a non-recursive bind; `host_mount` flags them, but
+      no LXD host was tested.
+- [ ] Host mount follow-ups: sockets on the host's root filesystem
+      itself (the LXD snap's `/var/snap/lxd/common/lxd/unix.socket`, or
+      `/var/lib/incus/unix.socket`, when `/var` isn't separate) remain
+      reachable through the non-recursive bind; `host_mount` reports them
+      with a different message, but nothing hides them yet (a bind of an
+      empty directory over them, or a documented "don't run the agent
+      container on LXD hosts"). Verify on a host with LXD. Dashboard: a
+      label for `host_mount` in `COLLECTOR_LABELS`
+      (`web/src/lib/host-page.ts`) and a banner on the host page when it
+      is `error`, since it means the agent can reach Docker with Docker
+      collection off.
 - [x] Migration + ingest on the validity-range pattern (like
       `host_services`; done 2026-09-28, migration 0013, DOMAIN_MODEL.md
       §4.5 "Docker"): `container_images` interned fleet-wide by image
