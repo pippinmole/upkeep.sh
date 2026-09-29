@@ -1,10 +1,16 @@
+import { Package, Plus } from "lucide-react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
+import { EcosystemIcon } from "@/components/brand";
+import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/inventory/filter-bar";
+import { clearFiltersHref, NoMatches } from "@/components/inventory/no-matches";
 import { Pager } from "@/components/inventory/pager";
+import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -22,6 +28,7 @@ export const metadata: Metadata = {
 };
 
 const PAGE_SIZE = 50;
+const BASE_PATH = "/dashboard/packages";
 
 export default async function FleetPackagesPage({
   searchParams,
@@ -44,18 +51,46 @@ export default async function FleetPackagesPage({
     getFleetPackages(userId, filters),
     getFleetEcosystems(userId),
   ]);
+  const header = (
+    <PageHeader
+      title="Packages"
+      description={
+        total > 0 && !filters.q && !filters.ecosystem
+          ? `${total.toLocaleString("en-US")} packages currently installed across your hosts.`
+          : "Software currently installed across your hosts."
+      }
+    />
+  );
+
+  // No host has reported an inventory yet (an ecosystem exists once one has).
+  if (ecosystems.length === 0) {
+    return (
+      <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
+        {header}
+        <EmptyState
+          size="page"
+          icon={Package}
+          title="No package inventory yet"
+          description="Each host's agent reports its installed packages with every snapshot. Add a host to see them here."
+          action={
+            <Button asChild>
+              <Link href="/dashboard/hosts">
+                <Plus aria-hidden />
+                Add a host
+              </Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Packages</h1>
-        <p className="text-muted-foreground text-sm">
-          Software currently installed across your hosts.
-        </p>
-      </div>
+      {header}
 
       <FilterBar
-        action="/dashboard/packages"
+        action={BASE_PATH}
         q={filters.q}
         qPlaceholder="Search package or source…"
         ecosystem={{ value: filters.ecosystem, options: ecosystems }}
@@ -83,9 +118,11 @@ export default async function FleetPackagesPage({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-muted-foreground h-24 text-center">
-                  {filters.q || filters.ecosystem
-                    ? "No installed packages match these filters."
-                    : "No package inventory has been reported by your hosts yet."}
+                  {filters.q || filters.ecosystem ? (
+                    <NoMatches things="packages" clearHref={clearFiltersHref(BASE_PATH)} />
+                  ) : (
+                    "Nothing on this page."
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -93,7 +130,7 @@ export default async function FleetPackagesPage({
                 <TableRow key={`${r.ecosystem}:${r.name}`}>
                   <TableCell>
                     <Link
-                      href={`/dashboard/packages/${encodeURIComponent(r.name)}`}
+                      href={`${BASE_PATH}/${encodeURIComponent(r.name)}`}
                       className="font-medium hover:underline"
                     >
                       {r.name}
@@ -101,13 +138,14 @@ export default async function FleetPackagesPage({
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="font-normal">
+                      <EcosystemIcon ecosystem={r.ecosystem} />
                       {r.ecosystem}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {r.sampleVersions.join(", ")}
                     {r.versions > r.sampleVersions.length && (
-                      <span className="text-muted-foreground">
+                      <span className="text-muted-foreground font-sans">
                         {" "}
                         +{r.versions - r.sampleVersions.length} more
                       </span>
@@ -121,7 +159,7 @@ export default async function FleetPackagesPage({
         </Table>
       </div>
       <Pager
-        basePath="/dashboard/packages"
+        basePath={BASE_PATH}
         searchParams={sp}
         page={filters.page}
         pageSize={PAGE_SIZE}

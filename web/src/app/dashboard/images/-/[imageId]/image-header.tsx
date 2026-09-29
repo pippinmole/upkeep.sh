@@ -1,9 +1,10 @@
-import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 import { ContainerStateBadge, HostLink, shortId } from "@/components/docker-fleet/badges";
 import { repoHref } from "@/components/docker-fleet/links";
-import { CLEAN_BADGE, scoreTitle } from "@/components/image/score-cell";
+import { RegistryLogo } from "@/components/brand";
+import { scoreTitle } from "@/components/image/score-cell";
+import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { imageHref, platformLabel, type ImageKey } from "@/lib/image-key";
@@ -63,7 +64,7 @@ function ScoreSummary({ overview }: { overview: ImageOverview }) {
     if (st.kind === "no_known") {
       return (
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className={CLEAN_BADGE}>
+          <Badge variant="success" className="font-normal">
             No known vulnerabilities
           </Badge>
           {st.partial && (
@@ -115,22 +116,24 @@ export function ImageHeader({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <Link
-          href={repo ? repoHref(repo) : "/dashboard/images"}
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeft className="size-3.5" />
-          {repo ?? "All images"}
-        </Link>
-        <h1 className="mt-2 font-mono text-2xl font-bold break-all">{imageTitle(o)}</h1>
-        <p className="text-muted-foreground text-sm">
-          {platformLabel(o.key)} · on {o.hosts.length} {o.hosts.length === 1 ? "host" : "hosts"},{" "}
-          {containers.length === 0
-            ? "no containers (score only, no findings)"
-            : `${containers.length} ${containers.length === 1 ? "container" : "containers"}`}
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Images", href: "/dashboard/images" },
+          ...(repo ? [{ label: repo, href: repoHref(repo) }] : []),
+          { label: o.tags[0] && repo ? o.tags[0].slice(repo.length + 1) : shortId(o.key.imageId) },
+        ]}
+        title={imageTitle(o)}
+        mono
+        icon={<RegistryLogo repo={repo} size={24} colored />}
+        meta={
+          <span>
+            {platformLabel(o.key)} · on {o.hosts.length} {o.hosts.length === 1 ? "host" : "hosts"},{" "}
+            {containers.length === 0
+              ? "no containers (score only, no findings)"
+              : `${containers.length} ${containers.length === 1 ? "container" : "containers"}`}
+          </span>
+        }
+      />
 
       <dl className="bg-card grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-lg border p-4 text-sm">
         <Fact label="Score">
@@ -202,7 +205,7 @@ export function ImageHeader({
       </dl>
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Hosts and containers</h2>
+        <SectionHeading>Hosts and containers</SectionHeading>
         <ul className="bg-card flex flex-col divide-y rounded-lg border">
           {o.hosts.map((h) => (
             <li key={h.hostId} className="flex flex-col gap-1.5 px-4 py-3 text-sm">

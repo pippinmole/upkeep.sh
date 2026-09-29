@@ -1,8 +1,8 @@
-import { ArrowLeft, ScanSearch } from "lucide-react";
+import { ScanSearch } from "lucide-react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SegmentedLinks } from "@/components/vuln/links";
 import { auth } from "@/lib/auth";
@@ -75,14 +75,14 @@ export default async function ImagePage({
     // platform (half of the key) isn't known.
     return (
       <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
-        <Link
-          href="/dashboard/images"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeft className="size-3.5" />
-          All images
-        </Link>
-        <h1 className="font-mono text-2xl font-bold break-all">{shortImageId(imageId)}</h1>
+        <PageHeader
+          breadcrumbs={[
+            { label: "Images", href: "/dashboard/images" },
+            { label: shortImageId(imageId) },
+          ]}
+          title={shortImageId(imageId)}
+          mono
+        />
         <Alert>
           <ScanSearch className="size-4" />
           <AlertTitle>Not inspected on any host yet</AlertTitle>

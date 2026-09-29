@@ -1,13 +1,18 @@
+import { Container, Plus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { WARN_BADGE } from "@/components/docker-fleet/badges";
+import { RegistryLogo } from "@/components/brand";
 import { DockerCoverageNote } from "@/components/docker-fleet/coverage-note";
 import { repoHref } from "@/components/docker-fleet/links";
+import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/inventory/filter-bar";
+import { clearFiltersHref, NoMatches } from "@/components/inventory/no-matches";
 import { Pager } from "@/components/inventory/pager";
+import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -34,6 +39,7 @@ export const metadata: Metadata = {
 };
 
 const PAGE_SIZE = 50;
+const BASE_PATH = "/dashboard/images";
 const MAX_TAGS = 6;
 
 // The repository's most urgent image, linked to its detail page; the
@@ -89,19 +95,70 @@ export default async function FleetImagesPage({
     rows.map((r) => r.repo),
   );
 
+  const header = (
+    <PageHeader
+      title="Images"
+      description={
+        total > 0 && !filters.q
+          ? `Docker images currently present on your hosts, in ${total.toLocaleString("en-US")} ${total === 1 ? "repository" : "repositories"}.`
+          : "Docker images currently present on your hosts, by repository."
+      }
+    />
+  );
+
+  // No image reported at all (not a search miss): Docker collection is
+  // opt-in on the agent, so say how to turn it on.
+  if (total === 0 && !filters.q && filters.page === 1) {
+    return (
+      <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
+        {header}
+        <DockerCoverageNote coverage={coverage} />
+        {coverage.hosts === 0 ? (
+          <EmptyState
+            size="page"
+            icon={Container}
+            title="No hosts yet"
+            description="Images are reported by the agent on each Docker host. Add a host to start."
+            action={
+              <Button asChild>
+                <Link href="/dashboard/hosts">
+                  <Plus aria-hidden />
+                  Add a host
+                </Link>
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            size="page"
+            icon={Container}
+            title="No Docker images reported"
+            description={
+              <>
+                Docker collection is enabled per agent, on the Docker host itself: mount{" "}
+                <code className="font-mono text-xs">/var/run/docker.sock</code> into the
+                agent&apos;s container. Images appear after its next report.
+              </>
+            }
+            action={
+              <Button asChild variant="outline">
+                <Link href="/dashboard/hosts">Go to hosts</Link>
+              </Button>
+            }
+          />
+        )}
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Images</h1>
-        <p className="text-muted-foreground text-sm">
-          Docker images currently present on your hosts, by repository.
-        </p>
-      </div>
+      {header}
 
       <DockerCoverageNote coverage={coverage} />
 
       <FilterBar
-        action="/dashboard/images"
+        action={BASE_PATH}
         q={filters.q}
         qPlaceholder="Search name, tag, digest or ID…"
         qLabel="Search images"
@@ -130,9 +187,11 @@ export default async function FleetImagesPage({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-muted-foreground h-24 text-center">
-                  {filters.q
-                    ? "No images match this search."
-                    : "No Docker images have been reported by your hosts yet."}
+                  {filters.q ? (
+                    <NoMatches things="images" clearHref={clearFiltersHref(BASE_PATH)} />
+                  ) : (
+                    "Nothing on this page."
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -140,16 +199,20 @@ export default async function FleetImagesPage({
                 const shown = r.tags.slice(0, MAX_TAGS);
                 return (
                   <TableRow key={r.repo || "(untagged)"}>
-                    <TableCell className="align-top">
-                      <Link
-                        href={repoHref(r.repo)}
-                        className={cn(
-                          "font-medium hover:underline",
-                          r.repo ? "font-mono text-sm" : "text-muted-foreground italic",
-                        )}
-                      >
-                        {r.repo || "Untagged images"}
-                      </Link>
+                    <TableCell className="max-w-sm align-top">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <RegistryLogo repo={r.repo} className="text-muted-foreground shrink-0" />
+                        <Link
+                          href={repoHref(r.repo)}
+                          className={cn(
+                            "truncate font-medium hover:underline",
+                            r.repo ? "font-mono text-sm" : "text-muted-foreground italic",
+                          )}
+                          title={r.repo || undefined}
+                        >
+                          {r.repo || "Untagged images"}
+                        </Link>
+                      </span>
                     </TableCell>
                     <TableCell className="align-top">
                       {r.repo === "" ? (
@@ -171,10 +234,9 @@ export default async function FleetImagesPage({
                                 }
                               >
                                 <Badge
-                                  variant="outline"
+                                  variant={drift ? "warning" : "outline"}
                                   className={cn(
                                     "font-mono text-xs font-normal",
-                                    drift && WARN_BADGE,
                                     t.tag === null && "text-muted-foreground italic",
                                   )}
                                 >
@@ -210,7 +272,7 @@ export default async function FleetImagesPage({
         </Table>
       </div>
       <Pager
-        basePath="/dashboard/images"
+        basePath={BASE_PATH}
         searchParams={sp}
         page={filters.page}
         pageSize={PAGE_SIZE}

@@ -1,14 +1,10 @@
-import { ArrowLeft, Info } from "lucide-react";
+import { Info, Lock } from "lucide-react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import {
-  ContainerStateBadge,
-  HostLink,
-  WARN_BADGE,
-  hostName,
-} from "@/components/docker-fleet/badges";
+import { RegistryLogo } from "@/components/brand";
+import { ContainerStateBadge, HostLink, hostName } from "@/components/docker-fleet/badges";
+import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -54,12 +50,12 @@ function TasksCell({ s }: { s: SwarmService }) {
   }
   const degraded = !isJob(s.mode) && s.runningTasks < s.desiredTasks;
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <span className="tabular-nums">
         {s.runningTasks} / {s.desiredTasks}
       </span>
       {degraded && (
-        <Badge variant="outline" className={WARN_BADGE}>
+        <Badge variant="warning" className="font-normal">
           degraded
         </Badge>
       )}
@@ -84,42 +80,48 @@ export default async function SwarmClusterPage({ params }: { params: Params }) {
   if (!cluster) notFound();
   const { summary, services, nodes } = cluster;
   const lockedManagers = nodes.filter((n) => n.state === "locked");
+  const short = summary.clusterId.slice(0, 12);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
-      <div>
-        <Link
-          href="/dashboard/swarm"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeft className="size-3.5" />
-          All clusters
-        </Link>
-        <h1 className="mt-2 text-2xl font-bold">
-          Cluster <span className="font-mono">{summary.clusterId.slice(0, 12)}</span>
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          {summary.services} service{summary.services === 1 ? "" : "s"}
-          {summary.degraded > 0 && `, ${summary.degraded} degraded`} · {summary.managers} manager
-          {summary.managers === 1 ? "" : "s"} and {summary.nodes} node
-          {summary.nodes === 1 ? "" : "s"} with an agent ·{" "}
-          {summary.confirmedAt ? (
-            <>
-              services last reported{" "}
-              <span title={formatDateTime(summary.confirmedAt)}>
-                {relativeTime(summary.confirmedAt)}
-              </span>
-              {summary.lastManager && ` by ${hostName(summary.lastManager)}`}
-            </>
-          ) : (
-            "no service list from a manager yet"
-          )}
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Swarm", href: "/dashboard/swarm" },
+          { label: <span className="font-mono">{short}</span> },
+        ]}
+        title={
+          <>
+            Cluster <span className="font-mono">{short}</span>
+          </>
+        }
+        badges={
+          summary.degraded > 0 && <Badge variant="warning">{summary.degraded} degraded</Badge>
+        }
+        meta={
+          <span title={summary.clusterId}>
+            {summary.services} service{summary.services === 1 ? "" : "s"}
+            {" · "}
+            {summary.managers} manager
+            {summary.managers === 1 ? "" : "s"} and {summary.nodes} node
+            {summary.nodes === 1 ? "" : "s"} with an agent ·{" "}
+            {summary.confirmedAt ? (
+              <>
+                services last reported{" "}
+                <span title={formatDateTime(summary.confirmedAt)}>
+                  {relativeTime(summary.confirmedAt)}
+                </span>
+                {summary.lastManager && ` by ${hostName(summary.lastManager)}`}
+              </>
+            ) : (
+              "no service list from a manager yet"
+            )}
+          </span>
+        }
+      />
 
       {lockedManagers.length > 0 && (
-        <div className="flex gap-2 rounded-lg border border-amber-600/40 bg-amber-400/15 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-          <Info className="mt-0.5 size-4 shrink-0" />
+        <div className="border-warning/40 bg-warning/10 text-warning-fg flex gap-2 rounded-lg border px-4 py-3 text-sm">
+          <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
           <p>
             {lockedManagers.map(hostName).join(", ")}{" "}
             {lockedManagers.length === 1 ? "is a locked manager" : "are locked managers"}{" "}
@@ -138,7 +140,7 @@ export default async function SwarmClusterPage({ params }: { params: Params }) {
       </div>
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Services</h2>
+        <SectionHeading>Services</SectionHeading>
         <div className="bg-card rounded-lg border">
           <Table>
             <TableHeader>
@@ -146,7 +148,7 @@ export default async function SwarmClusterPage({ params }: { params: Params }) {
                 <TableHead>Service</TableHead>
                 <TableHead>Image</TableHead>
                 <TableHead>Mode</TableHead>
-                <TableHead>Running / desired</TableHead>
+                <TableHead className="text-right">Running / desired</TableHead>
                 <TableHead>Published ports</TableHead>
                 <TableHead>Task containers</TableHead>
               </TableRow>
@@ -172,12 +174,23 @@ export default async function SwarmClusterPage({ params }: { params: Params }) {
                       )}
                     </TableCell>
                     <TableCell className="max-w-72 align-top font-mono text-xs break-all">
-                      {s.image ?? <span className="text-muted-foreground font-sans">plugin</span>}
+                      {s.image ? (
+                        <span className="flex items-start gap-1.5">
+                          <RegistryLogo
+                            repo={s.image.split("@")[0].replace(/:[^:/]+$/, "")}
+                            className="text-muted-foreground mt-px shrink-0"
+                            size={14}
+                          />
+                          {s.image}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground font-sans">plugin</span>
+                      )}
                     </TableCell>
                     <TableCell className="align-top text-sm whitespace-nowrap">
                       <ModeCell s={s} />
                     </TableCell>
-                    <TableCell className="align-top">
+                    <TableCell className="text-right align-top">
                       <TasksCell s={s} />
                     </TableCell>
                     <TableCell className="align-top font-mono text-xs">
@@ -232,7 +245,7 @@ export default async function SwarmClusterPage({ params }: { params: Params }) {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Nodes with an agent</h2>
+        <SectionHeading>Nodes with an agent</SectionHeading>
         <div className="bg-card rounded-lg border">
           <Table>
             <TableHeader>
@@ -267,14 +280,14 @@ export default async function SwarmClusterPage({ params }: { params: Params }) {
                     </TableCell>
                     <TableCell>
                       {n.state === "locked" ? (
-                        <Badge variant="outline" className={WARN_BADGE}>
+                        <Badge variant="warning" className="font-normal">
                           locked
                         </Badge>
                       ) : (
                         <span className="text-muted-foreground">{n.state ?? "—"}</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="text-muted-foreground font-mono text-xs">
                       {n.engineVersion ?? "—"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">

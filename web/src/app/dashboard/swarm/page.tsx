@@ -1,10 +1,14 @@
+import { Boxes } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { HostLink, WARN_BADGE } from "@/components/docker-fleet/badges";
+import { HostLink } from "@/components/docker-fleet/badges";
 import { DockerCoverageNote } from "@/components/docker-fleet/coverage-note";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -38,37 +42,46 @@ export default async function SwarmClustersPage() {
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Swarm</h1>
-        <p className="text-muted-foreground text-sm">
-          Docker Swarm clusters your hosts belong to. Services come from the managers; task
-          containers from every node that runs an agent.
-        </p>
-      </div>
+      <PageHeader
+        title="Swarm"
+        description={
+          <>
+            {clusters.length > 0 &&
+              `${clusters.length} ${clusters.length === 1 ? "cluster" : "clusters"}. `}
+            Docker Swarm clusters your hosts belong to. Services come from the managers; task
+            containers from every node that runs an agent.
+          </>
+        }
+      />
 
       <DockerCoverageNote coverage={coverage} />
 
-      <div className="bg-card rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Cluster</TableHead>
-              <TableHead className="text-right">Services</TableHead>
-              <TableHead className="text-right">Managers</TableHead>
-              <TableHead className="text-right">Nodes with an agent</TableHead>
-              <TableHead>Services last reported</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {clusters.length === 0 ? (
+      {clusters.length === 0 ? (
+        <EmptyState
+          size="page"
+          icon={Boxes}
+          title="No Swarm clusters yet"
+          description="None of your hosts has reported being a Swarm manager. Services are read from a manager node, so install an agent with Docker collection enabled on one."
+          action={
+            <Button asChild>
+              <Link href="/dashboard/agents">Install an agent</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <div className="bg-card rounded-lg border">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={5} className="text-muted-foreground h-24 text-center">
-                  None of your hosts has reported being a Swarm manager. Swarm services are read
-                  from a manager node, so install an agent (with Docker collection enabled) on one.
-                </TableCell>
+                <TableHead>Cluster</TableHead>
+                <TableHead className="text-right">Services</TableHead>
+                <TableHead className="text-right">Managers</TableHead>
+                <TableHead className="text-right">Nodes with an agent</TableHead>
+                <TableHead>Services last reported</TableHead>
               </TableRow>
-            ) : (
-              clusters.map((c) => (
+            </TableHeader>
+            <TableBody>
+              {clusters.map((c) => (
                 <TableRow key={c.clusterId}>
                   <TableCell>
                     <Link
@@ -82,7 +95,7 @@ export default async function SwarmClustersPage() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       {c.degraded > 0 && (
-                        <Badge variant="outline" className={WARN_BADGE}>
+                        <Badge variant="warning" className="font-normal">
                           {c.degraded} degraded
                         </Badge>
                       )}
@@ -92,7 +105,7 @@ export default async function SwarmClustersPage() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       {c.lockedManagers > 0 && (
-                        <Badge variant="outline" className={WARN_BADGE}>
+                        <Badge variant="warning" className="font-normal">
                           {c.lockedManagers} locked
                         </Badge>
                       )}
@@ -100,7 +113,7 @@ export default async function SwarmClustersPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{c.nodes}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-muted-foreground whitespace-nowrap">
                     {c.confirmedAt ? (
                       <>
                         <span title={formatDateTime(c.confirmedAt)}>
@@ -118,19 +131,17 @@ export default async function SwarmClustersPage() {
                     )}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {unattributed.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="font-semibold">Swarm members not placed in a cluster</h2>
-          <p className="text-muted-foreground -mt-1 text-sm">
-            Docker doesn&apos;t tell worker nodes which cluster they&apos;re in, so a worker shows
-            up under its cluster only once it runs a task of a service a manager reported.
-          </p>
+          <SectionHeading description="Docker doesn't tell worker nodes which cluster they're in, so a worker shows up under its cluster only once it runs a task of a service a manager reported.">
+            Swarm members not placed in a cluster
+          </SectionHeading>
           <div className="bg-card rounded-lg border">
             <Table>
               <TableHeader>
@@ -149,7 +160,7 @@ export default async function SwarmClustersPage() {
                     <TableCell className="text-muted-foreground">{h.role ?? "unknown"}</TableCell>
                     <TableCell>
                       {h.state === "locked" ? (
-                        <Badge variant="outline" className={WARN_BADGE}>
+                        <Badge variant="warning" className="font-normal">
                           locked
                         </Badge>
                       ) : (
