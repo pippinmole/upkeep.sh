@@ -1,0 +1,14 @@
+# Keep the build context to what `git clone` would give: the image
+# installs its own Linux node_modules and runs its own `next build`, so
+# host artefacts (macOS native binaries, a stale .next) and local secrets
+# must not be copied in by the build stage's `COPY . .`.
+node_modules
+.next
+out
+coverage
+.env
+.env*.local
+tsconfig.tsbuildinfo
+next-env.d.ts
+Dockerfile
+.dockerignore
