@@ -29,9 +29,10 @@ export function DataTableViewOptions<TData extends object>({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="ml-auto hidden h-9 lg:flex">
+        {/* Icon-only below lg; the aria-label matches the visible text. */}
+        <Button variant="outline" size="sm" className="ml-auto h-9" aria-label="Columns">
           <Settings2 className="size-4" />
-          View
+          <span className="hidden lg:inline">Columns</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">

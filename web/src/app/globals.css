@@ -4,8 +4,8 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.205 0 0);
 
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -34,6 +34,31 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Semantic colours: a solid for dots, bars and borders, and an -fg for
+     text on a /10 tint of that solid. */
+  --sev-critical: oklch(0.577 0.245 27.3);
+  --sev-critical-fg: oklch(0.444 0.177 26.9);
+  --sev-high: oklch(0.646 0.222 41.1);
+  --sev-high-fg: oklch(0.47 0.157 37.3);
+  --sev-medium: oklch(0.769 0.188 70.1);
+  --sev-medium-fg: oklch(0.414 0.112 45.9);
+  --sev-low: oklch(0.588 0.158 242);
+  --sev-low-fg: oklch(0.443 0.11 240.8);
+  --sev-unknown: oklch(0.554 0.046 257.4);
+  --sev-unknown-fg: oklch(0.372 0.044 257.3);
+  --kev: oklch(0.505 0.213 27.5);
+  --kev-fg: oklch(0.985 0 0);
+  --success: oklch(0.596 0.145 163.2);
+  --success-fg: oklch(0.432 0.095 166.9);
+  --warning: var(--sev-medium);
+  --warning-fg: var(--sev-medium-fg);
+  --danger: var(--destructive);
+  --danger-fg: oklch(0.444 0.177 26.9);
+  --info: var(--sev-low);
+  --info-fg: var(--sev-low-fg);
+  --accent-pro: oklch(0.541 0.281 293);
+  --accent-pro-fg: oklch(0.432 0.232 292.8);
 }
 
 @theme inline {
@@ -72,11 +97,34 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-sev-critical: var(--sev-critical);
+  --color-sev-critical-fg: var(--sev-critical-fg);
+  --color-sev-high: var(--sev-high);
+  --color-sev-high-fg: var(--sev-high-fg);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-medium-fg: var(--sev-medium-fg);
+  --color-sev-low: var(--sev-low);
+  --color-sev-low-fg: var(--sev-low-fg);
+  --color-sev-unknown: var(--sev-unknown);
+  --color-sev-unknown-fg: var(--sev-unknown-fg);
+  --color-kev: var(--kev);
+  --color-kev-fg: var(--kev-fg);
+  --color-success: var(--success);
+  --color-success-fg: var(--success-fg);
+  --color-warning: var(--warning);
+  --color-warning-fg: var(--warning-fg);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
+  --color-info-fg: var(--info-fg);
+  --color-accent-pro: var(--accent-pro);
+  --color-accent-pro-fg: var(--accent-pro-fg);
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.946 0 0);
 
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
@@ -98,12 +146,36 @@
 
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.922 0 0);
+  --sidebar-primary-foreground: oklch(0.205 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  --sev-critical: oklch(0.704 0.191 22.2);
+  --sev-critical-fg: oklch(0.885 0.062 18.3);
+  --sev-high: oklch(0.75 0.183 55.9);
+  --sev-high-fg: oklch(0.901 0.076 70.7);
+  --sev-medium: oklch(0.828 0.189 84.4);
+  --sev-medium-fg: oklch(0.924 0.12 95.7);
+  --sev-low: oklch(0.746 0.16 232.7);
+  --sev-low-fg: oklch(0.901 0.058 230.9);
+  --sev-unknown: oklch(0.704 0.04 256.8);
+  --sev-unknown-fg: oklch(0.929 0.013 255.5);
+  --kev: oklch(0.577 0.245 27.3);
+  --kev-fg: oklch(0.985 0 0);
+  --success: oklch(0.765 0.177 163.2);
+  --success-fg: oklch(0.905 0.093 164.2);
+  /* Aliases repeated so they resolve against .dark on any element. */
+  --warning: var(--sev-medium);
+  --warning-fg: var(--sev-medium-fg);
+  --danger: var(--destructive);
+  --danger-fg: oklch(0.885 0.062 18.3);
+  --info: var(--sev-low);
+  --info-fg: var(--sev-low-fg);
+  --accent-pro: oklch(0.702 0.183 293.5);
+  --accent-pro-fg: oklch(0.894 0.057 293.3);
 }
 
 @layer base {
@@ -112,10 +184,6 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentColor);
-  }
-
-  * {
     @apply border-border outline-ring/50;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;

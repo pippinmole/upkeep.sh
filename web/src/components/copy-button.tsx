@@ -38,7 +38,7 @@ export function CopyButton({ text, className, ...rest }: Props) {
             {...rest}
           >
             {isCopied ? (
-              <Check strokeWidth={1.5} className="m-auto" />
+              <Check strokeWidth={1.5} className="text-success m-auto" />
             ) : (
               <Copy strokeWidth={1.5} className="m-auto" />
             )}

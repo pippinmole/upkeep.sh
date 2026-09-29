@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { auth } from "./auth";
+import { osLabel as osNameVersion } from "./os";
 import { getHost, type HostDetail } from "./queries-inventory";
 
 // Auth + ownership gate for every /dashboard/hosts/[hostId] layout and page.
@@ -19,24 +20,10 @@ export function hostTitle(host: Pick<HostDetail, "hostname" | "label">) {
   return host.label ? `${host.label} (${host.hostname})` : host.hostname;
 }
 
-const OS_NAMES: Record<string, string> = {
-  ubuntu: "Ubuntu",
-  debian: "Debian",
-  alpine: "Alpine",
-  fedora: "Fedora",
-  rhel: "RHEL",
-  centos: "CentOS",
-  rocky: "Rocky Linux",
-  almalinux: "AlmaLinux",
-  arch: "Arch Linux",
-};
-
 export function osLabel(snap: HostDetail["latestSnapshot"]): string | null {
   if (!snap?.osId) return null;
-  const name = OS_NAMES[snap.osId] ?? snap.osId;
-  const version = snap.osVersionId ? ` ${snap.osVersionId}` : "";
   const codename = snap.osCodename ? ` (${snap.osCodename})` : "";
-  return `${name}${version}${codename}`;
+  return `${osNameVersion(snap.osId, snap.osVersionId)}${codename}`;
 }
 
 // PROTOCOL.md collector names -> human labels.

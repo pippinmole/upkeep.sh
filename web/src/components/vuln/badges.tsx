@@ -1,21 +1,26 @@
+import { Flame } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatEpss, isSeverity, SEVERITY_LABEL, type Severity } from "@/lib/severity";
 
-// The one place severity colours live. Tinted background + strong text in
-// both themes (text contrast is checked against the tint, not the page), so
-// badges stay readable in light and dark mode.
+// The one place severity colours live, on the --sev-* tokens in
+// globals.css. Tinted background + strong -fg text in both themes (text
+// contrast is checked against the tint, not the page).
 const SEVERITY_CLASS: Record<Severity, string> = {
-  critical:
-    "border-red-600/40 bg-red-600/10 text-red-800 dark:border-red-400/40 dark:bg-red-400/15 dark:text-red-200",
-  high: "border-orange-600/40 bg-orange-500/10 text-orange-800 dark:border-orange-400/40 dark:bg-orange-400/15 dark:text-orange-200",
-  medium:
-    "border-amber-600/40 bg-amber-400/15 text-amber-900 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-200",
-  unknown:
-    "border-dashed border-slate-500/50 bg-slate-500/10 text-slate-700 dark:border-slate-400/50 dark:text-slate-200",
-  low: "border-sky-600/40 bg-sky-500/10 text-sky-800 dark:border-sky-400/40 dark:bg-sky-400/15 dark:text-sky-200",
+  critical: "border-sev-critical/40 bg-sev-critical/10 text-sev-critical-fg",
+  high: "border-sev-high/40 bg-sev-high/10 text-sev-high-fg",
+  medium: "border-sev-medium/40 bg-sev-medium/15 text-sev-medium-fg",
+  unknown: "border-dashed border-sev-unknown/50 bg-sev-unknown/10 text-sev-unknown-fg",
+  low: "border-sev-low/40 bg-sev-low/10 text-sev-low-fg",
   negligible: "border-border bg-muted text-muted-foreground",
 };
+
+// Solid severity colour for charts and bars.
+export function severityColorVar(severity: string | null): string {
+  const s: Severity = isSeverity(severity) ? severity : "unknown";
+  return s === "negligible" ? "var(--muted-foreground)" : `var(--sev-${s})`;
+}
 
 export function SeverityBadge({
   severity,
@@ -43,11 +48,12 @@ export function KevBadge({ className, count }: { className?: string; count?: num
   return (
     <Badge
       className={cn(
-        "gap-1 border-transparent bg-red-700 font-semibold whitespace-nowrap text-white shadow-none hover:bg-red-700 dark:bg-red-600",
+        "bg-kev text-kev-fg hover:bg-kev gap-1 border-transparent font-semibold whitespace-nowrap shadow-none",
         className,
       )}
       title="Known exploited: listed in CISA's Known Exploited Vulnerabilities catalog"
     >
+      <Flame aria-hidden />
       KEV
       {count !== undefined && <span className="tabular-nums">{count}</span>}
     </Badge>
@@ -59,7 +65,7 @@ export function ProFixBadge({ className }: { className?: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "border-violet-600/40 bg-violet-500/10 font-medium whitespace-nowrap text-violet-800 dark:border-violet-400/40 dark:text-violet-200",
+        "border-accent-pro/40 bg-accent-pro/10 text-accent-pro-fg font-medium whitespace-nowrap",
         className,
       )}
       title="The only fixed package is in Ubuntu Pro (ESM); the standard archive has no fix"

@@ -4,6 +4,7 @@
 import {
   functionalUpdate,
   useTable,
+  type Column,
   type ColumnFiltersState,
   type ColumnVisibilityState,
   type FilterFn,
@@ -14,6 +15,7 @@ import {
 } from "@tanstack/react-table";
 import { Fragment, type ReactNode, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -59,6 +61,8 @@ export interface DataTableProps<TData extends object> {
   initialColumnFilters?: ColumnFiltersState;
   initialVisibility?: ColumnVisibilityState;
   pageSize?: number;
+  // Shown when there are no rows and no filter is active; with a filter
+  // active the table says so and offers to clear it.
   emptyMessage?: ReactNode;
   // Server-driven mode: sorting / filtering / pagination happen in SQL and
   // `data` is one page. See url-state.ts for syncing `state` with the URL.
@@ -66,6 +70,15 @@ export interface DataTableProps<TData extends object> {
 }
 
 const EMPTY_FILTERS: ColumnFiltersState = [];
+
+// aria-sort for a sortable column's header; none for columns that can't sort.
+function ariaSort<TData extends object>(
+  column: Column<DataTableFeatures, TData>,
+): "ascending" | "descending" | "none" | undefined {
+  if (!column.getCanSort()) return undefined;
+  const sorted = column.getIsSorted();
+  return sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none";
+}
 
 export function DataTable<TData extends object>(props: DataTableProps<TData>) {
   const { columns, data, server, renderSubRows } = props;
@@ -121,6 +134,13 @@ export function DataTable<TData extends object>(props: DataTableProps<TData>) {
 
   const rows = table.getRowModel().rows;
   const colSpan = table.getVisibleLeafColumns().length;
+  const filtered =
+    String(table.state.globalFilter ?? "") !== "" || table.state.columnFilters.length > 0;
+  // The toolbar re-syncs its search box from the cleared global filter.
+  const clearFilters = () => {
+    table.setGlobalFilter("");
+    table.resetColumnFilters(true);
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -136,7 +156,12 @@ export function DataTable<TData extends object>(props: DataTableProps<TData>) {
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id}>
                 {group.headers.map((header) => (
-                  <TableHead key={header.id} colSpan={header.colSpan}>
+                  <TableHead
+                    key={header.id}
+                    colSpan={header.colSpan}
+                    className={header.column.columnDef.meta?.className}
+                    aria-sort={header.isPlaceholder ? undefined : ariaSort(header.column)}
+                  >
                     {header.isPlaceholder ? null : <table.FlexRender header={header} />}
                   </TableHead>
                 ))}
@@ -147,7 +172,16 @@ export function DataTable<TData extends object>(props: DataTableProps<TData>) {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={colSpan} className="text-muted-foreground h-24 text-center">
-                  {props.emptyMessage ?? "No results."}
+                  {filtered ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <span>No results match these filters.</span>
+                      <Button variant="outline" size="sm" onClick={clearFilters}>
+                        Clear filters
+                      </Button>
+                    </div>
+                  ) : (
+                    (props.emptyMessage ?? "No results.")
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -155,7 +189,7 @@ export function DataTable<TData extends object>(props: DataTableProps<TData>) {
                 <Fragment key={row.id}>
                   <TableRow data-state={row.getIsExpanded() ? "expanded" : undefined}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell key={cell.id} className={cell.column.columnDef.meta?.className}>
                         <table.FlexRender cell={cell} />
                       </TableCell>
                     ))}

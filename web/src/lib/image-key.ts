@@ -86,3 +86,19 @@ export function imageHref(
 export function shortImageId(id: string): string {
   return id.replace(/^sha256:/, "").slice(0, 12);
 }
+
+// Registry host of a repository name, by Docker's rule: the first path
+// component is a registry host when it contains "." or ":" or is
+// "localhost"; otherwise the image is on Docker Hub. "nginx" and
+// "library/nginx" → "docker.io"; "ghcr.io/org/app" → "ghcr.io";
+// "localhost:5000/app" → "localhost:5000". Lower-cased; "" for an empty
+// repo.
+export function registryOf(repo: string): string {
+  const r = repo.trim();
+  if (!r) return "";
+  const slash = r.indexOf("/");
+  if (slash === -1) return "docker.io";
+  const first = r.slice(0, slash).toLowerCase();
+  if (!first.includes(".") && !first.includes(":") && first !== "localhost") return "docker.io";
+  return first === "index.docker.io" || first === "registry-1.docker.io" ? "docker.io" : first;
+}

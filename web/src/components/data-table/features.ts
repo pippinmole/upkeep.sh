@@ -24,6 +24,13 @@ import {
   type RowData,
 } from "@tanstack/react-table";
 
+// Per-column options DataTable reads from `columnDef.meta`.
+export type DataTableColumnMeta = {
+  // Classes for both the header and the body cells of the column, e.g.
+  // "text-right tabular-nums" for a numeric column.
+  className?: string;
+};
+
 // The one TanStack Table v9 feature set every DataTable uses (v9 registers
 // features and row models explicitly). In server mode the row models are
 // bypassed by manualSorting / manualFiltering / manualPagination.
@@ -49,6 +56,8 @@ export const dataTableFeatures = tableFeatures({
     datetime: sortFn_datetime,
     text: sortFn_text,
   },
+  // Type-only slot: types `columnDef.meta` (the value is never read).
+  columnMeta: {} as DataTableColumnMeta,
 });
 
 export type DataTableFeatures = typeof dataTableFeatures;
