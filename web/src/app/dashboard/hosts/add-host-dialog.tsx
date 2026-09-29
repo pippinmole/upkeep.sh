@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, Loader2, Minus, Network, Server } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -106,6 +106,9 @@ function AddHostFlow({ serverUrl, agents }: { serverUrl: string; agents: Collect
             title="Reach it from an existing agent"
             body="For machines you'd rather not install on. An agent on the same network reads it over SSH."
             onClick={() => setStep({ kind: "remote" })}
+            disabledNote={
+              agents.length === 0 ? "Needs an agent on the same network first." : undefined
+            }
           >
             <RemoteLimits />
           </ChoiceCard>
@@ -131,23 +134,35 @@ function ChoiceCard({
   title,
   body,
   onClick,
+  disabledNote,
   children,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
   onClick: () => void;
+  // Set = the option can't be used yet; says what it needs.
+  disabledNote?: string;
   children?: React.ReactNode;
 }) {
+  const disabled = disabledNote !== undefined;
+  const noteId = useId();
   return (
     <button
       type="button"
       onClick={onClick}
-      className="hover:bg-accent focus-visible:ring-ring flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
+      disabled={disabled}
+      aria-describedby={disabled ? noteId : undefined}
+      className="hover:bg-accent focus-visible:ring-ring flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
     >
       <span className="text-muted-foreground">{icon}</span>
       <span className="font-medium">{title}</span>
       <span className="text-muted-foreground text-sm">{body}</span>
+      {disabledNote && (
+        <span id={noteId} className="text-warning-fg text-sm font-medium">
+          {disabledNote}
+        </span>
+      )}
       {children}
     </button>
   );

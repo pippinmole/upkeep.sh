@@ -1,7 +1,8 @@
 import Link from "next/link";
 
-import { SeverityBadge } from "@/components/vuln/badges";
+import { SeverityBadge, severityColorVar } from "@/components/vuln/badges";
 import { SEVERITIES, type Severity, type SeverityCounts } from "@/lib/severity";
+import { cn } from "@/lib/utils";
 
 // Building blocks of the Overview page (/dashboard), shared by its host
 // package and container image sections.
@@ -35,6 +36,65 @@ export function StatCard({
     </Link>
   ) : (
     <div className="bg-card rounded-lg border p-4">{body}</div>
+  );
+}
+
+export type MetricTone = "kev" | "critical" | "warning" | "neutral";
+
+// Icon chip and value colour per tone; the value is only coloured when it
+// is non-zero, so an all-clear row reads calm.
+const METRIC_TONE: Record<MetricTone, { chip: string; value: string }> = {
+  kev: { chip: "bg-kev/10 text-kev", value: "text-kev" },
+  critical: { chip: "bg-sev-critical/10 text-sev-critical-fg", value: "text-sev-critical-fg" },
+  warning: { chip: "bg-warning/10 text-warning-fg", value: "text-warning-fg" },
+  neutral: { chip: "bg-muted text-muted-foreground", value: "" },
+};
+
+// The Overview's coloured stat row: one number, an icon in its tone, and a
+// muted line under it. Links to the filtered list when `href` is set.
+export function MetricCard({
+  title,
+  value,
+  tone,
+  icon,
+  href,
+  children,
+}: {
+  title: string;
+  value: number;
+  tone: MetricTone;
+  icon: React.ReactNode;
+  href?: string;
+  children?: React.ReactNode;
+}) {
+  const t = METRIC_TONE[tone];
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-muted-foreground text-sm font-medium">{title}</p>
+        <span
+          aria-hidden
+          className={cn(
+            "flex size-8 items-center justify-center rounded-md [&>svg]:size-4",
+            t.chip,
+          )}
+        >
+          {icon}
+        </span>
+      </div>
+      <p className={cn("mt-1 text-3xl font-semibold tabular-nums", value > 0 && t.value)}>
+        {value.toLocaleString("en-US")}
+      </p>
+      {children && <div className="text-muted-foreground mt-1 text-sm">{children}</div>}
+    </>
+  );
+  const cls = "bg-card rounded-lg border p-4 shadow-xs";
+  return href ? (
+    <Link href={href} className={cn(cls, "hover:bg-accent/50 transition-colors")}>
+      {body}
+    </Link>
+  ) : (
+    <div className={cls}>{body}</div>
   );
 }
 
@@ -78,8 +138,11 @@ export function SeverityBars({
           )}
           <div className="bg-muted h-2 flex-1 overflow-hidden rounded-full">
             <div
-              className="bg-foreground/60 h-full rounded-full"
-              style={{ width: `${total > 0 ? (counts[s] / total) * 100 : 0}%` }}
+              className="h-full rounded-full"
+              style={{
+                width: `${total > 0 ? (counts[s] / total) * 100 : 0}%`,
+                backgroundColor: severityColorVar(s),
+              }}
             />
           </div>
           <span className="w-12 text-right text-sm tabular-nums">{counts[s]}</span>
