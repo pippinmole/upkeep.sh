@@ -133,6 +133,7 @@ export default async function ImagePage({
               workspaceId={workspaceId}
               imageKey={key}
               sp={sp}
+              scored={s?.scored ?? false}
               notAssessed={s?.notAssessed ?? 0}
             />
           )}

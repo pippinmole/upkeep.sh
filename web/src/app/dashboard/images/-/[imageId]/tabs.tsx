@@ -67,11 +67,13 @@ export async function VulnsTab({
   workspaceId,
   imageKey,
   sp,
+  scored,
   notAssessed,
 }: {
   workspaceId: string;
   imageKey: ImageKey;
   sp: SearchParams;
+  scored: boolean; // the rows exist once the list's score is current
   notAssessed: number;
 }) {
   const state = tableStateFromParams(sp, VULNS_TABLE);
@@ -88,10 +90,12 @@ export async function VulnsTab({
     pageSize: state.pagination.pageSize,
   });
   const filtered = state.globalFilter || severities || kev || fix;
-  const empty = filtered
-    ? "No vulnerabilities match these filters."
-    : notAssessed > 0
-      ? `No known vulnerabilities in the assessed packages (${notAssessed} not assessed).`
-      : "No known vulnerabilities.";
+  const empty = !scored
+    ? "Matching in progress: this list's vulnerabilities appear once it is scored."
+    : filtered
+      ? "No vulnerabilities match these filters."
+      : notAssessed > 0
+        ? `No known vulnerabilities in the assessed packages (${notAssessed} not assessed).`
+        : "No known vulnerabilities.";
   return <ImageVulnsTable rows={rows} total={total} state={state} emptyMessage={empty} />;
 }

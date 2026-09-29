@@ -2,23 +2,20 @@ import { pool } from "./db";
 import type { ImageKey } from "./image-key";
 import type { ImageVulnFix, ImageVulnSort } from "./image-tables";
 import { isSeverity, type Severity } from "./severity";
-import { severityLateral } from "./severity-sql";
 
-// The image detail page's Vulnerabilities tab: the matches of the image's
-// effective package list (software_vulnerabilities through
-// image_sbom_effective(user) and image_software), one row per (source
-// package, vuln_key) exactly as findings.BuildImage groups them, so it
-// works for images no container uses (score only, no findings) and its
-// rows add up to the image's score. Where the user's hosts have
-// vulnerable_image findings for a row, their lifecycle is attached.
+// The image detail page's Vulnerabilities tab: the rows of the image's
+// effective package list (image_sbom_effective(user)) in image_sbom_vulns
+// (migration 0018), one per (source package, vuln_key) exactly as
+// store.ScoreImageSBOM grouped and assessed them (findings.BuildImage,
+// severity.Assess): the web only displays, filters and sorts what Go
+// wrote, so the rows add up to the image's score and a row's severity
+// key equals its findings'. Works for images no container uses (score
+// only, no findings). Where the user's hosts have vulnerable_image
+// findings for a row, their lifecycle is attached.
 //
-// Grouping as findings.group: rows without a match source are skipped, and
-// so are kernel binaries (a container runs the host's kernel). The row
-// that decides installed / fixed / fix channel / distro severity is the
-// lowest installed source version; Go orders it with the ecosystem's
-// comparator, here it is plain text order, which only differs when one
-// source package's binaries come from different source versions (not seen
-// in practice: a package set is built from one source upload).
+// Rows are read only while the list's score is current (computed after
+// the list was last written); until then the tab is empty and the page
+// says matching is in progress.
 
 export type ImageVulnRow = {
   vulnKey: string;
@@ -58,48 +55,24 @@ export type ImageVulnFilters = {
   pageSize: number;
 };
 
-// $1..$5 = user, image key.
-const VULNS_CTE = `
-m AS (
-  SELECT sv.id AS software_id, sv.name, sv.ecosystem, sv.match_source AS source,
-         sv.match_version AS version, sw.vuln_key, sw.fixed_version, sw.fix_channel,
-         sw.fix_advisory_id, sw.advisory_ids, sw.distro_severity
+// The user's effective list for the image key, while its score (and so
+// its image_sbom_vulns rows) is current. $1..$5 = user, image key.
+export const SCORED_LIST_SQL = `
+  SELECT e.sbom_id
   FROM image_sbom_effective($1) e
-  JOIN image_software isw ON isw.sbom_id = e.sbom_id
-  JOIN software_versions sv ON sv.id = isw.software_id
-  JOIN software_vulnerabilities sw ON sw.software_id = sv.id
-  WHERE e.image_id = $2 AND e.os = $3 AND e.arch = $4 AND e.variant = $5
-    AND coalesce(sv.match_source, '') <> '' AND coalesce(sv.kernel_release, '') = ''
-),
-rep AS (
-  SELECT DISTINCT ON (m.source, m.vuln_key) m.*
-  FROM m
-  ORDER BY m.source, m.vuln_key, m.version COLLATE "C", m.software_id
-),
-agg AS (
-  SELECT m.source, m.vuln_key, array_agg(DISTINCT m.name ORDER BY m.name) AS packages,
-         (SELECT array_agg(DISTINCT a ORDER BY a)
-          FROM m m2, unnest(m2.advisory_ids) a
-          WHERE m2.source = m.source AND m2.vuln_key = m.vuln_key) AS advisory_ids
-  FROM m
-  GROUP BY m.source, m.vuln_key
-),
+  JOIN image_sbom_state st ON st.id = e.sbom_id
+  JOIN image_sbom_scores sc ON sc.sbom_id = e.sbom_id AND sc.computed_at >= st.updated_at
+  WHERE e.image_id = $2 AND e.os = $3 AND e.arch = $4 AND e.variant = $5`;
+
+const VULNS_CTE = `
 g AS (
-  SELECT rep.source, rep.vuln_key, rep.ecosystem, rep.version, rep.fixed_version,
-         rep.fix_channel, rep.fix_advisory_id, rep.distro_severity, agg.packages,
-         coalesce(agg.advisory_ids, '{}') AS advisory_ids,
-         coalesce(c.is_kev, false) AS is_kev, c.epss_score, c.cvss_v3_score,
-         left(c.description, 240) AS description, sev.bucket, sev.severity, sev.severity_key
-  FROM rep
-  JOIN agg ON agg.source = rep.source AND agg.vuln_key = rep.vuln_key
-  LEFT JOIN cves c ON c.id = rep.vuln_key AND rep.vuln_key LIKE 'CVE-%'
-  ${severityLateral("sev", {
-    distroSeverity: "rep.distro_severity",
-    fixChannel: "rep.fix_channel",
-    kev: "c.is_kev",
-    epss: "c.epss_score",
-    cvss: "c.cvss_v3_score",
-  })}
+  SELECT v.source_package AS source, v.vuln_key, v.ecosystem, v.installed_version AS version,
+         v.fixed_version, v.fix_channel, v.fix_advisory_id, v.distro_severity, v.packages,
+         v.advisory_ids, v.is_kev, v.epss_score, v.cvss_v3_score,
+         left(c.description, 240) AS description, v.severity, v.severity_key
+  FROM (${SCORED_LIST_SQL}) l
+  JOIN image_sbom_vulns v ON v.sbom_id = l.sbom_id
+  LEFT JOIN cves c ON c.id = v.vuln_key AND v.vuln_key LIKE 'CVE-%'
 )`;
 
 export async function getImageVulns(
