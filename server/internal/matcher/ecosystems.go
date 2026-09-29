@@ -5,6 +5,7 @@ import (
 
 	"github.com/pippinmole/upkeep.sh/server/internal/apkversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
+	"github.com/pippinmole/upkeep.sh/server/internal/npmversion"
 )
 
 // Comparator orders the versions of one package ecosystem. Advisory
@@ -21,17 +22,48 @@ type Comparator interface {
 type ecosystem struct {
 	cmp Comparator
 	// distros whose advisories are imported for this ecosystem
-	// (advisory_affected.distro); language ecosystems will use "".
+	// (advisory_affected.distro); a language ecosystem has only "".
 	distros map[string]bool
 }
 
+// language reports a language ecosystem: packages without a distro,
+// advisories from OSV's language databases (GHSA, PYSEC, GO) whose
+// ranges combine as OSV defines them (Evaluate: a version is affected if
+// any range contains it).
+func (e ecosystem) language() bool { return e.distros[""] }
+
 // ecosystems is the single list of assessed ecosystems, keyed by
-// software_versions.ecosystem (the purl type). Adding one (npm, PyPI, Go,
-// ...) is a comparator plus its advisory feed; everything not listed
-// here is inventoried but "not assessed", never "no vulnerabilities".
+// software_versions.ecosystem (the purl type). Adding one (PyPI, Go,
+// ...) is a comparator plus its advisory feed (osv.Languages for a
+// language); everything not listed here is inventoried but "not
+// assessed", never "no vulnerabilities".
 var ecosystems = map[string]ecosystem{
 	"deb": {debComparator{}, set("debian", "ubuntu")},
 	"apk": {apkComparator{}, set("alpine")},
+	"npm": {osvRanges{npmComparator{}}, set("")},
+}
+
+// osvRanges wraps the comparator of a language ecosystem. Evaluate
+// recognises it and combines rows with OSV's range semantics instead of
+// the distro rule (see the package doc, "Language ecosystems").
+type osvRanges struct{ Comparator }
+
+// AdvisoryScope returns the (distro, release) under which the advisory
+// rows of a package of (ecosystem, distro, release) are stored
+// (advisory_affected, advisory_changes): the package's own for a distro
+// ecosystem, (”, ecosystem) for a language ecosystem, whose packages are
+// interned with no distro or release (osv/language.go).
+func AdvisoryScope(eco, distro, release string) (string, string) {
+	if e, ok := ecosystems[eco]; ok && e.language() {
+		return "", eco
+	}
+	return distro, release
+}
+
+// Language reports whether eco is an assessed language ecosystem.
+func Language(eco string) bool {
+	e, ok := ecosystems[eco]
+	return ok && e.language()
 }
 
 // ComparatorFor returns the version comparator of an ecosystem; ok is
@@ -120,3 +152,14 @@ func (c apkComparator) Compare(a, b string) (int, error) {
 	}
 	return apkversion.Compare(a, b), nil
 }
+
+// npmComparator: node-semver ordering (npmversion), for installed
+// versions and OSV SEMVER ranges alike.
+type npmComparator struct{}
+
+func (npmComparator) Validate(v string) error {
+	_, err := npmversion.Parse(v)
+	return err
+}
+
+func (npmComparator) Compare(a, b string) (int, error) { return npmversion.CompareStrings(a, b) }

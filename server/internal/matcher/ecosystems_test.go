@@ -1,6 +1,9 @@
 package matcher
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAssessed(t *testing.T) {
 	tests := []struct {
@@ -18,7 +21,10 @@ func TestAssessed(t *testing.T) {
 		{"apk", "debian", "12", true, false}, // apk packages in a non-Alpine image
 		{"deb", "alpine", "3.22", true, false},
 		{"rpm", "rhel", "9", true, false},
-		{"npm", "", "", false, false}, // task G
+		{"npm", "", "", false, true}, // language: no distro, release ignored
+		{"npm", "", "", true, true},
+		{"npm", "debian", "12", true, false}, // language packages are never distro-scoped
+		{"gem", "", "", false, false},
 		{"homebrew", "", "", false, false},
 	}
 	for _, tt := range tests {
@@ -93,5 +99,97 @@ func TestEvaluateApk(t *testing.T) {
 	})
 	if f := MaxStandardFix(apk, ms); f == nil || *f != "1.0-r10" {
 		t.Errorf("MaxStandardFix = %v", f)
+	}
+}
+
+// langRow builds a language advisory row (GHSA-/PYSEC-/GO-, keyed like a
+// notice: by its CVE aliases, else vulnKey).
+func langRow(id, vulnKey string, cves []string, introduced string, fixed, last *string) Row {
+	r := Row{AdvisoryID: id, VulnKey: vulnKey, CVEIDs: cves, Channel: ChannelStandard,
+		Introduced: introduced, Fixed: fixed, LastAffected: last, Status: "unfixed"}
+	if fixed != nil {
+		r.Status = "fixed"
+	}
+	return r
+}
+
+func TestAdvisoryScope(t *testing.T) {
+	if d, r := AdvisoryScope("npm", "", ""); d != "" || r != "npm" {
+		t.Errorf("npm scope = %q/%q", d, r)
+	}
+	if d, r := AdvisoryScope("deb", "debian", "bookworm"); d != "debian" || r != "bookworm" {
+		t.Errorf("deb scope = %q/%q", d, r)
+	}
+	if !Language("npm") || Language("deb") || Language("gem") {
+		t.Error("Language")
+	}
+}
+
+// Language ecosystems combine ranges as OSV does: affected if any range
+// (of any record for the key) contains the version.
+func TestEvaluateNpmRanges(t *testing.T) {
+	npm, ok := ComparatorFor("npm")
+	if !ok {
+		t.Fatal("npm not registered")
+	}
+	const cve = "CVE-2021-23337"
+	ghsa := "GHSA-35jh-r3h4-6jhm"
+	// One record, two branches: [0, 3.10.2) and [4.0.0, 4.17.21).
+	branches := []Row{
+		langRow(ghsa, cve, []string{cve}, "0", sp("3.10.2"), nil),
+		langRow(ghsa, cve, []string{cve}, "4.0.0", sp("4.17.21"), nil),
+	}
+	tests := []struct {
+		v       string
+		rows    []Row
+		wantFix string // "" = not matched, "-" = matched without a fix
+	}{
+		{"3.10.1", branches, "3.10.2"},
+		{"3.10.2", branches, ""},
+		{"4.17.20", branches, "4.17.21"}, // the distro rule would call it fixed (>= 3.10.2)
+		{"4.17.21", branches, ""},
+		{"4.17.21-rc.1", branches, "4.17.21"}, // prerelease sorts below the release
+		{"5.0.0", branches, ""},
+		// last_affected: inclusive, no fix known.
+		{"1.2.3", []Row{langRow(ghsa, cve, []string{cve}, "0", nil, sp("1.2.3"))}, "-"},
+		{"1.2.4", []Row{langRow(ghsa, cve, []string{cve}, "0", nil, sp("1.2.3"))}, ""},
+		// An explicit versions list: one exact row per version.
+		{"2.0.0", []Row{langRow(ghsa, cve, []string{cve}, "2.0.0", nil, sp("2.0.0"))}, "-"},
+		{"2.0.1", []Row{langRow(ghsa, cve, []string{cve}, "2.0.0", nil, sp("2.0.0"))}, ""},
+		// Two records for one CVE that disagree: the union, lowest fix of
+		// the rows containing v.
+		{"1.5.0", []Row{
+			langRow(ghsa, cve, []string{cve}, "0", sp("1.4.0"), nil),
+			langRow("GHSA-xxxx-yyyy-zzzz", cve, []string{cve}, "1.0.0", sp("1.6.0"), nil),
+		}, "1.6.0"},
+	}
+	for _, tt := range tests {
+		ms, st := Evaluate(tt.v, npm, tt.rows)
+		if st.BadVersions != 0 {
+			t.Errorf("%s: bad versions %d", tt.v, st.BadVersions)
+		}
+		switch {
+		case tt.wantFix == "" && len(ms) != 0:
+			t.Errorf("%s: matched %+v, want none", tt.v, ms)
+		case tt.wantFix != "" && len(ms) != 1:
+			t.Errorf("%s: %d matches, want 1", tt.v, len(ms))
+		case tt.wantFix == "-" && ms[0].FixedVersion != nil:
+			t.Errorf("%s: fix %q, want none", tt.v, *ms[0].FixedVersion)
+		case tt.wantFix != "" && tt.wantFix != "-" && (ms[0].FixedVersion == nil || *ms[0].FixedVersion != tt.wantFix):
+			t.Errorf("%s: fix %v, want %s", tt.v, ms[0].FixedVersion, tt.wantFix)
+		case len(ms) == 1 && ms[0].VulnKey != cve:
+			t.Errorf("%s: key %s", tt.v, ms[0].VulnKey)
+		}
+	}
+
+	// A GHSA without a CVE keys by its (GHSA) vuln_key.
+	ms, _ := Evaluate("1.0.0", npm, []Row{langRow(ghsa, ghsa, nil, "0", sp("1.0.1"), nil)})
+	if len(ms) != 1 || ms[0].VulnKey != ghsa || strings.Join(ms[0].AdvisoryIDs, ",") != ghsa {
+		t.Errorf("GHSA-only: %+v", ms)
+	}
+	// An invalid range version is counted and skipped.
+	ms, st := Evaluate("1.0.0", npm, []Row{langRow(ghsa, cve, []string{cve}, "0", sp("1.0"), nil)})
+	if len(ms) != 0 || st.BadVersions != 1 {
+		t.Errorf("invalid fixed: %+v %+v", ms, st)
 	}
 }

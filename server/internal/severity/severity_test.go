@@ -14,6 +14,7 @@ func TestParsePriority(t *testing.T) {
 		"unimportant":      PriorityNegligible,
 		"low":              PriorityLow,
 		"medium":           PriorityMedium,
+		"MODERATE":         PriorityMedium, // GHSA
 		"high":             PriorityHigh,
 		"critical":         PriorityCritical,
 		"not yet assigned": PriorityUnknown,

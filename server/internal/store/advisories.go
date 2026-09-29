@@ -237,18 +237,25 @@ func markDirty(ctx context.Context, tx pgx.Tx, keys map[osv.Key]bool) error {
 }
 
 // upsertCVSS records CVSS v3 vectors (and derived base scores) from
-// per-CVE records on their cves row, creating it if needed. The most
-// recently synced vector wins; description is only filled if empty.
+// per-CVE records and language records on the cves row of their vuln_key,
+// creating it if needed. The most recently synced vector wins, except
+// that a CVSSIfMissing one (a GHSA's score for a CVE) only fills a row
+// without a vector; description is only filled if empty. A language
+// record without a CVE gets a row under its GHSA/own id: cves then holds
+// the CVSS of every vuln_key, which ranking reads (KEV/EPSS never match
+// those ids).
 func upsertCVSS(ctx context.Context, tx pgx.Tx, ids []string, byID map[string]*osv.Advisory) error {
 	var cveIDs, vectors, descs []string
 	var scores []*string
+	var ifMissing []bool
 	seen := map[string]bool{}
 	for _, id := range ids {
 		a := byID[id]
-		if a.CVSSv3Vector == "" || !osv.IsCVE(a.VulnKey) || seen[a.VulnKey] {
+		if a.CVSSv3Vector == "" || seen[a.VulnKey] {
 			continue
 		}
 		seen[a.VulnKey] = true
+		ifMissing = append(ifMissing, a.CVSSIfMissing)
 		var score *string
 		if f, err := cvss.V3BaseScore(a.CVSSv3Vector); err == nil {
 			s := fmt.Sprintf("%.1f", f)
@@ -265,7 +272,8 @@ func upsertCVSS(ctx context.Context, tx pgx.Tx, ids []string, byID map[string]*o
 	_, err := tx.Exec(ctx, `
 		INSERT INTO cves (id, cvss_v3_vector, cvss_v3_score, description)
 		SELECT id, vec, score::numeric, NULLIF(descr, '')
-		FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS t(id, vec, score, descr)
+		FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::bool[]) AS t(id, vec, score, descr, fill)
+		WHERE NOT t.fill OR NOT EXISTS (SELECT 1 FROM cves c WHERE c.id = t.id AND c.cvss_v3_vector IS NOT NULL)
 		ON CONFLICT (id) DO UPDATE SET
 			cvss_v3_vector = EXCLUDED.cvss_v3_vector,
 			cvss_v3_score  = EXCLUDED.cvss_v3_score,
@@ -273,7 +281,7 @@ func upsertCVSS(ctx context.Context, tx pgx.Tx, ids []string, byID map[string]*o
 			updated_at     = now()
 		WHERE cves.cvss_v3_vector IS DISTINCT FROM EXCLUDED.cvss_v3_vector
 		   OR cves.description IS NULL AND EXCLUDED.description IS NOT NULL
-	`, cveIDs, vectors, scores, descs)
+	`, cveIDs, vectors, scores, descs, ifMissing)
 	return err
 }
 

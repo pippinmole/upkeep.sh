@@ -1,12 +1,13 @@
-// Package osv parses OSV.dev records for the Debian, Ubuntu and Alpine ecosystems
-// and normalizes them into the advisory schema (migrations/0005,
-// DOMAIN_MODEL.md §2.4): one Advisory per record, one Affected row per
-// (release, source package, channel, introduced) range pair, for supported
-// releases only.
+// Package osv parses OSV.dev records for the Debian, Ubuntu and Alpine
+// ecosystems and the language ecosystems in Languages, and normalizes them
+// into the advisory schema (migrations/0005, DOMAIN_MODEL.md §2.4): one
+// Advisory per record, one Affected row per (release, source package,
+// channel, introduced) range pair, for supported releases and imported
+// language ecosystems only.
 //
 // It is pure: no I/O besides the HTTP client in client.go. Version strings
 // are passed through untouched; comparing them is the matcher's job
-// (server/internal/debversion, server/internal/apkversion).
+// (server/internal/debversion, server/internal/apkversion, ...).
 package osv
 
 import (
@@ -30,6 +31,10 @@ type Record struct {
 	Withdrawn string     `json:"withdrawn"`
 	Severity  []Severity `json:"severity"`
 	Affected  []Affected `json:"affected"`
+	// GHSASeverity is a GitHub advisory's reviewed severity (record-level
+	// database_specific.severity: "CRITICAL", "HIGH", "MODERATE", "LOW");
+	// "" when absent or not a string.
+	GHSASeverity string `json:"-"`
 
 	// Undecoded source, kept to build the trimmed `raw` column.
 	rawTop      map[string]json.RawMessage
@@ -105,6 +110,16 @@ func Parse(data []byte) (*Record, error) {
 	if r.ID == "" {
 		return nil, fmt.Errorf("osv record without id")
 	}
+	// database_specific is free-form per database: read the one field we
+	// use and ignore anything else (a distro may put another shape there).
+	if v, ok := top["database_specific"]; ok {
+		var ds struct {
+			Severity any `json:"severity"`
+		}
+		if json.Unmarshal(v, &ds) == nil {
+			r.GHSASeverity, _ = ds.Severity.(string)
+		}
+	}
 	r.Affected = make([]Affected, len(r.rawAffected))
 	for i, raw := range r.rawAffected {
 		if err := json.Unmarshal(raw, &r.Affected[i]); err != nil {
@@ -115,11 +130,23 @@ func Parse(data []byte) (*Record, error) {
 	return &r, nil
 }
 
+// versions returns affected[i].versions, the explicit list of affected
+// versions (decoded only when an entry has no usable range).
+func (r *Record) versions(i int) ([]string, error) {
+	var a struct {
+		Versions []string `json:"versions"`
+	}
+	err := json.Unmarshal(r.rawAffected[i], &a)
+	return a.Versions, err
+}
+
 // trimmedRaw re-encodes the record keeping only the affected entries at
-// indexes keep, each without `versions` and `ecosystem_specific.binaries`.
-// Everything the normalizer reads is preserved, so the stored raw can be
-// re-normalized for the releases that were supported when it was synced.
-func (r *Record) trimmedRaw(keep []int) ([]byte, error) {
+// indexes keep, each without `versions` (unless listed in keepVersions:
+// the entry matched by its versions list) and
+// `ecosystem_specific.binaries`. Everything the normalizer reads is
+// preserved, so the stored raw can be re-normalized for the releases that
+// were supported when it was synced.
+func (r *Record) trimmedRaw(keep []int, keepVersions map[int]bool) ([]byte, error) {
 	out := make(map[string]json.RawMessage, len(r.rawTop))
 	for k, v := range r.rawTop {
 		out[k] = v
@@ -130,7 +157,9 @@ func (r *Record) trimmedRaw(keep []int) ([]byte, error) {
 		if err := json.Unmarshal(r.rawAffected[i], &m); err != nil {
 			return nil, err
 		}
-		delete(m, "versions")
+		if !keepVersions[i] {
+			delete(m, "versions")
+		}
 		if es, ok := m["ecosystem_specific"]; ok {
 			var esm map[string]json.RawMessage
 			if json.Unmarshal(es, &esm) == nil {

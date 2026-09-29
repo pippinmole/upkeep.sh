@@ -121,8 +121,12 @@ func SourceFor(ecosystemDir string) string {
 }
 
 // DistroFor returns the distro (distro_releases.distro) an OSV ecosystem
-// directory holds advisories for ("Alpine" -> "alpine").
+// directory holds advisories for ("Alpine" -> "alpine"); "" for a
+// language ecosystem ("npm").
 func DistroFor(ecosystemDir string) string {
+	if _, ok := Languages[ecosystemDir]; ok {
+		return ""
+	}
 	return strings.ToLower(ecosystemDir)
 }
 
@@ -149,8 +153,14 @@ type Advisory struct {
 	Affected []AffectedRow
 
 	// CVSSv3Vector is set on per-CVE records (DEBIAN-CVE-, UBUNTU-CVE-,
-	// ALPINE-CVE-, CVE-) and feeds cves.cvss_v3_vector for VulnKey.
+	// ALPINE-CVE-, CVE-) and language records (GHSA-, PYSEC-, GO-) keyed by
+	// one vuln_key, and feeds cves.cvss_v3_vector for VulnKey (which for a
+	// language record without a CVE is its GHSA/own id).
 	CVSSv3Vector string
+	// CVSSIfMissing: CVSSv3Vector only fills in a VulnKey that has no
+	// vector yet (a language record's score for a CVE: the distro per-CVE
+	// records' score wins, and two language records don't flip-flop).
+	CVSSIfMissing bool
 }
 
 // AffectedRow is one advisory_affected row.
@@ -185,14 +195,19 @@ var cveRe = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]+$`)
 // IsCVE reports whether s is a CVE id.
 func IsCVE(s string) bool { return cveRe.MatchString(s) }
 
-// Normalize maps a record onto the advisory schema for the given releases.
-// relevant is false when no affected entry is in a supported release: such
-// records are not stored (and are deleted if previously stored).
+// Normalize maps a record onto the advisory schema for the given releases
+// and the imported language ecosystems (Languages). relevant is false
+// when no affected entry is in a supported release or an imported
+// language ecosystem, and for malicious-package records (IsMalicious):
+// such records are not stored (and are deleted if previously stored).
 func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant bool, err error) {
 	adv = Advisory{
 		ID: r.ID, Source: source,
 		Aliases: nonNil(r.Aliases), Upstream: nonNil(r.Upstream), Related: nonNil(r.Related),
 		Summary: r.Summary, Details: r.Details,
+	}
+	if IsMalicious(r.ID) {
+		return adv, false, nil
 	}
 	mod, err := parseTime(r.Modified)
 	if err != nil || mod == nil {
@@ -207,28 +222,50 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 	}
 
 	adv.CVEIDs = cveIDs(r)
-	adv.VulnKey = vulnKey(r.ID, adv.CVEIDs)
+	adv.VulnKey = vulnKey(r.ID, adv.CVEIDs, r.Aliases)
 	adv.Severity = recordPriority(r.Severity)
 	// Per-CVE records (own id is the CVE, or a DEBIAN-/UBUNTU-/ALPINE-CVE wrapper):
 	// their CVSS belongs to that CVE. Multi-CVE advisories (DSA/USN) are
 	// skipped: their record-level severity isn't per CVE.
 	if IsPerCVE(r.ID) {
-		for _, s := range r.Severity {
-			if s.Type == "CVSS_V3" && strings.HasPrefix(s.Score, "CVSS:3") {
-				adv.CVSSv3Vector = s.Score // first one listed
-				break
-			}
-		}
+		adv.CVSSv3Vector = cvssV3(r.Severity)
 	}
 
 	var (
-		rows []AffectedRow
-		keep []int
-		seen = map[string]bool{}
+		rows         []AffectedRow
+		keep         []int
+		keepVersions = map[int]bool{}
+		seen         = map[string]bool{}
+		language     bool
 	)
+	add := func(row AffectedRow) bool {
+		// Duplicate keys happen when OSV lists a package twice for one
+		// release (e.g. "Ubuntu:26.04" and "Ubuntu:26.04:LTS"); keep the first.
+		if seen[row.pk()] {
+			return false
+		}
+		seen[row.pk()] = true
+		rows = append(rows, row)
+		return true
+	}
 	for i, a := range r.Affected {
+		if a.Package.Name == "" {
+			continue
+		}
+		if eco, ok := LanguageFor(a.Package.Ecosystem); ok {
+			language = true
+			n, err := languageRows(r, i, eco, add)
+			if err != nil {
+				return adv, false, err
+			}
+			if n.rows > 0 {
+				keep = append(keep, i)
+				keepVersions[i] = n.fromVersions
+			}
+			continue
+		}
 		rel, channel, ok := rels.Lookup(a.Package.Ecosystem)
-		if !ok || a.Package.Name == "" {
+		if !ok {
 			continue
 		}
 		sev := affectedSeverity(rel.Distro, a, adv.Severity)
@@ -250,14 +287,7 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 				default:
 					row.Status = "unfixed"
 				}
-				// Duplicate keys happen when OSV lists a package twice for one
-				// release (e.g. "Ubuntu:26.04" and "Ubuntu:26.04:LTS"); keep the first.
-				if seen[row.pk()] {
-					continue
-				}
-				seen[row.pk()] = true
-				rows = append(rows, row)
-				added = true
+				added = add(row) || added
 			}
 		}
 		if added {
@@ -267,16 +297,100 @@ func Normalize(r *Record, source string, rels Releases) (adv Advisory, relevant 
 	if len(rows) == 0 {
 		return adv, false, nil
 	}
+	if language {
+		// A language record's CVSS is its own (GitHub's, PyPA's) for the
+		// record's key: authoritative when the key is the record itself
+		// (a GHSA-only record), else only filling in a CVE no distro
+		// per-CVE record has scored (CVSSIfMissing). A record citing
+		// several CVEs is matched per CVE (matcher), so its one score
+		// isn't used.
+		if len(adv.CVEIDs) <= 1 && adv.CVSSv3Vector == "" {
+			adv.CVSSv3Vector = cvssV3(r.Severity)
+			adv.CVSSIfMissing = adv.VulnKey != r.ID
+		}
+	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].pk() < rows[j].pk() })
 	if adv.Withdrawn == nil {
 		adv.Affected = rows
 	}
 
-	if adv.Raw, err = r.trimmedRaw(keep); err != nil {
+	if adv.Raw, err = r.trimmedRaw(keep, keepVersions); err != nil {
 		return adv, false, fmt.Errorf("osv %s: trim raw: %w", r.ID, err)
 	}
 	adv.ContentHash = contentHash(adv)
 	return adv, true, nil
+}
+
+// langRows counts what languageRows added.
+type langRows struct {
+	rows         int
+	fromVersions bool
+}
+
+// languageRows adds the rows of one language affected entry
+// (r.Affected[i], software ecosystem eco): distro ”, release eco, the
+// stored package name. Ranges of type SEMVER (npm, Go) and ECOSYSTEM
+// (PyPI) are read; GIT ranges (commits) can't be compared with a package
+// version and are skipped. An entry with no usable range falls back to
+// its explicit `versions` list, one exact row per version (introduced =
+// last_affected = the version). The severity is the GHSA's reviewed one
+// (MODERATE is kept as "moderate"; severity.ParsePriority ranks it as
+// medium); PYSEC and GO records have none.
+func languageRows(r *Record, i int, eco string, add func(AffectedRow) bool) (langRows, error) {
+	var out langRows
+	a := r.Affected[i]
+	base := AffectedRow{
+		Release: eco, SourcePackage: languageName(a.Package.Ecosystem, a.Package.Name),
+		Channel: ChannelStandard, Ecosystem: a.Package.Ecosystem,
+		DistroSeverity: normSeverity(r.GHSASeverity),
+	}
+	usable := false
+	for _, rg := range a.Ranges {
+		if rg.Type != "SEMVER" && rg.Type != "ECOSYSTEM" {
+			continue
+		}
+		for _, row := range rangeRows(rg.Events) {
+			usable = true
+			row.Distro, row.Release, row.SourcePackage = base.Distro, base.Release, base.SourcePackage
+			row.Channel, row.Ecosystem, row.DistroSeverity = base.Channel, base.Ecosystem, base.DistroSeverity
+			row.Status = "unfixed"
+			if row.FixedVersion != nil {
+				row.Status = "fixed"
+			}
+			if add(row) {
+				out.rows++
+			}
+		}
+	}
+	if usable {
+		return out, nil
+	}
+	vs, err := r.versions(i)
+	if err != nil {
+		return out, fmt.Errorf("osv %s: affected[%d].versions: %w", r.ID, i, err)
+	}
+	for _, v := range vs {
+		if v == "" {
+			continue
+		}
+		row := base
+		row.Introduced, row.LastAffected, row.Status = v, &v, "unfixed"
+		if add(row) {
+			out.rows++
+			out.fromVersions = true
+		}
+	}
+	return out, nil
+}
+
+// cvssV3 returns the first CVSS v3 vector of a severity list.
+func cvssV3(sevs []Severity) string {
+	for _, s := range sevs {
+		if s.Type == "CVSS_V3" && strings.HasPrefix(s.Score, "CVSS:3") {
+			return s.Score
+		}
+	}
+	return ""
 }
 
 // rangeRows turns an OSV event list into (introduced, fixed|last_affected)
@@ -428,8 +542,11 @@ func cveIDs(r *Record) []string {
 }
 
 // vulnKey is the canonical downstream key (DOMAIN_MODEL.md §2.4): the CVE
-// for per-CVE records and single-CVE advisories, else the advisory id.
-func vulnKey(id string, cves []string) string {
+// for per-CVE records and single-CVE advisories; else, for a record
+// without a CVE that is or aliases a GitHub advisory, that GHSA id (so a
+// GO-/PYSEC- record and the GHSA it aliases key the same finding); else
+// the advisory id.
+func vulnKey(id string, cves, aliases []string) string {
 	if IsCVE(id) {
 		return id
 	}
@@ -438,6 +555,11 @@ func vulnKey(id string, cves []string) string {
 	}
 	if len(cves) == 1 {
 		return cves[0]
+	}
+	if len(cves) == 0 {
+		if g := ghsaAlias(id, aliases); g != "" {
+			return g
+		}
 	}
 	return id
 }

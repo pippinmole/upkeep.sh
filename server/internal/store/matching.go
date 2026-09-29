@@ -68,6 +68,14 @@ type svRow struct {
 
 type sourceKey struct{ distro, release, source string }
 
+// advisoryKey is the advisory_affected key the version's target joins:
+// language packages (no distro, no release) are stored under
+// (”, ecosystem) (matcher.AdvisoryScope).
+func (r *svRow) advisoryKey() sourceKey {
+	d, rel := matcher.AdvisoryScope(r.ecosystem, r.distro, r.release)
+	return sourceKey{d, rel, r.target.Source}
+}
+
 func (s *Store) matchChunk(ctx context.Context, ids []int64) (MatchResult, error) {
 	var res MatchResult
 	tx, err := s.Pool.Begin(ctx)
@@ -137,7 +145,7 @@ func (s *Store) matchChunk(ctx context.Context, ids []int64) (MatchResult, error
 				res.BadVersions++
 			} else {
 				var st matcher.Stats
-				ms, st = matcher.Evaluate(r.target.Version, c, advRows[sourceKey{r.distro, r.release, r.target.Source}])
+				ms, st = matcher.Evaluate(r.target.Version, c, advRows[r.advisoryKey()])
 				res.BadVersions += st.BadVersions
 			}
 		}
@@ -212,7 +220,7 @@ func loadAdvisoryRows(ctx context.Context, tx pgx.Tx, svs []*svRow) (map[sourceK
 		if r.target.Source == "" {
 			continue
 		}
-		k := sourceKey{r.distro, r.release, r.target.Source}
+		k := r.advisoryKey()
 		if !seen[k] {
 			seen[k] = true
 			ds, rs, ps = append(ds, k.distro), append(rs, k.release), append(ps, k.source)
@@ -323,8 +331,8 @@ func (s *Store) SweepStaleVersions(ctx context.Context) (SweepResult, error) {
 // DrainOptions scopes DrainAdvisoryChanges.
 type DrainOptions struct {
 	// Distro restricts the drain to one distro. Empty = every distro in
-	// distro_releases (keys for anything else, e.g. test fixtures, are
-	// left alone).
+	// distro_releases plus the language ecosystems' keys (distro '')
+	// (keys for anything else, e.g. test fixtures, are left alone).
 	Distro string
 	// BatchSize is the number of keys read per round (default 1000).
 	BatchSize int
@@ -372,8 +380,9 @@ func (s *Store) DrainAdvisoryChanges(ctx context.Context, opts DrainOptions) (Dr
 		rows, err := s.Pool.Query(ctx, `
 			SELECT ac.distro, ac.release, ac.source_package, ac.changed_at
 			FROM advisory_changes ac
-			WHERE ($1 = '' AND EXISTS (SELECT 1 FROM distro_releases dr
-			                           WHERE dr.distro = ac.distro AND dr.codename = ac.release)
+			WHERE ($1 = '' AND (ac.distro = '' -- language ecosystems
+			                    OR EXISTS (SELECT 1 FROM distro_releases dr
+			                               WHERE dr.distro = ac.distro AND dr.codename = ac.release))
 			       OR ac.distro = $1)
 			  AND (ac.changed_at, ac.distro, ac.release, ac.source_package) > ($2, $3, $4, $5)
 			ORDER BY ac.changed_at, ac.distro, ac.release, ac.source_package
@@ -406,10 +415,20 @@ func (s *Store) DrainAdvisoryChanges(ctx context.Context, opts DrainOptions) (Dr
 			ds, rs, ps, ats = append(ds, k.distro), append(rs, k.release), append(ps, k.source), append(ats, k.changedAt)
 		}
 		rows, err = s.Pool.Query(ctx, `
-			SELECT sv.id, sv.distro, sv.release, sv.match_source
-			FROM unnest($1::text[], $2::text[], $3::text[]) AS k(d, r, p)
-			JOIN software_versions sv ON sv.distro = k.d AND sv.release = k.r AND sv.match_source = k.p
-			ORDER BY sv.id
+			SELECT id, d, r, p FROM (
+				SELECT sv.id, k.d, k.r, k.p
+				FROM unnest($1::text[], $2::text[], $3::text[]) AS k(d, r, p)
+				JOIN software_versions sv ON sv.distro = k.d AND sv.release = k.r AND sv.match_source = k.p
+				WHERE k.d <> ''
+				UNION ALL
+				-- language keys are ('', ecosystem, name) (matcher.AdvisoryScope)
+				SELECT sv.id, k.d, k.r, k.p
+				FROM unnest($1::text[], $2::text[], $3::text[]) AS k(d, r, p)
+				JOIN software_versions sv ON sv.distro = '' AND sv.release = '' AND sv.match_source = k.p
+				                         AND sv.ecosystem = k.r
+				WHERE k.d = ''
+			) v
+			ORDER BY id
 		`, ds, rs, ps)
 		if err != nil {
 			return res, err

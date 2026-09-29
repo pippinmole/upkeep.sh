@@ -1,5 +1,5 @@
 // Command worker runs upkeep.sh background jobs on River: the OSV
-// Debian/Ubuntu/Alpine advisory sync (hourly incremental, weekly full), the CISA
+// Debian/Ubuntu/Alpine/npm advisory sync (hourly incremental, weekly full), the CISA
 // KEV and FIRST EPSS syncs (daily), the vulnerability matcher and findings
 // reconciliation (see internal/jobs/matching.go), alerting: rule
 // evaluation, digests, agent staleness and notification delivery (see
@@ -241,7 +241,7 @@ func main() {
 func runOnce(ctx context.Context, s *feeds.Syncer, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	full := fs.Bool("full", false, "osv: force a full all.zip import")
-	usage := "usage: worker sync osv <Debian|Ubuntu|Alpine> [-full] | worker sync kev | worker sync epss"
+	usage := "usage: worker sync osv <Debian|Ubuntu|Alpine|npm> [-full] | worker sync kev | worker sync epss"
 	if len(args) == 0 {
 		return fmt.Errorf("%s", usage)
 	}
@@ -286,7 +286,35 @@ func runMatch(ctx context.Context, db *store.Store) error {
 	if err != nil {
 		return err
 	}
-	return runReconcile(ctx, db, hosts)
+	if err := runReconcile(ctx, db, hosts); err != nil {
+		return err
+	}
+	return runImageScores(ctx, db)
+}
+
+// runImageScores re-scores the image package lists whose score is stale
+// (image_score_sweep's work, e.g. after a matcher.Version bump). Lists
+// whose score changes through a version's matches are re-scored by the
+// reconcile_image jobs of a running worker; this catches up without one.
+func runImageScores(ctx context.Context, db *store.Store) error {
+	ids, err := db.StaleImageScores(ctx, 10000)
+	if err != nil {
+		return err
+	}
+	scored, pending := 0, 0
+	for _, id := range ids {
+		r, err := db.ScoreImageSBOM(ctx, id)
+		if err != nil {
+			return fmt.Errorf("score list %d: %w", id, err)
+		}
+		if r.Pending > 0 {
+			pending++
+		} else if r.Found {
+			scored++
+		}
+	}
+	log.Printf("image scores: %d stale lists, %d scored, %d still pending", len(ids), scored, pending)
+	return nil
 }
 
 // runReconcile reconciles the given hosts, or every host when none given.
