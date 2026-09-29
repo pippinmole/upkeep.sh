@@ -351,15 +351,18 @@ all CVE-keyed), 12,940 affected rows: 3.21 3,096 · 3.22 3,229 · 3.23
 19 MB heap.
 
 **As built (P2a, language ecosystems).** `feeds.OSVEcosystems` also
-lists the language directories: `npm`, `PyPI`. A language directory
-maps to a package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
-`software_versions.ecosystem` `npm`, `PyPI` → `pypi`; `osv.DistroFor` is
-`''`), and `osv/language.go` normalizes its records:
+lists the language directories: `npm`, `PyPI`, `Go`. A language
+directory maps to a package ecosystem, not a distro (`osv.Languages`:
+OSV `npm` → `software_versions.ecosystem` `npm`, `PyPI` → `pypi`, `Go`
+→ `golang`; `osv.DistroFor` is `''`), and `osv/language.go` normalizes
+its records:
 
 - **Rows**: `distro = ''`, `release` = the software ecosystem (`npm`,
-  `pypi`), `source_package` = the package name as `software_versions`
-  stores it (§4.5: npm `@scope/name`; PyPI PEP 503-normalised, which
-  OSV's PyPI names already are), so one (distro, release, source) key never
+  `pypi`, `golang`), `source_package` = the package name as
+  `software_versions` stores it (§4.5: npm `@scope/name`; PyPI PEP
+  503-normalised, which OSV's PyPI names already are; Go the module
+  path, and `stdlib` for the standard library, which Syft and docker
+  scout report under that name), so one (distro, release, source) key never
   mixes two ecosystems' packages of the same name. The matcher maps a
   language package (interned with distro and release `''`) to that key
   (`matcher.AdvisoryScope`), and the `advisory_changes` drain joins
@@ -380,7 +383,8 @@ maps to a package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
   then key one finding), else its own id. npm: 6,054 CVE-keyed, 1,404
   GHSA-keyed; PyPI: 13,168 CVE-, 414 GHSA-, 360 PYSEC-keyed. PyPI has a
   GHSA *and* a PYSEC record for 5,657 of its 6,320 CVEs, both keyed by
-  the CVE: one finding citing both ids.
+  the CVE: one finding citing both ids. Go: 8,516 CVE-, 789 GHSA-, 70
+  GO-keyed (309 GO records without a CVE key by the GHSA they alias).
 - **Severity**: the GHSA's reviewed severity (record-level
   `database_specific.severity`, lowercased: `critical` / `high` /
   `moderate` / `low`) is the rows' `distro_severity`, so it ranks like a
@@ -411,9 +415,22 @@ maps to a package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
   fetching or counting them (`OSVStats.malicious`); they would otherwise
   force a full import almost every hour. Of npm's 229,533 records,
   222,028 are `MAL-`; of PyPI's 25,757, 11,787.
-- 5 npm rows of 9,754 are dropped as duplicate keys (the same package
-  listed twice with the same `introduced`), as for Ubuntu's duplicate
-  releases.
+- **Several ranges from one version** (migration 0022): a record may
+  list a package more than once with the same `introduced` (Go:
+  `github.com/CosmWasm/wasmvm/v2` three times from `0`, fixed 2.0.6,
+  2.1.5, 2.2.2). Keeping only the first, as for a distro's duplicate
+  release names, would miss versions the others cover, so
+  `advisory_affected.seq` numbers them and joins the primary key
+  (15 rows on 2026-09-29); identical repeats are still dropped (34 in
+  Go, 22 in PyPI, 5 in npm). Distro rows keep `seq = 0`.
+- **Go specifics**: SEMVER ranges drop the `v` (`1.2.3`) and use
+  `-0` for "any pre-release" (`introduced: 1.24.0-0`), the standard
+  library is the module `stdlib` versioned by Go release, and GO records
+  alias the GHSA for the same issue (a GHSA exists for most GO records
+  in the same zip). Matching is per module, like `govulncheck -mode
+  binary` without symbol analysis: the records' `ecosystem_specific.imports`
+  (the affected packages and symbols) are not read, so a module that
+  contains a vulnerable package the binary doesn't use still matches.
 
 Live first syncs (2026-09-29, on a copy of dev data; records = zip
 entries including `MAL-`):
@@ -422,8 +439,11 @@ entries including `MAL-`):
 |------|---------|---------|----------------------|-----------------|------|------------|
 | npm  | 207 MB  | 229,533 | 7,504 (355)          | 9,749 / 3,593   | 55 s (~50 s download) | 119 / 143 MB |
 | PyPI | 33 MB   | 25,757  | 13,947 (543)         | 22,166 / 1,652  | 11 s (~5 s download)  | 43 / 60 MB   |
+| Go   | 12 MB   | 9,394   | 9,375 (149)          | 15,759 / 1,610  | 12 s (~9 s download)  | 47 / 92 MB   |
 
-An immediate incremental run takes 0.2 s.
+An immediate incremental run takes 0.2 s. Adding a language reloads the
+others (fingerprint): npm then rewrote 3 of 7,507 records in 57 s,
+mostly the download.
 
 ### 2.4 Advisory schema (replaces `vulnerabilities`)
 
@@ -501,7 +521,9 @@ this way here for readability.)
 **As built (migration 0005)**, differences from the sketch above:
 
 - `advisory_affected` gained `channel` (`standard` | `ubuntu-pro`, part
-  of the primary key; Q9), `last_affected` (OSV's rare inclusive upper
+  of the primary key; Q9), `seq` (migration 0022, also in the key:
+  several ranges of one language package from the same `introduced`,
+  §2.3), `last_affected` (OSV's rare inclusive upper
   bound, used instead of `fixed`) and `ecosystem` (as published);
   `introduced` is `NOT NULL DEFAULT ''`.
 - `advisories` gained `cve_ids` (every CVE the record cites: own id,
@@ -662,6 +684,16 @@ ecosystem is one comparator plus its feed. Language ecosystems:
   the PyPI feed. Legacy (non-PEP 440) versions are invalid, as in
   packaging ≥ 22: 2,051 distinct feed versions, nearly all in `versions`
   lists (`0.1.0.dev-120828c`), are bad versions, skipped.
+- `golang` → `server/internal/goversion`: `golang.org/x/mod/semver`, the
+  go command's own ordering (BSD-3-Clause, no dependencies, already in
+  the module graph through Syft), after canonicalising: a missing `v` is
+  added (OSV ranges and docker scout SBOMs drop it), a `go` prefix
+  dropped (`go1.22.3` for `stdlib`), Go release candidates and betas
+  (`go1.21rc2`) become OSV's `v1.21.0-rc.2`. Pseudo-versions order as
+  pre-releases and `+incompatible` as build metadata, as in the go
+  command; tested with x/mod's own semver table.
+- Invalid range versions in the three feeds (bad versions, skipped): 16
+  npm (`1.77`), 44 PyPI (`7.2.0-12.1`), 21 Go (`19.03.9`).
 - **Range semantics.** A language record lists one range per maintained
   branch (`[0, 3.1.3)`, `[9.0.0, 9.0.6)`, ...), so the distro rule "any
   row saying fixed wins" would call minimatch 9.0.4 fixed because it is
@@ -683,7 +715,7 @@ ecosystem is one comparator plus its feed. Language ecosystems:
   single answer to "is this package matched at all" (for "not assessed"
   counts): `deb` on debian/ubuntu and `apk` on alpine, with a release
   that `distro_releases` lists as supported; the language ecosystems
-  (`npm`, `pypi`) with distro `''`, release ignored. Advisories are imported
+  (`npm`, `pypi`, `golang`) with distro `''`, release ignored. Advisories are imported
   only for supported releases, so a release out of support (Debian 10
   buster) or one not in `distro_releases` matches nothing and its
   packages are "not assessed", never "no vulnerabilities"
@@ -698,7 +730,8 @@ ecosystem is one comparator plus its feed. Language ecosystems:
   "evaluated, nothing to match" under 1; the bump re-evaluates them.
   deb results are unchanged. 3: `Assessed` needs a supported release;
   matches are unchanged, the bump re-scores image lists. 4: npm
-  packages are matched. 5: PyPI packages are matched.
+  packages are matched. 5: PyPI packages are matched. 6: Go modules and
+  the standard library are matched.
 - Host findings (`findings.Build`) still pick the lowest installed
   version with debversion; hosts only send deb today.
 

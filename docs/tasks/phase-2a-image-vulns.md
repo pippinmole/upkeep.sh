@@ -218,19 +218,44 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       flips (today only a `matcher.Version` bump or a list rewrite
       re-scores; a data migration that ends a release's support should
       bump it or clear the affected `image_sbom_scores`).
-- [ ] Language ecosystems, one at a time, each with its OSV feed and
-      comparator: likely npm, PyPI, Go, then crates.io / Maven. Until an
-      ecosystem is added its packages are listed but marked "not
-      assessed". npm done 2026-09-29 (`server/internal/npmversion`,
-      `osv/language.go`, `matcher.Version` 4; DOMAIN_MODEL.md §2.3, §2.5
-      "As built"): OSV `npm` feed (MAL- records skipped), rows under
-      ('', 'npm', name), OSV range semantics for language ecosystems,
-      GHSA severity as the ranking priority. Live: 7,504 advisories, the
-      node images' not-assessed counts 189 → 2 and 318 → 120, 48 npm
-      rows in `image_sbom_vulns`. PyPI done 2026-09-29
-      (`server/internal/pep440`, equal to pypa/packaging on the feed's
-      40,482 versions; `matcher.Version` 5): 13,947 advisories; GHSA and
-      PYSEC records for one CVE give one finding.
+- [x] Language ecosystems, one at a time, each with its OSV feed and
+      comparator: npm, PyPI, Go. Until an ecosystem is added its
+      packages are listed but marked "not assessed". (Done 2026-09-29,
+      migration 0022, `matcher.Version` 4-6; DOMAIN_MODEL.md §2.3 "As
+      built (P2a, language ecosystems)", §2.4, §2.5. `osv/language.go`:
+      OSV `npm`, `PyPI`, `Go` feeds, rows under ('', ecosystem, package
+      name) (`matcher.AdvisoryScope`), MAL- records skipped, vuln_key =
+      the single CVE alias else the GHSA id, GHSA severity as the ranking
+      priority and its CVSS in `cves`, multi-ecosystem GHSAs shared by
+      the feeds. The matcher combines language ranges with OSV semantics
+      (any range containing the version), so backport branches and a
+      GHSA + PYSEC/GO pair for one CVE give one correct finding.
+      Comparators: `npmversion` (node-semver fixtures), `pep440` (pypa/
+      packaging vectors; equal to packaging 26.3 on the feed's 40,482
+      versions), `goversion` (golang.org/x/mod/semver + its table; `v`,
+      `go1.x`, pseudo-versions, `+incompatible`). Live on dev data: 7,504
+      npm, 13,947 PyPI, 9,375 Go advisories; first syncs 55 s / 11 s /
+      12 s, ≤ 143 MB RSS. Not-assessed counts: node images 189 → 1 and
+      318 → 120 (the rest is Debian 10), Go-binary images 4 → 0 (two
+      lists) and 5 → 1; `image_sbom_vulns` gained 48 npm and 138 Go rows
+      (Go stdlib 1.24.6: 45 CVEs), open image findings 290 → 503 (29
+      npm, 184 Go); spot-checked
+      against the OSV records (minimatch 9.0.4 in [9.0.0, 9.0.6), tar
+      6.2.1 < 7.5.3, stdlib 1.24.6 in [0, 1.24.9), mercurial 6.3.2 above
+      every fix).)
+- [ ] crates.io and Maven advisories (OSV `crates.io`, `Maven`): Cargo
+      is SemVer (npmversion's ordering fits), Maven needs its own
+      ComparableVersion ordering.
+- [ ] Malicious package detection (OSV `MAL-` records, OpenSSF): a
+      package flagged as malware (every version) rather than a
+      vulnerable range; needs its own finding kind and wording. Skipped
+      by every language sync today.
+- [ ] Go findings are per module: read the Go records'
+      `ecosystem_specific.imports` (packages/symbols) to drop modules a
+      binary contains but doesn't call (as `govulncheck -mode binary`).
+- [ ] The CVE page's "fixed in" list reads only distro rows
+      (`advisory_affected` ⋈ `distro_releases`); show language packages'
+      fixed versions there too.
 - [ ] Agent: package lists for images the server can't pull (no repo
       digest = built locally, or a private registry). The push response
       carries "need a package list for these image IDs"; the agent runs
