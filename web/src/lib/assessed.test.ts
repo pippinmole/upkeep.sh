@@ -16,7 +16,10 @@ const CASES: [string, string, string, boolean | null, boolean][] = [
   ["apk", "debian", "12", true, false],
   ["deb", "alpine", "3.22", true, false],
   ["rpm", "rhel", "9", true, false],
-  ["npm", "", "", null, false],
+  ["npm", "", "", null, true], // language: no distro, release ignored
+  ["npm", "", "", true, true],
+  ["npm", "debian", "12", true, false], // language packages are never distro-scoped
+  ["gem", "", "", null, false],
   ["homebrew", "", "", null, false],
 ];
 
@@ -39,6 +42,7 @@ describe("assessedSql", () => {
     const sql = assessedSql("e", "d", "r", "s");
     expect(sql).toContain("(e = 'deb' AND d IN ('debian', 'ubuntu'))");
     expect(sql).toContain("(e = 'apk' AND d IN ('alpine'))");
+    expect(sql).toContain("(e = 'npm' AND d IN (''))");
     expect(sql).toContain("(d = '' OR (r <> '' AND coalesce(s, false)))");
   });
 });

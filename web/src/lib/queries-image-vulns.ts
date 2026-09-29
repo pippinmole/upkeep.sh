@@ -72,7 +72,7 @@ g AS (
          left(c.description, 240) AS description, v.severity, v.severity_key
   FROM (${SCORED_LIST_SQL}) l
   JOIN image_sbom_vulns v ON v.sbom_id = l.sbom_id
-  LEFT JOIN cves c ON c.id = v.vuln_key AND v.vuln_key LIKE 'CVE-%'
+  LEFT JOIN cves c ON c.id = v.vuln_key
 )`;
 
 export async function getImageVulns(

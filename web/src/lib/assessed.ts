@@ -18,6 +18,7 @@
 export const ASSESSED_ECOSYSTEMS: Readonly<Record<string, readonly string[]>> = {
   deb: ["debian", "ubuntu"],
   apk: ["alpine"],
+  npm: [""], // language ecosystems: no distro
 };
 
 // matcher.Assessed: the ecosystem has a comparator, the distro's
