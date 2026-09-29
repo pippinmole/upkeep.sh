@@ -239,6 +239,8 @@ export type HostListRow = {
   openVulns: number;
   kevVulns: number;
   topVulnSeverity: string | null;
+  // From the newest snapshot by collected_at; false when never reported.
+  rebootRequired: boolean;
 };
 
 type HostRow = {
@@ -264,6 +266,7 @@ type HostRow = {
   open_vulns: string;
   kev_vulns: string;
   top_vuln_severity: string | null;
+  reboot_required: boolean | null;
 };
 
 // Every host of the user, archived ones included (the Hosts page filters
@@ -278,7 +281,7 @@ export async function getHosts(userId: string): Promise<HostListRow[]> {
             ag.agents,
             coalesce(f.open_findings, 0) AS open_findings, f.top_severity,
             coalesce(f.open_vulns, 0) AS open_vulns, coalesce(f.kev_vulns, 0) AS kev_vulns,
-            f.top_vuln_severity
+            f.top_vuln_severity, rb.reboot_required
      FROM hosts h
      LEFT JOIN hosts dh ON dh.id = h.duplicate_of AND dh.user_id = h.user_id
      LEFT JOIN hosts mh ON mh.id = h.merged_into AND mh.user_id = h.user_id
@@ -294,6 +297,11 @@ export async function getHosts(userId: string): Promise<HostListRow[]> {
        WHERE ah.host_id = h.id
      ) ag ON true
      LEFT JOIN LATERAL (${HOST_FINDINGS_SQL}) f ON true
+     LEFT JOIN LATERAL (
+       SELECT s.reboot_required FROM snapshots s
+       WHERE s.host_id = h.id
+       ORDER BY s.collected_at DESC LIMIT 1   -- snapshots_host_collected_idx
+     ) rb ON true
      WHERE h.user_id = $1
      ORDER BY h.archived_at IS NOT NULL, h.last_seen_at DESC NULLS LAST, h.hostname, h.id`,
     [userId],
@@ -324,5 +332,6 @@ export async function getHosts(userId: string): Promise<HostListRow[]> {
     openVulns: Number(r.open_vulns),
     kevVulns: Number(r.kev_vulns),
     topVulnSeverity: r.top_vuln_severity,
+    rebootRequired: r.reboot_required ?? false,
   }));
 }

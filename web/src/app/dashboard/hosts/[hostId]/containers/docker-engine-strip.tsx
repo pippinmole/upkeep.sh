@@ -37,8 +37,7 @@ export function DockerEngineStrip({ engine }: { engine: HostDockerEngine }) {
   if (engine.swarmState === "locked") {
     swarm = (
       <Badge
-        variant="outline"
-        className="gap-1 border-amber-500/50 text-amber-700 dark:text-amber-400"
+        variant="warning"
         title="Autolock is on and this manager hasn't been unlocked: the engine reports no role or cluster until it is (last known values shown if any)."
       >
         <Lock className="size-3" />

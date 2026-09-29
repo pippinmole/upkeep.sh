@@ -1,4 +1,5 @@
 import { ImageScoreCell } from "@/components/image/score-cell";
+import { containerStateTone, StatusBadge } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -11,7 +12,6 @@ import {
 import { imageHref } from "@/lib/image-key";
 import type { ContainerPort, HostContainerRow } from "@/lib/queries-docker";
 import { formatDateTime, relativeTime } from "@/lib/time";
-import { cn } from "@/lib/utils";
 
 // Containers grouped by Compose project or Swarm stack, ungrouped last.
 // Server-rendered plain tables: a host has tens of containers, and grouping
@@ -41,26 +41,14 @@ function groupContainers(rows: HostContainerRow[]): Group[] {
   );
 }
 
-const STATE_STYLE: Record<string, string> = {
-  running: "border-emerald-600/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
-  restarting: "border-amber-500/50 text-amber-700 dark:text-amber-400",
-  paused: "border-sky-500/40 text-sky-700 dark:text-sky-400",
-  dead: "border-red-500/40 text-red-700 dark:text-red-400",
-};
-
 function StateCell({ c }: { c: HostContainerRow }) {
   if (!c.state) return <span className="text-muted-foreground">Unknown</span>;
   return (
     <div className="flex flex-col items-start gap-0.5">
-      <Badge
-        variant="outline"
-        className={cn(
-          "whitespace-nowrap capitalize",
-          STATE_STYLE[c.state] ?? "text-muted-foreground",
-        )}
-      >
-        {c.state}
-      </Badge>
+      <StatusBadge
+        tone={containerStateTone(c.state)}
+        label={c.state[0].toUpperCase() + c.state.slice(1)}
+      />
       {c.state === "running" && c.startedAt && (
         <span
           className="text-muted-foreground text-xs"
@@ -102,11 +90,11 @@ function bindKind(ip: string | undefined): Bind {
   if (ip.startsWith("127.") || ip === "::1") return "loopback";
   return "address";
 }
-const BIND_STYLE: Record<Bind, string> = {
-  all: "border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300",
-  loopback: "text-muted-foreground",
-  address: "",
-};
+const BIND_VARIANT = {
+  all: "warning",
+  loopback: "neutral",
+  address: "outline",
+} as const satisfies Record<Bind, string>;
 const BIND_TITLE: Record<Bind, string> = {
   all: "Published on all interfaces (0.0.0.0 / ::)",
   loopback: "Published on loopback only",
@@ -145,8 +133,8 @@ function PortsCell({ ports }: { ports: ContainerPort[] }) {
         return (
           <Badge
             key={`${host}>${target}`}
-            variant="outline"
-            className={cn("font-mono text-xs font-normal whitespace-nowrap", BIND_STYLE[kind])}
+            variant={BIND_VARIANT[kind]}
+            className="font-mono text-xs font-normal whitespace-nowrap"
             title={BIND_TITLE[kind]}
           >
             {host} → {target}
@@ -239,12 +227,7 @@ function FlagsCell({ c }: { c: HostContainerRow }) {
   return (
     <div className="flex flex-wrap gap-1">
       {fs.map((f) => (
-        <Badge
-          key={f.label}
-          variant="outline"
-          className="border-red-500/40 whitespace-nowrap text-red-700 dark:text-red-400"
-          title={f.title}
-        >
+        <Badge key={f.label} variant="danger" className="whitespace-nowrap" title={f.title}>
           {f.label}
         </Badge>
       ))}
@@ -310,7 +293,7 @@ function ContainerRow({ c }: { c: HostContainerRow }) {
           <TableCell>
             <NetworksCell c={c} />
           </TableCell>
-          <TableCell className="text-xs whitespace-nowrap">
+          <TableCell className="font-mono text-xs whitespace-nowrap">
             {c.restartPolicy ?? <span className="text-muted-foreground">—</span>}
           </TableCell>
           <TableCell>
@@ -348,7 +331,7 @@ export function ContainersTable({ rows }: { rows: HostContainerRow[] }) {
                 {g.kind === null ? (groups.length > 1 ? "Other containers" : "Containers") : g.name}
               </span>
               {g.kind && (
-                <Badge variant="secondary" className="font-normal">
+                <Badge variant="neutral">
                   {g.kind === "stack" ? "Swarm stack" : "Compose project"}
                 </Badge>
               )}

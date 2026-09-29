@@ -118,22 +118,13 @@ export function dockerSummary(changes: DockerChange[]): string[] {
   });
 }
 
-const BADGE: Record<DockerChange["kind"], { label: string; className: string }> = {
-  added: {
-    label: "Added",
-    className: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
-  },
-  removed: { label: "Removed", className: "border-red-500/40 text-red-700 dark:text-red-400" },
-  started: {
-    label: "Started",
-    className: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
-  },
-  stopped: {
-    label: "Stopped",
-    className: "border-amber-500/50 text-amber-700 dark:text-amber-400",
-  },
-  changed: { label: "Changed", className: "border-sky-500/40 text-sky-700 dark:text-sky-400" },
-};
+const BADGE = {
+  added: { label: "Added", variant: "success" },
+  removed: { label: "Removed", variant: "danger" },
+  started: { label: "Started", variant: "success" },
+  stopped: { label: "Stopped", variant: "warning" },
+  changed: { label: "Changed", variant: "info" },
+} as const satisfies Record<DockerChange["kind"], { label: string; variant: string }>;
 
 function describe(c: DockerChange): string {
   if ("diffs" in c) return c.diffs.join("; ") || "details changed";
@@ -161,9 +152,7 @@ export function DockerChangesTable({ changes }: { changes: DockerChange[] }) {
           return (
             <TableRow key={`${c.kind}:${e.factKind}:${e.key}`}>
               <TableCell>
-                <Badge variant="outline" className={badge.className}>
-                  {badge.label}
-                </Badge>
+                <Badge variant={badge.variant}>{badge.label}</Badge>
               </TableCell>
               <TableCell>
                 <div className="flex flex-col">
@@ -182,8 +171,10 @@ export function DockerChangesTable({ changes }: { changes: DockerChange[] }) {
                   </span>
                 </div>
               </TableCell>
-              <TableCell className="text-muted-foreground font-mono text-xs">
-                {describe(c)}
+              <TableCell className="text-muted-foreground max-w-md font-mono text-xs">
+                <span className="line-clamp-2 whitespace-normal" title={describe(c)}>
+                  {describe(c)}
+                </span>
               </TableCell>
             </TableRow>
           );

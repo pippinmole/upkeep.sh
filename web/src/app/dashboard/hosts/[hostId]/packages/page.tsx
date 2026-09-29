@@ -1,8 +1,10 @@
-import { History, Info } from "lucide-react";
+import { History, Info, Package } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { EcosystemIcon } from "@/components/brand";
+import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/inventory/filter-bar";
 import { Pager } from "@/components/inventory/pager";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -90,13 +92,17 @@ function columns(opts: {
     {
       key: "version",
       header: "Version",
-      cell: (r) => <span className="font-mono text-xs">{r.version}</span>,
+      cell: (r) => (
+        <span className="block max-w-56 truncate font-mono text-xs" title={r.version}>
+          {r.version}
+        </span>
+      ),
     },
     {
       key: "arch",
       header: "Arch",
       className: "text-muted-foreground",
-      cell: (r) => r.arch || "—",
+      cell: (r) => <span className="font-mono text-xs">{r.arch || "—"}</span>,
     },
     {
       key: "status",
@@ -145,6 +151,7 @@ function columns(opts: {
       header: "Ecosystem",
       cell: (r) => (
         <Badge variant="outline" className="font-normal">
+          <EcosystemIcon ecosystem={r.ecosystem} size={12} className="text-muted-foreground" />
           {r.ecosystem}
         </Badge>
       ),
@@ -209,9 +216,15 @@ export default async function HostPackagesPage({
     runningKernel: host.runningKernel,
     sheetHref: (id) => `${basePath}${withParams(sp, { pkg: id })}`,
   });
-  const firstRecorded = host.inventory.length
-    ? null
-    : "No package inventory has been recorded for this host yet.";
+  if (host.inventory.length === 0) {
+    return (
+      <EmptyState
+        icon={Package}
+        title="No package inventory yet"
+        description="Installed packages appear here once the agent reports its first inventory. If it has reported, check the collector notes above for a failed package source."
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -283,12 +296,11 @@ export default async function HostPackagesPage({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={cols.length} className="text-muted-foreground h-24 text-center">
-                  {firstRecorded ??
-                    (filters.status
-                      ? "No packages match this vulnerability filter."
-                      : at
-                        ? "No packages were recorded as installed at that time."
-                        : "No packages match these filters.")}
+                  {filters.status
+                    ? "No packages match this vulnerability filter."
+                    : at
+                      ? "No packages were recorded as installed at that time."
+                      : "No packages match these filters."}
                 </TableCell>
               </TableRow>
             ) : (

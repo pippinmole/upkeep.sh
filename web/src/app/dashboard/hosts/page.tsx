@@ -1,7 +1,11 @@
-import { Monitor } from "lucide-react";
+import { Server } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import { auth } from "@/lib/auth";
 import { getHosts } from "@/lib/queries";
 import { getCollectorAgents } from "@/lib/queries-remote";
@@ -29,38 +33,41 @@ export default async function HostsPage() {
   const serverUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   const active = hosts.filter((h) => !h.archivedAt).length;
   const archived = hosts.length - active;
+  const empty = hosts.length === 0;
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold">Hosts</h1>
-          <p className="text-muted-foreground text-sm">
-            The machines you monitor.
-            {hosts.length > 0 &&
-              ` ${active} ${active === 1 ? "host" : "hosts"}${archived > 0 ? `, ${archived} archived` : ""}.`}
-          </p>
-        </div>
-        <AddHostDialog serverUrl={serverUrl} agents={remoteAgents} />
-      </div>
+    <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
+      <PageHeader
+        title="Hosts"
+        description="The machines you monitor. Each is reported by an agent — on the machine itself or over SSH."
+        meta={
+          !empty && (
+            <span className="tabular-nums">
+              {active} {active === 1 ? "host" : "hosts"}
+              {archived > 0 && ` · ${archived} archived`}
+            </span>
+          )
+        }
+        // The empty state carries the action when there are no hosts.
+        actions={!empty && <AddHostDialog serverUrl={serverUrl} agents={remoteAgents} />}
+      />
 
-      <div className="mt-6">
-        {hosts.length === 0 ? (
-          <div className="border-border bg-card flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
-            <Monitor className="text-muted-foreground size-8" />
-            <div>
-              <h2 className="font-semibold">No hosts yet</h2>
-              <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-                Add a host by running the agent on it, or by letting an agent you already run reach
-                it over SSH.
-              </p>
-            </div>
-            <AddHostDialog serverUrl={serverUrl} agents={remoteAgents} />
-          </div>
-        ) : (
-          <HostsTable hosts={hosts} />
-        )}
-      </div>
+      {empty ? (
+        <EmptyState
+          icon={Server}
+          size="page"
+          title="No hosts yet"
+          description="A host is a machine you monitor, reported by an agent. Install the agent on the machine, or let an agent you already run reach it over SSH."
+          action={<AddHostDialog serverUrl={serverUrl} agents={remoteAgents} />}
+          secondaryAction={
+            <Button asChild variant="ghost">
+              <Link href="/dashboard/agents">About agents</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <HostsTable hosts={hosts} />
+      )}
     </main>
   );
 }

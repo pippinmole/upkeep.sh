@@ -33,16 +33,7 @@ export function RemoteTargetBadge({ agent, hostId }: { agent: HostAgent; hostId:
     <Dialog>
       <DialogTrigger asChild>
         <button type="button" className="text-left">
-          <Badge
-            variant="outline"
-            className={
-              need.urgent
-                ? "border-destructive/50 text-destructive"
-                : "border-amber-600/50 text-amber-800 dark:text-amber-200"
-            }
-          >
-            {need.label}
-          </Badge>
+          <Badge variant={need.urgent ? "danger" : "warning"}>{need.label}</Badge>
         </button>
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">

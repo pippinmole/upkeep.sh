@@ -1,12 +1,14 @@
-import type { LucideIcon } from "lucide-react";
+import { AlertTriangle, Hourglass, type LucideIcon } from "lucide-react";
 
+import { EmptyState } from "@/components/empty-state";
 import { collectorLabel } from "@/lib/host-page";
 import type { FactFreshness } from "@/lib/queries-host-facts";
 import type { CollectorStatus } from "@/lib/queries-inventory";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
 // One line under a host fact tab's title: when the collector last
-// confirmed the list and when it last changed, or why it's empty.
+// confirmed the list and when it last changed; an empty state when it has
+// never reported.
 export function FactFreshnessNote({
   label,
   freshness,
@@ -16,10 +18,12 @@ export function FactFreshnessNote({
 }) {
   if (!freshness) {
     return (
-      <p className="text-muted-foreground text-sm">
-        No {label} reported for this host yet. It needs an agent version with this collector, and
-        the collector must succeed (see the collector notes above).
-      </p>
+      <EmptyState
+        icon={Hourglass}
+        className="mt-3"
+        title={`No ${label} reported yet`}
+        description="This needs an agent version with this collector, and the collector must succeed (see the collector notes above)."
+      />
     );
   }
   return (
@@ -40,7 +44,7 @@ export function FactFreshnessNote({
 // collector failed or was skipped in the latest snapshot, where the empty
 // list is only the last successful result.
 export function FactEmptyState({
-  icon: Icon,
+  icon,
   title,
   description,
   collectors,
@@ -62,7 +66,9 @@ export function FactEmptyState({
 
   let heading = title;
   let body = description;
+  let variant: "default" | "warning" | "info" = "default";
   if (failed.length > 0) {
+    variant = "warning";
     heading = "Couldn't collect this in the latest snapshot";
     body = `${labels(failed)} failed, so this may be out of date. The last successful collection found none.`;
   } else if (skipped.length === collectors.length) {
@@ -72,12 +78,11 @@ export function FactEmptyState({
   }
 
   return (
-    <div className="border-border bg-card flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
-      <Icon className="text-muted-foreground size-8" />
-      <div>
-        <h3 className="font-semibold">{heading}</h3>
-        <p className="text-muted-foreground mt-1 max-w-sm text-sm">{body}</p>
-      </div>
-    </div>
+    <EmptyState
+      icon={failed.length > 0 ? AlertTriangle : icon}
+      title={heading}
+      description={body}
+      variant={variant}
+    />
   );
 }

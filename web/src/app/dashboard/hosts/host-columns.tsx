@@ -1,19 +1,22 @@
 "use client";
 
+import { RotateCw } from "lucide-react";
 import Link from "next/link";
 
+import { OsLogo } from "@/components/brand";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
+import { AGENT_STATUS_LABEL, agentStatusTone, StatusDot } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
-import type { AgentStatus, HostListRow } from "@/lib/queries";
+import type { HostListRow } from "@/lib/queries";
+import { osLabel } from "@/lib/os";
 import { SEVERITIES } from "@/lib/severity";
-import { formatDate, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-import { osLabel } from "../agents/agent-hosts";
 import { HostRowActions } from "./host-row-actions";
 import { RemoteTargetBadge } from "./remote-target-dialog";
+import { NUMERIC_COLUMN, NUMERIC_HEADER, TimeAgo } from "./table-cells";
 
 export type HostState = "active" | "archived";
 
@@ -21,19 +24,6 @@ export const STATE_OPTIONS: { value: HostState; label: string }[] = [
   { value: "active", label: "Active" },
   { value: "archived", label: "Archived" },
 ];
-
-const AGENT_DOT: Record<AgentStatus, string> = {
-  online: "bg-emerald-500",
-  stale: "bg-amber-500",
-  never: "border border-dashed border-muted-foreground",
-  revoked: "bg-muted-foreground/40",
-};
-const AGENT_STATUS_LABEL: Record<AgentStatus, string> = {
-  online: "online",
-  stale: "stale",
-  never: "never connected",
-  revoked: "revoked",
-};
 
 const time = (iso: string | null) => (iso ? Date.parse(iso) : 0);
 const severityRank = (s: string | null) => {
@@ -52,45 +42,46 @@ export const hostColumns = col.columns([
       const h = row.original;
       return (
         <div className="flex flex-wrap items-center gap-1.5">
+          <OsLogo osId={h.osId} size={16} className="text-muted-foreground" />
           <Link href={`/dashboard/hosts/${h.id}`} className="font-medium hover:underline">
             {h.label ?? h.hostname}
           </Link>
           {h.label && <span className="text-muted-foreground">{h.hostname}</span>}
+          {h.rebootRequired && !h.archivedAt && (
+            <Badge variant="warning" title="The latest snapshot reports a pending reboot">
+              <RotateCw aria-hidden />
+              Reboot required
+            </Badge>
+          )}
           {h.duplicateOf && (
             <Link
               href={`/dashboard/hosts/${h.duplicateOf.id}`}
               title={`Same machine identity as ${h.duplicateOf.hostname}`}
             >
-              <Badge
-                variant="outline"
-                className="border-amber-600/50 text-amber-800 dark:text-amber-200"
-              >
-                Possible duplicate
-              </Badge>
+              <Badge variant="warning">Possible duplicate</Badge>
             </Link>
           )}
           {h.mergedInto ? (
             <Link href={`/dashboard/hosts/${h.mergedInto.id}`}>
-              <Badge variant="outline" className="text-muted-foreground">
-                Merged into {h.mergedInto.hostname}
-              </Badge>
+              <Badge variant="neutral">Merged into {h.mergedInto.hostname}</Badge>
             </Link>
           ) : (
-            h.archivedAt && (
-              <Badge variant="outline" className="text-muted-foreground">
-                Archived
-              </Badge>
-            )
+            h.archivedAt && <Badge variant="neutral">Archived</Badge>
           )}
         </div>
       );
     },
   }),
-  col.accessor((h) => osLabel(h), {
+  col.accessor((h) => osLabel(h.osId, h.osVersion) ?? "", {
     id: "os",
     header: ({ column }) => <DataTableColumnHeader column={column} title="OS" />,
-    cell: ({ getValue }) => (
-      <span className="text-muted-foreground whitespace-nowrap">{getValue()}</span>
+    cell: ({ row, getValue }) => (
+      <span
+        className="text-muted-foreground whitespace-nowrap"
+        title={row.original.osCodename ?? undefined}
+      >
+        {getValue() || "—"}
+      </span>
     ),
   }),
   col.accessor((h) => h.agents.map((a) => a.name).join(", "), {
@@ -108,13 +99,20 @@ export const hostColumns = col.columns([
                 className="inline-flex items-center gap-1.5 whitespace-nowrap hover:underline"
                 title={`${a.name}: ${AGENT_STATUS_LABEL[a.status]}${a.mode !== "local" ? `, ${a.mode}` : ""}`}
               >
-                <span className={cn("inline-block size-2 rounded-full", AGENT_DOT[a.status])} />
+                <StatusDot tone={agentStatusTone(a.status)} label={AGENT_STATUS_LABEL[a.status]} />
                 <span
                   className={cn(a.status === "revoked" && "text-muted-foreground line-through")}
                 >
                   {a.name}
                 </span>
                 {a.mode !== "local" && <span className="text-muted-foreground">via {a.mode}</span>}
+                {/* Online is the normal case; any other state is also spelled out
+                    (the dot's sr-only label already names it for screen readers). */}
+                {a.status !== "online" && (
+                  <span aria-hidden className="text-muted-foreground">
+                    · {AGENT_STATUS_LABEL[a.status]}
+                  </span>
+                )}
               </Link>
               <RemoteTargetBadge agent={a} hostId={row.original.id} />
             </span>
@@ -124,7 +122,10 @@ export const hostColumns = col.columns([
     },
   }),
   col.accessor("openFindings", {
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Open findings" />,
+    meta: NUMERIC_COLUMN,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Open findings" className={NUMERIC_HEADER} />
+    ),
     sortFn: (a, b) =>
       a.original.openFindings - b.original.openFindings ||
       severityRank(b.original.topSeverity) - severityRank(a.original.topSeverity),
@@ -132,10 +133,10 @@ export const hostColumns = col.columns([
       const h = row.original;
       if (h.openFindings === 0) return <span className="text-muted-foreground">0</span>;
       const pills = (
-        <span className="inline-flex flex-wrap items-center gap-1">
-          <span className="mr-0.5 font-medium tabular-nums">{h.openFindings}</span>
+        <span className="inline-flex flex-wrap items-center justify-end gap-1">
           {h.topSeverity && <SeverityBadge severity={h.topSeverity} />}
           {h.kevVulns > 0 && <KevBadge count={h.kevVulns} />}
+          <span className="ml-0.5 font-medium tabular-nums">{h.openFindings}</span>
         </span>
       );
       return h.openVulns > 0 ? (
@@ -150,20 +151,12 @@ export const hostColumns = col.columns([
   col.accessor("lastSeenAt", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Last seen" />,
     sortFn: (a, b) => time(a.original.lastSeenAt) - time(b.original.lastSeenAt),
-    cell: ({ row }) => (
-      <span className="text-muted-foreground whitespace-nowrap">
-        {relativeTime(row.original.lastSeenAt)}
-      </span>
-    ),
+    cell: ({ row }) => <TimeAgo iso={row.original.lastSeenAt} className="text-muted-foreground" />,
   }),
   col.accessor("createdAt", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Added" />,
     sortFn: (a, b) => time(a.original.createdAt) - time(b.original.createdAt),
-    cell: ({ row }) => (
-      <span className="text-muted-foreground whitespace-nowrap">
-        {formatDate(row.original.createdAt)}
-      </span>
-    ),
+    cell: ({ row }) => <TimeAgo iso={row.original.createdAt} className="text-muted-foreground" />,
   }),
   // Facet-only column (hidden): Active / Archived.
   col.accessor((h): HostState => (h.archivedAt ? "archived" : "active"), {

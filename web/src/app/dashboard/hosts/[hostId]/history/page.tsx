@@ -1,6 +1,8 @@
+import { History } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,28 +85,13 @@ function pairChanges(events: RangeEvent[]): Change[] {
   );
 }
 
-const KIND_BADGE: Record<Change["kind"], { label: string; className: string }> = {
-  installed: {
-    label: "Installed",
-    className: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
-  },
-  removed: {
-    label: "Removed",
-    className: "border-red-500/40 text-red-700 dark:text-red-400",
-  },
-  upgraded: {
-    label: "Upgraded",
-    className: "border-sky-500/40 text-sky-700 dark:text-sky-400",
-  },
-  downgraded: {
-    label: "Downgraded",
-    className: "border-amber-500/50 text-amber-700 dark:text-amber-400",
-  },
-  changed: {
-    label: "Changed",
-    className: "border-sky-500/40 text-sky-700 dark:text-sky-400",
-  },
-};
+const KIND_BADGE = {
+  installed: { label: "Installed", variant: "success" },
+  removed: { label: "Removed", variant: "danger" },
+  upgraded: { label: "Upgraded", variant: "info" },
+  downgraded: { label: "Downgraded", variant: "warning" },
+  changed: { label: "Changed", variant: "info" },
+} as const satisfies Record<Change["kind"], { label: string; variant: string }>;
 
 // "Fixed 3 CVEs (1 KEV)" / "Introduced 1": set difference of today's
 // matches (software_vulnerabilities) between the two versions.
@@ -115,13 +102,13 @@ function EffectCell({ effect }: { effect: ChangeEffect | undefined }) {
   return (
     <div className="flex flex-col text-xs">
       {effect.fixed > 0 && (
-        <span className="text-emerald-700 dark:text-emerald-400">
+        <span className="text-success-fg">
           Fixed {effect.fixed} {effect.fixed === 1 ? "vulnerability" : "vulnerabilities"}
           {effect.fixedKev > 0 && <strong> ({effect.fixedKev} KEV)</strong>}
         </span>
       )}
       {effect.introduced > 0 && (
-        <span className="text-red-700 dark:text-red-400">
+        <span className="text-danger-fg">
           Introduced {effect.introduced}{" "}
           {effect.introduced === 1 ? "vulnerability" : "vulnerabilities"}
         </span>
@@ -140,7 +127,7 @@ function PackageCell({ e }: { e: RangeEvent }) {
         {e.name}
       </Link>
       {e.sourceName && e.sourceName !== e.name && (
-        <span className="text-muted-foreground text-xs">src: {e.sourceName}</span>
+        <span className="text-muted-foreground font-mono text-xs">src: {e.sourceName}</span>
       )}
     </div>
   );
@@ -180,9 +167,22 @@ export default async function HostHistoryPage({
 
   if (ats.length === 0) {
     return (
-      <div className="bg-card text-muted-foreground rounded-lg border px-6 py-12 text-center text-sm">
-        {before ? "No older changes." : "No changes have been recorded for this host yet."}
-      </div>
+      <EmptyState
+        icon={History}
+        title={before ? "No older changes" : "No changes yet"}
+        description={
+          before
+            ? "Everything recorded for this host is on the newer pages."
+            : "Package, container and image changes appear here once a snapshot differs from the one before."
+        }
+        action={
+          before && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard/hosts/${host.id}/history`}>Newest changes</Link>
+            </Button>
+          )
+        }
+      />
     );
   }
 
@@ -299,9 +299,7 @@ export default async function HostHistoryPage({
                       return (
                         <TableRow key={`${c.kind}:${e.ecosystem}:${e.name}:${e.arch}:${e.version}`}>
                           <TableCell>
-                            <Badge variant="outline" className={badge.className}>
-                              {badge.label}
-                            </Badge>
+                            <Badge variant={badge.variant}>{badge.label}</Badge>
                           </TableCell>
                           <TableCell>
                             <PackageCell e={e} />

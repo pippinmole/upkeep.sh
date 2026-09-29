@@ -1,10 +1,12 @@
 import Link from "next/link";
 
+import { OsLogo } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
+import { osLabel as osNameVersion } from "@/lib/os";
 import type { AgentHostRow, AgentWithHosts } from "@/lib/queries";
-import { relativeTime } from "@/lib/time";
 
+import { TimeAgo } from "../hosts/table-cells";
 import { DetachHostButton } from "./detach-host-button";
 
 const MODE_LABEL: Record<AgentHostRow["mode"], string> = {
@@ -13,11 +15,10 @@ const MODE_LABEL: Record<AgentHostRow["mode"], string> = {
   winrm: "WinRM",
 };
 
-export function osLabel(h: Pick<AgentHostRow, "osId" | "osVersion" | "osCodename">): string {
+function osLabel(h: Pick<AgentHostRow, "osId" | "osVersion" | "osCodename">): string {
   if (!h.osId) return "—";
-  const name = h.osId.charAt(0).toUpperCase() + h.osId.slice(1);
-  const version = [h.osVersion, h.osCodename && `(${h.osCodename})`].filter(Boolean).join(" ");
-  return version ? `${name} ${version}` : name;
+  const codename = h.osCodename ? ` (${h.osCodename})` : "";
+  return `${osNameVersion(h.osId, h.osVersion)}${codename}`;
 }
 
 // The expanded part of an agent row: the hosts it collects. A host can be
@@ -43,7 +44,7 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
             <th className="py-1.5 pr-4 font-medium">OS</th>
             <th className="py-1.5 pr-4 font-medium">Mode</th>
             <th className="py-1.5 pr-4 font-medium">Last collected</th>
-            <th className="py-1.5 pr-4 font-medium">Open findings</th>
+            <th className="py-1.5 pr-4 text-right font-medium">Open findings</th>
             <th className="py-1.5 font-medium">
               <span className="sr-only">Actions</span>
             </th>
@@ -54,6 +55,7 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
             <tr key={h.hostId} className="border-border/60 border-t">
               <td className="py-2 pr-4">
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <OsLogo osId={h.osId} size={16} className="text-muted-foreground" />
                   <Link
                     href={`/dashboard/hosts/${h.hostId}`}
                     className="font-medium hover:underline"
@@ -66,19 +68,12 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
                       href={`/dashboard/hosts/${h.duplicateOf}`}
                       title="Same machine identity as another host"
                     >
-                      <Badge
-                        variant="outline"
-                        className="border-amber-600/50 text-amber-800 dark:text-amber-200"
-                      >
-                        Possible duplicate
-                      </Badge>
+                      <Badge variant="warning">Possible duplicate</Badge>
                     </Link>
                   )}
-                  {!h.enabled && <Badge variant="outline">Disabled</Badge>}
+                  {!h.enabled && <Badge variant="dashed">Disabled</Badge>}
                   {h.archivedAt && (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {h.mergedInto ? "Merged" : "Archived"}
-                    </Badge>
+                    <Badge variant="neutral">{h.mergedInto ? "Merged" : "Archived"}</Badge>
                   )}
                 </div>
               </td>
@@ -91,10 +86,14 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
                   </span>
                 )}
               </td>
-              <td className="text-muted-foreground py-2 pr-4 whitespace-nowrap">
-                {h.lastCollectedAt ? relativeTime(h.lastCollectedAt) : "Not yet"}
-              </td>
               <td className="py-2 pr-4">
+                <TimeAgo
+                  iso={h.lastCollectedAt}
+                  fallback="Not yet"
+                  className="text-muted-foreground"
+                />
+              </td>
+              <td className="py-2 pr-4 text-right tabular-nums">
                 <Findings host={h} />
               </td>
               <td className="py-2 text-right">
@@ -115,10 +114,10 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
 function Findings({ host }: { host: AgentHostRow }) {
   if (host.openFindings === 0) return <span className="text-muted-foreground">0</span>;
   const pills = (
-    <span className="inline-flex flex-wrap items-center gap-1">
-      <span className="mr-0.5 font-medium tabular-nums">{host.openFindings}</span>
+    <span className="inline-flex flex-wrap items-center justify-end gap-1">
       {host.topSeverity && <SeverityBadge severity={host.topSeverity} />}
       {host.kevVulns > 0 && <KevBadge count={host.kevVulns} />}
+      <span className="ml-0.5 font-medium">{host.openFindings}</span>
     </span>
   );
   return host.openVulns > 0 ? (

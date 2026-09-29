@@ -1,8 +1,9 @@
-import { Cpu, Info } from "lucide-react";
+import { Cpu, Info, Package, ShieldCheck } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/inventory/filter-bar";
 import { Pager } from "@/components/inventory/pager";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -185,44 +186,60 @@ export default async function HostVulnerabilitiesPage({
         ]}
       />
 
-      <div className="bg-card rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Vulnerability</TableHead>
-              <TableHead>Severity</TableHead>
-              <TableHead>Package</TableHead>
-              <TableHead>Installed</TableHead>
-              <TableHead>Fixed in</TableHead>
-              <TableHead>{status === "resolved" ? "Resolved" : "Detected"}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
+      {rows.length === 0 && !hasFilters && status === "open" ? (
+        host.inventory.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="No package inventory yet"
+            description="Vulnerabilities are matched against the host's installed packages. They appear once the agent reports its first package inventory."
+          />
+        ) : (
+          <EmptyState
+            icon={ShieldCheck}
+            title="No open vulnerabilities"
+            description="No installed package on this host matches a known vulnerability."
+          />
+        )
+      ) : (
+        <div className="bg-card rounded-lg border">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground h-24 text-center">
-                  {hasFilters
-                    ? "No vulnerabilities match these filters."
-                    : status === "resolved"
-                      ? "No vulnerabilities have been resolved on this host yet."
-                      : host.inventory.length === 0
-                        ? "No package inventory has been recorded for this host yet."
-                        : "No open vulnerabilities on this host."}
-                </TableCell>
+                <TableHead>Vulnerability</TableHead>
+                <TableHead>Severity</TableHead>
+                <TableHead>Package</TableHead>
+                <TableHead>Installed</TableHead>
+                <TableHead>Fixed in</TableHead>
+                <TableHead>{status === "resolved" ? "Resolved" : "Detected"}</TableHead>
               </TableRow>
-            ) : (
-              rows.map((r) => (
-                <FindingTableRow
-                  key={`${r.sourcePackage}:${r.vulnKey}`}
-                  r={r}
-                  status={status}
-                  sheetHref={`${basePath}${withParams(sp, { v: r.vulnKey })}`}
-                />
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-muted-foreground h-24 text-center">
+                    {hasFilters
+                      ? "No vulnerabilities match these filters."
+                      : status === "resolved"
+                        ? "No vulnerabilities have been resolved on this host yet."
+                        : host.inventory.length === 0
+                          ? "No package inventory has been recorded for this host yet."
+                          : "No open vulnerabilities on this host."}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((r) => (
+                  <FindingTableRow
+                    key={`${r.sourcePackage}:${r.vulnKey}`}
+                    r={r}
+                    status={status}
+                    sheetHref={`${basePath}${withParams(sp, { v: r.vulnKey })}`}
+                  />
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
       <Pager
         basePath={basePath}
         searchParams={sp}
@@ -254,9 +271,7 @@ export default async function HostVulnerabilitiesPage({
                       {f.isKev && <KevBadge />}
                       <span className="font-medium">{f.sourcePackage}</span>
                       {f.resolvedAt ? (
-                        <Badge variant="outline" className="font-normal">
-                          Resolved {formatDate(f.resolvedAt)}
-                        </Badge>
+                        <Badge variant="success">Resolved {formatDate(f.resolvedAt)}</Badge>
                       ) : null}
                     </div>
                     <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
@@ -328,7 +343,10 @@ function FindingTableRow({
           {r.vulnKey}
         </Link>
         {r.description && (
-          <p className="text-muted-foreground line-clamp-2 text-xs whitespace-normal">
+          <p
+            className="text-muted-foreground line-clamp-2 text-xs whitespace-normal"
+            title={r.description}
+          >
             {r.description}
           </p>
         )}
@@ -435,17 +453,9 @@ function KernelPanel({
               return (
                 <li key={rel} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-foreground font-mono text-xs">{rel}</span>
-                  {running === true && <Badge variant="secondary">running</Badge>}
-                  {running === false && (
-                    <Badge variant="outline" className="font-normal">
-                      not running · info only
-                    </Badge>
-                  )}
-                  {running === null && (
-                    <Badge variant="outline" className="border-dashed font-normal">
-                      running state unknown
-                    </Badge>
-                  )}
+                  {running === true && <Badge variant="info">running</Badge>}
+                  {running === false && <Badge variant="neutral">not running · info only</Badge>}
+                  {running === null && <Badge variant="dashed">running state unknown</Badge>}
                   <span className="text-xs">
                     {vulns} known {vulns === 1 ? "vulnerability" : "vulnerabilities"}
                     {vulns > 0 && `, ${fixable} fixable`}
