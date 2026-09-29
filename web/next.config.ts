@@ -16,13 +16,30 @@ const nextConfig: NextConfig = {
   experimental: {
     turbopackFileSystemCacheForDev: false,
   },
-  // "Notifications" was split into Alerts (rules, delivery log) and
-  // Settings -> Notification settings (channels); keep old links working.
+  // Keep old links working. "Notifications" was split into Alerts (rules,
+  // delivery log) and Settings -> Notification settings, which became
+  // Settings -> Channels, with report schedules moved to top-level Reports.
+  // Specific sources first.
   async redirects() {
     return [
       {
+        source: "/dashboard/settings/notifications/reports/:scheduleId",
+        destination: "/dashboard/reports/schedules/:scheduleId",
+        permanent: true,
+      },
+      {
+        source: "/dashboard/settings/notifications",
+        destination: "/dashboard/settings/channels",
+        permanent: true,
+      },
+      {
+        source: "/dashboard/reports/schedules",
+        destination: "/dashboard/reports",
+        permanent: true,
+      },
+      {
         source: "/dashboard/notifications/channels",
-        destination: "/dashboard/settings/notifications",
+        destination: "/dashboard/settings/channels",
         permanent: true,
       },
       {

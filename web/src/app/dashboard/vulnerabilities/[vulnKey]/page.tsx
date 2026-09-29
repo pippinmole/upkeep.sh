@@ -1,8 +1,9 @@
-import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { OsLogo } from "@/components/brand";
+import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -16,6 +17,7 @@ import { FixCell, KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { AdvisoryList, CveFacts } from "@/components/vuln/cve-facts";
 import { AdvisoryLinks } from "@/components/vuln/links";
 import { auth } from "@/lib/auth";
+import { osName } from "@/lib/os";
 import { getFleetVulnDetail, type VulnHostRow } from "@/lib/queries-vulns";
 import { isVulnKey } from "@/lib/severity";
 import { formatDate, formatDateTime } from "@/lib/time";
@@ -38,6 +40,16 @@ function hostName(r: { hostname: string; label: string | null }) {
   return r.label ? `${r.label} (${r.hostname})` : r.hostname;
 }
 
+// "ubuntu noble" with the distro's mark.
+function Release({ distro, release }: { distro: string; release: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <OsLogo osId={distro} size={14} className="text-muted-foreground" />
+      {osName(distro)} {release}
+    </span>
+  );
+}
+
 function HostsTable({ rows, resolved }: { rows: VulnHostRow[]; resolved: boolean }) {
   return (
     <div className="bg-card rounded-lg border">
@@ -56,12 +68,15 @@ function HostsTable({ rows, resolved }: { rows: VulnHostRow[]; resolved: boolean
           {rows.map((r) => (
             <TableRow key={`${r.hostId}:${r.sourcePackage}`}>
               <TableCell className="align-top">
-                <Link
-                  href={`/dashboard/hosts/${r.hostId}/vulnerabilities?v=${encodeURIComponent(r.vulnKey)}${resolved ? "&status=resolved" : ""}`}
-                  className="font-medium hover:underline"
-                >
-                  {hostName(r)}
-                </Link>
+                <span className="inline-flex items-center gap-2">
+                  <OsLogo osId={r.osId} className="text-muted-foreground" />
+                  <Link
+                    href={`/dashboard/hosts/${r.hostId}/vulnerabilities?v=${encodeURIComponent(r.vulnKey)}${resolved ? "&status=resolved" : ""}`}
+                    className="font-medium hover:underline"
+                  >
+                    {hostName(r)}
+                  </Link>
+                </span>
               </TableCell>
               <TableCell className="align-top">
                 <div className="flex flex-col">
@@ -118,36 +133,38 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
-      <div>
-        <Link
-          href="/dashboard/vulnerabilities"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeft className="size-3.5" />
-          All vulnerabilities
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-bold break-all">{vulnKey}</h1>
-          {top && <SeverityBadge severity={top.severity} />}
-          {(d.cve?.isKev || top?.isKev) && <KevBadge />}
-        </div>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {affectedHosts > 0
-            ? `Affects ${affectedHosts} of your hosts now`
-            : "Not affecting any of your hosts now"}
-          {previousHosts > 0 && ` · previously affected ${previousHosts}`}
-          {" · "}
-          <AdvisoryLinks ids={[vulnKey]} className="inline-flex" />
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Vulnerabilities", href: "/dashboard/vulnerabilities" },
+          { label: vulnKey },
+        ]}
+        title={vulnKey}
+        badges={
+          <>
+            {top && <SeverityBadge severity={top.severity} />}
+            {(d.cve?.isKev || top?.isKev) && <KevBadge />}
+          </>
+        }
+        meta={
+          <>
+            <span>
+              {affectedHosts > 0
+                ? `Affects ${affectedHosts} of your hosts now`
+                : "Not affecting any of your hosts now"}
+              {previousHosts > 0 && ` · previously affected ${previousHosts}`}
+            </span>
+            <AdvisoryLinks ids={[vulnKey]} className="inline-flex text-sm" />
+          </>
+        }
+      />
 
       <section className="bg-card flex flex-col gap-3 rounded-lg border p-4">
-        <h2 className="font-semibold">Details</h2>
+        <SectionHeading>Details</SectionHeading>
         <CveFacts cve={d.cve} />
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Affected hosts</h2>
+        <SectionHeading>Affected hosts</SectionHeading>
         {d.affected.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             None of your hosts has an open finding for {vulnKey}.
@@ -158,11 +175,9 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Affected versions installed on your hosts</h2>
-        <p className="text-muted-foreground text-sm">
-          Package versions currently installed on your hosts that match this vulnerability. Kernel
-          packages that aren&apos;t the running kernel appear here without a finding.
-        </p>
+        <SectionHeading description="Package versions currently installed on your hosts that match this vulnerability. Kernel packages that aren't the running kernel appear here without a finding.">
+          Affected versions installed on your hosts
+        </SectionHeading>
         {d.versions.length === 0 ? (
           <p className="text-muted-foreground text-sm">None.</p>
         ) : (
@@ -189,14 +204,14 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
                       </Link>
                       {v.arch && <span className="text-muted-foreground text-xs"> {v.arch}</span>}
                       {v.isKernel && (
-                        <Badge variant="outline" className="ml-2 font-normal">
+                        <Badge variant="neutral" className="ml-2 font-normal">
                           kernel
                         </Badge>
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">{v.version}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {[v.distro, v.release].filter(Boolean).join(" ")}
+                      <Release distro={v.distro} release={v.release} />
                     </TableCell>
                     <TableCell>
                       <FixCell fixedVersion={v.fixedVersion} fixChannel={v.fixChannel} />
@@ -212,16 +227,15 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
 
       {d.previous.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="font-semibold">Previously affected</h2>
-          <p className="text-muted-foreground text-sm">
-            Hosts whose finding was resolved, usually by upgrading the package.
-          </p>
+          <SectionHeading description="Hosts whose finding was resolved, usually by upgrading the package.">
+            Previously affected
+          </SectionHeading>
           <HostsTable rows={d.previous} resolved />
         </section>
       )}
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Fixed versions by release</h2>
+        <SectionHeading>Fixed versions by release</SectionHeading>
         {d.releaseFixes.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No per-release data for the supported releases.
@@ -243,8 +257,8 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
                   <TableRow
                     key={`${f.distro}:${f.release}:${f.sourcePackage}:${f.channel}:${f.status}:${f.fixedVersion}`}
                   >
-                    <TableCell className="whitespace-nowrap">
-                      {f.distro} {f.release}
+                    <TableCell>
+                      <Release distro={f.distro} release={f.release} />
                     </TableCell>
                     <TableCell>{f.sourcePackage}</TableCell>
                     <TableCell>
@@ -271,7 +285,7 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Advisories</h2>
+        <SectionHeading>Advisories</SectionHeading>
         <AdvisoryList advisories={d.advisories} />
       </section>
     </main>

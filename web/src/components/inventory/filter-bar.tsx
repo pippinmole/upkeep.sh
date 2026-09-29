@@ -1,9 +1,11 @@
 "use client";
 
 import Form from "next/form";
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { Search, X } from "lucide-react";
 import { useRef } from "react";
 
+import { clearFiltersHref } from "@/components/inventory/no-matches";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,7 +44,8 @@ interface Props {
 // GET form over URL search params (DOMAIN_MODEL.md §3, Q11). next/form
 // does client-side navigation and still works without JS (Radix Select
 // renders a hidden native <select> with the same name). Submitting drops
-// ?page, so a new filter always starts at page 1.
+// ?page, so a new filter always starts at page 1. Sort, and selects with
+// no "all" item, aren't filters: they don't make "Clear" appear.
 export function FilterBar({
   action,
   q,
@@ -56,6 +59,11 @@ export function FilterBar({
 }: Props) {
   const formRef = useRef<HTMLFormElement>(null);
   const submit = () => formRef.current?.requestSubmit();
+  const filtered =
+    !!q ||
+    !!ecosystem?.value ||
+    !!at?.value ||
+    !!selects?.some((f) => f.allLabel && f.value !== null);
 
   return (
     <Form ref={formRef} action={action} className="flex flex-wrap items-center gap-2">
@@ -142,6 +150,14 @@ export function FilterBar({
       <Button type="submit" variant="secondary">
         Apply
       </Button>
+      {filtered && (
+        <Button asChild variant="ghost" className="text-muted-foreground">
+          <Link href={clearFiltersHref(action, hidden)}>
+            <X aria-hidden />
+            Clear
+          </Link>
+        </Button>
+      )}
     </Form>
   );
 }

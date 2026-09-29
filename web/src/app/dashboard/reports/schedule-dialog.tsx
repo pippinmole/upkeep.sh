@@ -3,6 +3,7 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState, useTransition } from "react";
 
+import { NotificationSettingsLink } from "@/components/notifications/links";
 import { ChannelCheckList, FieldError, toggle } from "@/components/notifications/shared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -219,7 +220,9 @@ export function ScheduleDialog({
           <div className="flex flex-col gap-1.5">
             <Label>Send to</Label>
             {channels.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No channels yet: add one above first.</p>
+              <p className="text-muted-foreground text-sm">
+                No channels yet: add one in <NotificationSettingsLink /> first.
+              </p>
             ) : (
               <ChannelCheckList
                 channels={channels}

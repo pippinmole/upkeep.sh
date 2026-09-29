@@ -5,11 +5,12 @@ import Link from "next/link";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
 import { hostName } from "@/components/docker-fleet/badges";
+import { EcosystemIcon } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { FixCell, KevBadge, SeverityBadge } from "@/components/vuln/badges";
+import { EpssValue } from "@/components/vuln/cve-facts";
 import { AdvisoryLinks, vulnHref } from "@/components/vuln/links";
 import type { ImageVulnRow } from "@/lib/queries-image-vulns";
-import { formatEpss } from "@/lib/severity";
 import { formatDate, formatDateTime } from "@/lib/time";
 
 // Vulnerabilities tab columns: one row per (source package, vuln_key), as
@@ -42,7 +43,7 @@ function FindingsCell({ r }: { r: ImageVulnRow }) {
               {f.reopenedAt && ` · reopened ${formatDate(f.reopenedAt)}`}
             </span>
           ) : (
-            <Badge variant="outline" className="font-normal">
+            <Badge variant="neutral" className="font-normal">
               resolved {formatDate(f.resolvedAt)}
             </Badge>
           )}
@@ -68,7 +69,10 @@ export const vulnColumns = col.columns([
             {r.vulnKey}
           </Link>
           {r.description && (
-            <p className="text-muted-foreground line-clamp-2 text-xs whitespace-normal">
+            <p
+              className="text-muted-foreground line-clamp-2 text-xs whitespace-normal"
+              title={r.description}
+            >
               {r.description}
             </p>
           )}
@@ -101,14 +105,25 @@ export const vulnColumns = col.columns([
   }),
   col.accessor("epssScore", {
     id: "epss",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="EPSS" />,
-    cell: ({ getValue }) => (
-      <span className="text-xs tabular-nums">{formatEpss(getValue()) ?? "—"}</span>
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="EPSS" className="-mr-3 ml-0" />
     ),
+    meta: { className: "text-right tabular-nums" },
+    cell: ({ getValue }) => {
+      const v = getValue();
+      return v === null ? (
+        <span className="text-muted-foreground">—</span>
+      ) : (
+        <EpssValue score={v} className="text-xs" />
+      );
+    },
   }),
   col.accessor("cvssV3Score", {
     id: "cvss",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="CVSS" />,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="CVSS" className="-mr-3 ml-0" />
+    ),
+    meta: { className: "text-right tabular-nums" },
     cell: ({ getValue }) => {
       const v = getValue();
       return <span className="text-xs tabular-nums">{v === null ? "—" : v.toFixed(1)}</span>;
@@ -131,7 +146,10 @@ export const vulnColumns = col.columns([
               {r.packages.join(", ")}
             </span>
           )}
-          <span className="text-muted-foreground text-xs">{r.ecosystem}</span>
+          <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+            <EcosystemIcon ecosystem={r.ecosystem} size={12} />
+            {r.ecosystem}
+          </span>
         </div>
       );
     },

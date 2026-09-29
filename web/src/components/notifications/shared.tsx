@@ -1,9 +1,10 @@
 "use client";
 
-import { Bell, Loader2, type LucideIcon, Webhook } from "lucide-react";
-import { type ReactNode, useTransition } from "react";
+import { Loader2 } from "lucide-react";
+import { type ComponentType, type ReactNode, useTransition } from "react";
 
-import { Badge } from "@/components/ui/badge";
+import { ChannelIcon } from "@/components/brand/channel-icon";
+import { DELIVERY_STATUS_LABEL, deliveryStatusTone, StatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,42 +16,24 @@ import {
 } from "@/components/ui/dialog";
 import { channelType } from "@/lib/notifiers";
 import type { ChannelRow, DeliveryRow } from "@/lib/queries-notifications";
-import { cn } from "@/lib/utils";
 
-export const DELIVERY_STATUS_OPTIONS: { value: DeliveryRow["status"]; label: string }[] = [
-  { value: "delivered", label: "Delivered" },
-  { value: "retrying", label: "Retrying" },
-  { value: "pending", label: "Pending" },
-  { value: "failed", label: "Failed" },
-];
+const DELIVERY_STATUSES: DeliveryRow["status"][] = ["delivered", "retrying", "pending", "failed"];
 
-const STATUS_CLASS: Record<DeliveryRow["status"], string> = {
-  delivered: "border-emerald-600/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
-  retrying: "border-amber-600/40 bg-amber-400/15 text-amber-900 dark:text-amber-200",
-  pending: "border-dashed text-muted-foreground",
-  failed: "border-red-600/40 bg-red-600/10 text-red-800 dark:text-red-200",
-};
+export const DELIVERY_STATUS_OPTIONS: { value: DeliveryRow["status"]; label: string }[] =
+  DELIVERY_STATUSES.map((value) => ({ value, label: DELIVERY_STATUS_LABEL[value] }));
 
 export function DeliveryStatusBadge({ status }: { status: DeliveryRow["status"] }) {
   return (
-    <Badge variant="outline" className={cn("whitespace-nowrap", STATUS_CLASS[status])}>
-      {DELIVERY_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status}
-    </Badge>
+    <StatusBadge
+      tone={deliveryStatusTone(status) ?? "neutral"}
+      label={DELIVERY_STATUS_LABEL[status] ?? status}
+    />
   );
 }
 
 export function EnabledBadge({ enabled }: { enabled: boolean }) {
-  return enabled ? (
-    <Badge
-      variant="outline"
-      className="border-emerald-600/40 bg-emerald-500/10 whitespace-nowrap text-emerald-800 dark:text-emerald-200"
-    >
-      Enabled
-    </Badge>
-  ) : (
-    <Badge variant="outline" className="bg-muted text-muted-foreground whitespace-nowrap">
-      Disabled
-    </Badge>
+  return (
+    <StatusBadge tone={enabled ? "success" : "neutral"} label={enabled ? "Enabled" : "Disabled"} />
   );
 }
 
@@ -155,8 +138,9 @@ export function ChannelCheckList({
       onToggle={onToggle}
       id={(c) => c.id}
       label={(c) => (
-        <span>
-          {c.name}{" "}
+        <span className="inline-flex items-center gap-1.5">
+          <ChannelIcon type={c.type} className="text-muted-foreground size-4 shrink-0" />
+          {c.name}
           <span className="text-muted-foreground">
             ({channelType(c.type)?.label ?? c.type}
             {!c.enabled && ", disabled"})
@@ -167,11 +151,24 @@ export function ChannelCheckList({
   );
 }
 
-const CHANNEL_TYPE_ICONS: Record<string, LucideIcon> = {
-  webhook: Webhook,
-};
+type ChannelTypeIconProps = { className?: string; "aria-hidden"?: boolean | "true" | "false" };
 
-// Icon for a channel type; types without one fall back to a bell.
-export function channelTypeIcon(type: string): LucideIcon {
-  return CHANNEL_TYPE_ICONS[type] ?? Bell;
+// One stable component per type, so callers can render the result as a
+// component (`const Icon = channelTypeIcon(t); <Icon />`) without
+// remounting it every render.
+const CHANNEL_TYPE_ICONS = new Map<string, ComponentType<ChannelTypeIconProps>>();
+
+// Icon for a channel type (see ChannelIcon); unknown types get a bell.
+export function channelTypeIcon(type: string): ComponentType<ChannelTypeIconProps> {
+  let Icon = CHANNEL_TYPE_ICONS.get(type);
+  if (!Icon) {
+    // The icon is always next to the channel's name or type label.
+    const TypeIcon = ({ className }: ChannelTypeIconProps) => (
+      <ChannelIcon type={type} className={className} />
+    );
+    TypeIcon.displayName = `ChannelTypeIcon(${type})`;
+    CHANNEL_TYPE_ICONS.set(type, TypeIcon);
+    Icon = TypeIcon;
+  }
+  return Icon;
 }

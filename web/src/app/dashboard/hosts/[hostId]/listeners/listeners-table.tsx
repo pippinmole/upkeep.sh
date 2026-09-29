@@ -7,7 +7,8 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { dataTableColumnHelper, type DataTableFeatures } from "@/components/data-table/features";
 import { Badge } from "@/components/ui/badge";
 import type { HostListenerRow } from "@/lib/queries-host-facts";
-import { formatDateTime, relativeTime } from "@/lib/time";
+
+import { TimeAgo } from "../../table-cells";
 
 const TRANSPORTS = [
   { value: "tcp", label: "TCP" },
@@ -34,6 +35,7 @@ const columns = col.columns([
   col.accessor("port", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Port" />,
     enableHiding: false,
+    // A port is an identifier, not a quantity: left-aligned, monospace.
     cell: ({ row }) => <span className="font-mono tabular-nums">{row.original.port}</span>,
   }),
   col.accessor("transport", {
@@ -43,7 +45,11 @@ const columns = col.columns([
   }),
   col.accessor("localAddr", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Address" />,
-    cell: ({ row }) => <span className="font-mono text-xs">{row.original.localAddr}</span>,
+    cell: ({ row }) => (
+      <span className="block max-w-64 truncate font-mono text-xs" title={row.original.localAddr}>
+        {row.original.localAddr}
+      </span>
+    ),
   }),
   col.accessor((l) => binding(l), {
     id: "binding",
@@ -54,8 +60,8 @@ const columns = col.columns([
       const b = binding(row.original);
       return b === "all" ? (
         <Badge
-          variant="outline"
-          className="border-amber-600/40 bg-amber-400/15 whitespace-nowrap text-amber-900 dark:text-amber-200"
+          variant="warning"
+          className="whitespace-nowrap"
           title="Reachable on every network interface, subject to the host's firewall"
         >
           All interfaces
@@ -85,14 +91,7 @@ const columns = col.columns([
   col.accessor("since", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Listening since" />,
     sortFn: (a, b) => Date.parse(a.original.since) - Date.parse(b.original.since),
-    cell: ({ row }) => (
-      <span
-        className="text-muted-foreground whitespace-nowrap"
-        title={formatDateTime(row.original.since)}
-      >
-        {relativeTime(row.original.since)}
-      </span>
-    ),
+    cell: ({ row }) => <TimeAgo iso={row.original.since} className="text-muted-foreground" />,
   }),
 ]);
 

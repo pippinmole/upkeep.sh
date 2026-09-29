@@ -1,10 +1,16 @@
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 
-import { deliveryLogHref, scheduleReportsHref } from "@/components/notifications/links";
+import { ChannelIcon } from "@/components/brand/channel-icon";
+import { PageHeader } from "@/components/layout/page-header";
+import {
+  deliveryLogHref,
+  REPORTS_URL,
+  scheduleReportsHref,
+} from "@/components/notifications/links";
 import { DeliveryStatusBadge } from "@/components/notifications/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -21,9 +27,8 @@ import { HeadlineGrid, ReportSections } from "./report-view";
 type Params = Promise<{ id: string }>;
 
 // /dashboard/reports/<id> is the link target of report emails and ntfy
-// (SW_DASHBOARD_URL + this path), so the path is fixed. Not in the sidebar:
-// reports are reached from those links and from a schedule's past reports
-// under Settings → Notification settings.
+// (SW_DASHBOARD_URL + this path), so the path is fixed. Also reached from
+// the Reports page and a schedule's past reports.
 
 const loadReport = cache(async (id: string): Promise<ReportDetail | null> => {
   const session = await auth();
@@ -56,6 +61,7 @@ function Deliveries({ report }: { report: ReportDetail }) {
             {report.deliveries.map((d) => (
               <li key={d.id} className="flex flex-wrap items-center gap-2 text-sm">
                 <DeliveryStatusBadge status={d.status} />
+                <ChannelIcon type={d.channelType} className="text-muted-foreground size-4" />
                 <span>
                   {d.channelName}
                   <span className="text-muted-foreground">
@@ -94,31 +100,33 @@ export default async function ReportPage({ params }: { params: Params }) {
   const supported = s?.schema_version === REPORT_SCHEMA_VERSION;
   const tz = supported ? s.schedule.timezone : report.scheduleTimezone;
   const model = supported ? reportEmailModel(s, null, Infinity) : null;
+  const generated = formatRunAt(report.generatedAt, tz);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
-      <div>
-        <Link
-          href={scheduleReportsHref(report.scheduleId)}
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeft className="size-3.5" />
-          {report.scheduleName}: past reports
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-bold">
-            {supported ? s.schedule.name : report.scheduleName}
-          </h1>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Reports", href: REPORTS_URL },
+          { label: report.scheduleName, href: scheduleReportsHref(report.scheduleId) },
+          { label: generated },
+        ]}
+        // The name at the time; the breadcrumb has the schedule's current name.
+        title={supported ? s.schedule.name : report.scheduleName}
+        badges={
           <Badge variant="outline" className="font-normal">
             {report.trigger === "manual" ? "Sent now" : "Scheduled"}
           </Badge>
-        </div>
-        <p className="text-muted-foreground text-sm">
-          Generated {formatRunAt(report.generatedAt, tz)}
-          {model && <>. Covers {model.period}</>}.
-        </p>
-        {supported && <p className="mt-1 font-medium">{reportSummary(s)}</p>}
-      </div>
+        }
+        meta={
+          <span>
+            Generated {generated}
+            {model && <>. Covers {model.period}</>}.
+          </span>
+        }
+        description={
+          supported && <span className="text-foreground font-medium">{reportSummary(s)}</span>
+        }
+      />
 
       {!model ? (
         <Alert>

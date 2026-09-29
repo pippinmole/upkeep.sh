@@ -4,29 +4,23 @@ import { ChevronRight } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
+import { AGENT_STATUS_LABEL, agentStatusTone, StatusBadge } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import type { AgentStatus, AgentWithHosts } from "@/lib/queries";
 import { SEVERITIES } from "@/lib/severity";
-import { formatDate, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
+import { NUMERIC_COLUMN, NUMERIC_HEADER, TimeAgo } from "../hosts/table-cells";
 import { AgentRowActions } from "./agent-row-actions";
 
-export const STATUS_OPTIONS: { value: AgentStatus; label: string }[] = [
-  { value: "online", label: "Online" },
-  { value: "stale", label: "Stale" },
-  { value: "never", label: "Never connected" },
-  { value: "revoked", label: "Revoked" },
-];
-const STATUS_RANK = Object.fromEntries(STATUS_OPTIONS.map((o, i) => [o.value, i]));
-const STATUS_CLASS: Record<AgentStatus, string> = {
-  online: "border-emerald-600/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
-  stale: "border-amber-600/40 bg-amber-400/15 text-amber-900 dark:text-amber-200",
-  never: "border-dashed text-muted-foreground",
-  revoked: "bg-muted text-muted-foreground",
-};
+const STATUSES: AgentStatus[] = ["online", "stale", "never", "revoked"];
+export const STATUS_OPTIONS = STATUSES.map((value) => ({
+  value,
+  label: AGENT_STATUS_LABEL[value],
+}));
+const STATUS_RANK = Object.fromEntries(STATUSES.map((s, i) => [s, i]));
 
 const time = (iso: string | null) => (iso ? Date.parse(iso) : 0);
 const dash = (v: string | null) => v ?? "—";
@@ -79,13 +73,11 @@ export const agentColumns = col.columns([
       const s = row.original.status;
       return (
         <span className="inline-flex flex-wrap items-center gap-1">
-          <Badge variant="outline" className={cn("whitespace-nowrap", STATUS_CLASS[s])}>
-            {STATUS_OPTIONS.find((o) => o.value === s)?.label}
-          </Badge>
+          <StatusBadge tone={agentStatusTone(s)} label={AGENT_STATUS_LABEL[s]} />
           {row.original.rotateRequestedAt && s !== "revoked" && (
             <Badge
-              variant="outline"
-              className="text-muted-foreground whitespace-nowrap"
+              variant="dashed"
+              className="whitespace-nowrap"
               title="Credential rotation requested; the agent rotates on its next push"
             >
               Rotation pending
@@ -97,20 +89,26 @@ export const agentColumns = col.columns([
   }),
   col.accessor((a) => a.hosts.length, {
     id: "hosts",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Hosts" />,
-    cell: ({ row }) => <span className="tabular-nums">{row.original.hosts.length}</span>,
+    meta: NUMERIC_COLUMN,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Hosts" className={NUMERIC_HEADER} />
+    ),
+    cell: ({ row }) => row.original.hosts.length,
   }),
   col.accessor((a) => vulnSummary(a).open, {
     id: "vulnerabilities",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Vulnerabilities" />,
+    meta: NUMERIC_COLUMN,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Vulnerabilities" className={NUMERIC_HEADER} />
+    ),
     cell: ({ row }) => {
       const v = vulnSummary(row.original);
       if (v.open === 0) return <span className="text-muted-foreground">0</span>;
       return (
-        <span className="inline-flex flex-wrap items-center gap-1">
-          <span className="mr-0.5 font-medium tabular-nums">{v.open}</span>
+        <span className="inline-flex flex-wrap items-center justify-end gap-1">
           {v.top && <SeverityBadge severity={v.top} />}
           {v.kev > 0 && <KevBadge count={v.kev} />}
+          <span className="ml-0.5 font-medium">{v.open}</span>
         </span>
       );
     },
@@ -126,20 +124,12 @@ export const agentColumns = col.columns([
   col.accessor("lastSeenAt", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Last seen" />,
     sortFn: (a, b) => time(a.original.lastSeenAt) - time(b.original.lastSeenAt),
-    cell: ({ row }) => (
-      <span className="text-muted-foreground whitespace-nowrap">
-        {relativeTime(row.original.lastSeenAt)}
-      </span>
-    ),
+    cell: ({ row }) => <TimeAgo iso={row.original.lastSeenAt} className="text-muted-foreground" />,
   }),
   col.accessor("createdAt", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
     sortFn: (a, b) => time(a.original.createdAt) - time(b.original.createdAt),
-    cell: ({ row }) => (
-      <span className="text-muted-foreground whitespace-nowrap">
-        {formatDate(row.original.createdAt)}
-      </span>
-    ),
+    cell: ({ row }) => <TimeAgo iso={row.original.createdAt} className="text-muted-foreground" />,
   }),
   col.display({
     id: "actions",

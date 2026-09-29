@@ -269,6 +269,34 @@ export async function getHostContainers(userId: string, hostId: string) {
   };
 }
 
+export type HostDockerCounts = { containers: number; running: number; images: number };
+
+// Current container / image counts for the host overview; all zero when
+// no Docker data was ever stored.
+export async function getHostDockerCounts(
+  userId: string,
+  hostId: string,
+): Promise<HostDockerCounts> {
+  if (!isUuid(hostId)) return { containers: 0, running: 0, images: 0 };
+  const { rows } = await pool.query<{ containers: string; running: string; images: string }>(
+    `SELECT (SELECT count(*) FROM host_containers c
+             WHERE c.host_id = h.id AND c.removed_at IS NULL) AS containers,
+            (SELECT count(*) FROM host_containers c
+             WHERE c.host_id = h.id AND c.removed_at IS NULL AND c.state = 'running') AS running,
+            (SELECT count(*) FROM host_images i
+             WHERE i.host_id = h.id AND i.removed_at IS NULL) AS images
+     FROM hosts h
+     WHERE h.id = $2 AND h.user_id = $1`,
+    [userId, hostId],
+  );
+  const r = rows[0];
+  return {
+    containers: Number(r?.containers ?? 0),
+    running: Number(r?.running ?? 0),
+    images: Number(r?.images ?? 0),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Images
 // ---------------------------------------------------------------------------

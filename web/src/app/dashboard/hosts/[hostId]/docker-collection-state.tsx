@@ -6,6 +6,7 @@ import {
   DockerSocketAlternatives,
   DockerSocketGrant,
 } from "@/components/docker-socket-notes";
+import { EmptyState } from "@/components/empty-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { dockerCollection, type DockerFreshness } from "@/lib/queries-docker";
 import type { CollectorStatus } from "@/lib/queries-inventory";
@@ -72,9 +73,7 @@ export async function DockerCollectionState({
   if (hasRows) {
     return (
       <Alert>
-        <content.icon
-          className={cn(content.warn && "text-amber-600! dark:text-amber-400!", "size-4")}
-        />
+        <content.icon className={cn(content.warn && "text-warning-fg!", "size-4")} />
         <AlertTitle>{content.title}</AlertTitle>
         <AlertDescription className="text-muted-foreground">
           {content.body}
@@ -87,28 +86,22 @@ export async function DockerCollectionState({
   // Server URL for the agent install command, as on the Agents page.
   const serverUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   return (
-    <div className="border-border bg-card flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
-      <content.icon
-        className={cn(
-          "size-8",
-          content.warn ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
-        )}
-      />
-      <div className="flex max-w-lg flex-col items-center gap-2">
-        <h3 className="font-semibold">{content.title}</h3>
-        <div className="text-muted-foreground text-sm">{content.body}</div>
-        {state.kind === "remote" && (
-          <div className="mt-2">
-            <RegisterAgentDialog
-              serverUrl={serverUrl}
-              triggerLabel="Install the agent on this host"
-              triggerVariant="outline"
-              defaultWithDocker
-            />
-          </div>
-        )}
-      </div>
-    </div>
+    <EmptyState
+      icon={content.icon}
+      title={content.title}
+      description={content.body}
+      variant={content.warn ? "warning" : state.kind === "not_enabled" ? "info" : "default"}
+      action={
+        state.kind === "remote" && (
+          <RegisterAgentDialog
+            serverUrl={serverUrl}
+            triggerLabel="Install the agent on this host"
+            triggerVariant="outline"
+            defaultWithDocker
+          />
+        )
+      }
+    />
   );
 }
 

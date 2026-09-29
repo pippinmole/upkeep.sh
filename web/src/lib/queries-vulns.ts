@@ -831,7 +831,12 @@ export async function getFleetVulns(
   };
 }
 
-export type VulnHostRow = FindingRow & { hostId: string; hostname: string; label: string | null };
+export type VulnHostRow = FindingRow & {
+  hostId: string;
+  hostname: string;
+  label: string | null;
+  osId: string | null;
+};
 
 export type AffectedVersionRow = {
   distro: string;
@@ -884,10 +889,16 @@ export async function getFleetVulnDetail(
       [vulnKey],
     ),
     pool.query<
-      FindingDbRow & { status: string; host_id: string; hostname: string; label: string | null }
+      FindingDbRow & {
+        status: string;
+        host_id: string;
+        hostname: string;
+        label: string | null;
+        os_id: string | null;
+      }
     >(
       `SELECT ${FINDING_COLUMNS}, NULL::text AS description, f.status,
-              h.id AS host_id, h.hostname, h.label
+              h.id AS host_id, h.hostname, h.label, h.os_id
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
        WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package' AND f.vuln_key = $2
@@ -955,6 +966,7 @@ export async function getFleetVulnDetail(
     hostId: r.host_id,
     hostname: r.hostname,
     label: r.label,
+    osId: r.os_id,
   });
   return {
     cve,

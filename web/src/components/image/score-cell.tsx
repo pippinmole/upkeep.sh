@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils";
 // CVSS; or why there is no score. Links to the image detail page. No hooks,
 // so it renders in server and client tables alike.
 
-export const CLEAN_BADGE =
-  "border-emerald-600/40 bg-emerald-500/10 font-normal text-emerald-800 dark:text-emerald-200";
+// Prefer <Badge variant="success">; kept for callers that add it to an
+// outline Badge's className.
+export const CLEAN_BADGE = "border-success/40 bg-success/10 font-normal text-success-fg";
 
 export function scoreTitle(s: ImageScore): string {
   const parts = SEVERITIES.filter((sev) => s.counts[sev] > 0).map(
@@ -81,8 +82,8 @@ export function ImageScoreCell({
     case "release_not_assessed":
       body = (
         <Badge
-          variant="outline"
-          className="text-muted-foreground border-dashed font-normal whitespace-nowrap"
+          variant="dashed"
+          className="font-normal whitespace-nowrap"
           title={`${st.distro} ${st.release ?? ""} isn't assessed (out of support, or advisories not imported): no known vulnerabilities means nothing here`}
         >
           Release not assessed
@@ -92,7 +93,7 @@ export function ImageScoreCell({
     case "no_known":
       body = (
         <div className="flex flex-col items-start gap-0.5">
-          <Badge variant="outline" className={cn(CLEAN_BADGE, "whitespace-nowrap")}>
+          <Badge variant="success" className="font-normal whitespace-nowrap">
             No known vulnerabilities
           </Badge>
           {st.partial && score && (

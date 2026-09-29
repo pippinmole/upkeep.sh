@@ -4,12 +4,7 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Props extends ButtonProps {
   text: string;
@@ -43,7 +38,7 @@ export function CopyButton({ text, className, ...rest }: Props) {
             {...rest}
           >
             {isCopied ? (
-              <Check strokeWidth={1.5} className="m-auto" />
+              <Check strokeWidth={1.5} className="text-success m-auto" />
             ) : (
               <Copy strokeWidth={1.5} className="m-auto" />
             )}

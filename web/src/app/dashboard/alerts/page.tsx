@@ -1,8 +1,11 @@
 import { BellRing } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { NotificationSettingsLink } from "@/components/notifications/links";
+import { EmptyState } from "@/components/empty-state";
+import { CHANNELS_URL } from "@/components/notifications/links";
+import { Button } from "@/components/ui/button";
 import { auth } from "@/lib/auth";
 import { getChannels, getRules, getScopeHosts } from "@/lib/queries-notifications";
 
@@ -19,36 +22,49 @@ export default async function RulesPage() {
     getChannels(userId),
     getScopeHosts(userId),
   ]);
+  const noChannels = channels.length === 0;
+
+  if (rules.length === 0) {
+    return (
+      <EmptyState
+        icon={BellRing}
+        title="No alert rules yet"
+        description="A rule picks the events worth telling you about (findings opened, reopened or resolved, agents going stale or coming back) and the channels to send them to. For example: new critical or KEV findings, straight to email."
+        steps={[
+          {
+            label: noChannels ? (
+              <Link href={CHANNELS_URL} className="underline-offset-4 hover:underline">
+                Add a channel
+              </Link>
+            ) : (
+              "Add a channel"
+            ),
+            done: !noChannels,
+          },
+          { label: "Create a rule", done: false },
+        ]}
+        action={
+          noChannels ? (
+            <Button asChild>
+              <Link href={CHANNELS_URL}>Add a channel</Link>
+            </Button>
+          ) : (
+            <AddRuleButton channels={channels} hosts={hosts} />
+          )
+        }
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
-          Findings opened, reopened or resolved, and agents going stale or coming back. Channels are
-          set up in <NotificationSettingsLink />.
+          Findings opened, reopened or resolved, and agents going stale or coming back.
         </p>
         <AddRuleButton channels={channels} hosts={hosts} />
       </div>
-      {rules.length === 0 ? (
-        <div className="border-border bg-card flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
-          <BellRing className="text-muted-foreground size-8" />
-          <div>
-            <h2 className="font-semibold">No alert rules yet</h2>
-            <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-              {channels.length === 0 ? (
-                <>
-                  Add a channel first in <NotificationSettingsLink />, then create a rule that sends
-                  to it.
-                </>
-              ) : (
-                "Create a rule to get notified, for example about new critical or KEV findings."
-              )}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <RulesTable rules={rules} channels={channels} hosts={hosts} />
-      )}
+      <RulesTable rules={rules} channels={channels} hosts={hosts} />
     </div>
   );
 }

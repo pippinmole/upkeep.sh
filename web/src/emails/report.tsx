@@ -205,7 +205,7 @@ export default function ReportEmail({ snapshot, reportUrl }: ReportEmailProps) {
 
           <Hr style={s.hr} />
           <Text style={s.muted}>
-            Sent by upkeep.sh. Change or stop this report under Settings → Notification settings.
+            Sent by upkeep.sh. Change or stop this report under Reports in the dashboard.
           </Text>
         </Container>
       </Body>

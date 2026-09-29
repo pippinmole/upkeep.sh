@@ -141,12 +141,8 @@ const columns = col.columns([
       if (i.containers === 0) return <span className="text-muted-foreground">Not used</span>;
       return (
         <Badge
-          variant="outline"
-          className={
-            i.running > 0
-              ? "border-emerald-600/40 bg-emerald-500/10 whitespace-nowrap text-emerald-800 dark:text-emerald-200"
-              : "text-muted-foreground whitespace-nowrap"
-          }
+          variant={i.running > 0 ? "success" : "neutral"}
+          className="whitespace-nowrap"
           title={`${i.running} running of ${i.containers} ${i.containers === 1 ? "container" : "containers"}`}
         >
           {i.containers} {i.containers === 1 ? "container" : "containers"}

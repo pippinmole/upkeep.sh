@@ -20,14 +20,18 @@ function authorizedKeysLine(publicKey: string): string {
   return `restrict,command="/usr/lib/openssh/sftp-server -R" ${publicKey}`;
 }
 
+// Safe to re-run: the user is only created when missing and the key line
+// only appended when it isn't there yet.
 function setupCommands(username: string, publicKey: string): string {
   const home = `/home/${username}`;
+  const keys = `${home}/.ssh/authorized_keys`;
+  const line = authorizedKeysLine(publicKey);
   return [
-    `sudo useradd --system --create-home --home-dir ${home} --shell /bin/sh ${username}`,
+    `id -u ${username} >/dev/null 2>&1 || sudo useradd --system --create-home --home-dir ${home} --shell /bin/sh ${username}`,
     `sudo install -d -m 700 -o ${username} -g ${username} ${home}/.ssh`,
-    `echo '${authorizedKeysLine(publicKey)}' | sudo tee -a ${home}/.ssh/authorized_keys >/dev/null`,
-    `sudo chown ${username}:${username} ${home}/.ssh/authorized_keys`,
-    `sudo chmod 600 ${home}/.ssh/authorized_keys`,
+    `sudo grep -qxF '${line}' ${keys} 2>/dev/null || echo '${line}' | sudo tee -a ${keys} >/dev/null`,
+    `sudo chown ${username}:${username} ${keys}`,
+    `sudo chmod 600 ${keys}`,
   ].join("\n");
 }
 
@@ -128,7 +132,7 @@ export function RemoteTargetPanel({
         </span>{" "}
         over read-only SFTP.
         {t.agentStatus !== "online" && (
-          <span className="text-amber-700 dark:text-amber-300">
+          <span className="text-warning-fg">
             {" "}
             The agent is {t.agentStatus === "never" ? "not connected yet" : t.agentStatus}, so
             nothing will happen until it reports in.
@@ -156,9 +160,10 @@ export function RemoteTargetPanel({
             <>
               <p className="text-muted-foreground">
                 Run this on <span className="font-mono">{t.address}</span>. It creates a{" "}
-                <span className="font-mono">{t.username}</span> user (skip the first line if it
-                exists, and adjust the home directory) and lets the agent&apos;s key in, limited to
-                reading files. The agent never runs commands on the host.
+                <span className="font-mono">{t.username}</span> user if there isn&apos;t one (for an
+                existing user, adjust the home directory) and lets the agent&apos;s key in, limited
+                to reading files. It&apos;s safe to run again. The agent never runs commands on the
+                host.
               </p>
               <CodeBlock text={setupCommands(t.username, t.agentPublicKey)} />
               <p className="text-muted-foreground text-xs">

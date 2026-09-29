@@ -7,7 +7,8 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { dataTableColumnHelper, type DataTableFeatures } from "@/components/data-table/features";
 import { Badge } from "@/components/ui/badge";
 import type { HostUserRow } from "@/lib/queries-host-facts";
-import { formatDateTime, relativeTime } from "@/lib/time";
+
+import { TimeAgo } from "../../table-cells";
 
 // One scalar per user for the faceted filter, most privileged first.
 type Access = "root" | "admin" | "login" | "nologin";
@@ -49,22 +50,8 @@ const columns = col.columns([
       const u = row.original;
       return (
         <span className="inline-flex flex-wrap gap-1">
-          {u.uid === 0 && (
-            <Badge
-              variant="outline"
-              className="border-red-600/40 bg-red-500/10 text-red-800 dark:text-red-200"
-            >
-              uid 0
-            </Badge>
-          )}
-          {u.admin && u.uid !== 0 && (
-            <Badge
-              variant="outline"
-              className="border-amber-600/40 bg-amber-400/15 text-amber-900 dark:text-amber-200"
-            >
-              Admin
-            </Badge>
-          )}
+          {u.uid === 0 && <Badge variant="danger">uid 0</Badge>}
+          {u.admin && u.uid !== 0 && <Badge variant="warning">Admin</Badge>}
           {u.loginShell ? (
             <Badge variant="outline">Login</Badge>
           ) : (
@@ -79,7 +66,7 @@ const columns = col.columns([
     header: ({ column }) => <DataTableColumnHeader column={column} title="Groups" />,
     enableSorting: false,
     cell: ({ row }) => (
-      <span className="font-mono text-xs">
+      <span className="font-mono text-xs" title={row.original.groups.join(", ")}>
         {row.original.groups.map((g, i) => (
           <span key={g}>
             {i > 0 && ", "}
@@ -100,20 +87,18 @@ const columns = col.columns([
     id: "home",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Home" />,
     cell: ({ row }) => (
-      <span className="text-muted-foreground font-mono text-xs">{row.original.home ?? "—"}</span>
+      <span
+        className="text-muted-foreground block max-w-64 truncate font-mono text-xs"
+        title={row.original.home ?? undefined}
+      >
+        {row.original.home ?? "—"}
+      </span>
     ),
   }),
   col.accessor("since", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Unchanged since" />,
     sortFn: (a, b) => Date.parse(a.original.since) - Date.parse(b.original.since),
-    cell: ({ row }) => (
-      <span
-        className="text-muted-foreground whitespace-nowrap"
-        title={formatDateTime(row.original.since)}
-      >
-        {relativeTime(row.original.since)}
-      </span>
-    ),
+    cell: ({ row }) => <TimeAgo iso={row.original.since} className="text-muted-foreground" />,
   }),
 ]);
 

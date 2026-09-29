@@ -1,9 +1,13 @@
-import { ArrowLeft } from "lucide-react";
+import { SearchX } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { EcosystemIcon, OsLogo } from "@/components/brand";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -13,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { auth } from "@/lib/auth";
+import { osName } from "@/lib/os";
 import { getFleetPackage } from "@/lib/queries-inventory";
 import { formatDate, formatDateTime } from "@/lib/time";
 
@@ -28,8 +33,15 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   return { title: `${await packageName(params)} · Packages` };
 }
 
-function release(distro: string, rel: string): string {
-  return [distro, rel].filter(Boolean).join(" ") || "—";
+// "Ubuntu noble" with the distro's mark; "—" when neither is known.
+function Release({ distro, release }: { distro: string; release: string }) {
+  if (!distro && !release) return <>—</>;
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      {distro && <OsLogo osId={distro} size={14} />}
+      {[distro && osName(distro), release].filter(Boolean).join(" ")}
+    </span>
+  );
 }
 
 function HostLink({
@@ -60,28 +72,33 @@ export default async function FleetPackagePage({ params }: { params: Params }) {
 
   const { versions, hosts, formerHosts } = await getFleetPackage(session.user.id, name);
   const hostCount = new Set(hosts.map((h) => h.hostId)).size;
+  const ecosystems = [...new Set(versions.map((v) => v.ecosystem))];
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
-      <div>
-        <Link
-          href="/dashboard/packages"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeft className="size-3.5" />
-          All packages
-        </Link>
-        <h1 className="mt-2 font-mono text-2xl font-bold">{name}</h1>
-        <p className="text-muted-foreground text-sm">
-          {hostCount === 0
+      <PageHeader
+        breadcrumbs={[{ label: "Packages", href: "/dashboard/packages" }, { label: name }]}
+        title={name}
+        mono
+        badges={
+          ecosystems.length > 0 &&
+          ecosystems.map((e) => (
+            <Badge key={e} variant="outline" className="font-normal">
+              <EcosystemIcon ecosystem={e} />
+              {e}
+            </Badge>
+          ))
+        }
+        description={
+          hostCount === 0
             ? "Not currently installed on any of your hosts."
-            : `Installed on ${hostCount} host${hostCount === 1 ? "" : "s"} in ${versions.length} version${versions.length === 1 ? "" : "s"}.`}
-        </p>
-      </div>
+            : `Installed on ${hostCount} host${hostCount === 1 ? "" : "s"} in ${versions.length} version${versions.length === 1 ? "" : "s"}.`
+        }
+      />
 
       {versions.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="font-semibold">Versions</h2>
+          <SectionHeading>Versions</SectionHeading>
           <div className="bg-card rounded-lg border">
             <Table>
               <TableHeader>
@@ -100,7 +117,7 @@ export default async function FleetPackagePage({ params }: { params: Params }) {
                   <TableRow key={`${v.ecosystem}:${v.distro}:${v.release}:${v.version}:${v.arch}`}>
                     <TableCell className="font-mono text-xs">{v.version}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {release(v.distro, v.release)}
+                      <Release distro={v.distro} release={v.release} />
                     </TableCell>
                     <TableCell className="text-muted-foreground">{v.arch || "—"}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">
@@ -117,6 +134,7 @@ export default async function FleetPackagePage({ params }: { params: Params }) {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="font-normal">
+                        <EcosystemIcon ecosystem={v.ecosystem} />
                         {v.ecosystem}
                       </Badge>
                     </TableCell>
@@ -131,7 +149,9 @@ export default async function FleetPackagePage({ params }: { params: Params }) {
 
       {hosts.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="font-semibold">Hosts with {name} installed</h2>
+          <SectionHeading>
+            Hosts with <span className="font-mono">{name}</span> installed
+          </SectionHeading>
           <div className="bg-card rounded-lg border">
             <Table>
               <TableHeader>
@@ -151,7 +171,7 @@ export default async function FleetPackagePage({ params }: { params: Params }) {
                       <HostLink id={h.hostId} hostname={h.hostname} label={h.label} name={name} />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {release(h.distro, h.release)}
+                      <Release distro={h.distro} release={h.release} />
                     </TableCell>
                     <TableCell className="font-mono text-xs">{h.version}</TableCell>
                     <TableCell className="text-muted-foreground">{h.arch || "—"}</TableCell>
@@ -168,10 +188,9 @@ export default async function FleetPackagePage({ params }: { params: Params }) {
 
       {formerHosts.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="font-semibold">Previously installed</h2>
-          <p className="text-muted-foreground -mt-1 text-sm">
-            Hosts that had {name} at some point but no longer do.
-          </p>
+          <SectionHeading description={`Hosts that had ${name} at some point but no longer do.`}>
+            Previously installed
+          </SectionHeading>
           <div className="bg-card rounded-lg border">
             <Table>
               <TableHeader>
@@ -207,10 +226,23 @@ export default async function FleetPackagePage({ params }: { params: Params }) {
       )}
 
       {hosts.length === 0 && formerHosts.length === 0 && (
-        <div className="bg-card text-muted-foreground rounded-lg border px-6 py-12 text-center text-sm">
-          None of your hosts has ever reported a package named{" "}
-          <span className="font-mono">{name}</span>.
-        </div>
+        <EmptyState
+          icon={SearchX}
+          title="Not found on your hosts"
+          description={
+            <>
+              None of your hosts has ever reported a package named{" "}
+              <span className="font-mono">{name}</span>.
+            </>
+          }
+          action={
+            <Button asChild variant="outline">
+              <Link href={`/dashboard/packages?q=${encodeURIComponent(name)}`}>
+                Search packages
+              </Link>
+            </Button>
+          }
+        />
       )}
     </main>
   );

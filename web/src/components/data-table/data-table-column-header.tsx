@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
 import type { DataTableFeatures } from "./features";
 
 // Header cell that toggles sorting on click (asc → desc → none). Falls back
-// to plain text for columns that can't sort.
+// to plain text for columns that can't sort. The button's name is just the
+// title; DataTable puts the sort state on the <th> as aria-sort.
 export function DataTableColumnHeader<TData extends object, TValue>({
   column,
   title,
@@ -30,10 +31,9 @@ export function DataTableColumnHeader<TData extends object, TValue>({
       size="sm"
       className={cn("-ml-3 h-8", className)}
       onClick={column.getToggleSortingHandler()}
-      aria-label={`Sort by ${title}`}
     >
       {title}
-      <Icon className={cn("size-3.5", !sorted && "text-muted-foreground/60")} />
+      <Icon className={cn("size-3.5", !sorted && "text-muted-foreground/60")} aria-hidden />
     </Button>
   );
 }

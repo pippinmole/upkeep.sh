@@ -5,10 +5,11 @@ import type { FilterFn } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper, type DataTableFeatures } from "@/components/data-table/features";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status";
 import type { HostServiceRow } from "@/lib/queries-host-facts";
-import { formatDateTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+
+import { TimeAgo } from "../../table-cells";
 
 const STATE_OPTIONS = [
   { value: "running", label: "Running" },
@@ -47,7 +48,10 @@ const columns = col.columns([
       <div className="min-w-0">
         <div className="font-mono text-sm">{row.original.name}</div>
         {row.original.displayName && (
-          <div className="text-muted-foreground max-w-80 truncate text-xs">
+          <div
+            className="text-muted-foreground max-w-80 truncate text-xs"
+            title={row.original.displayName}
+          >
             {row.original.displayName}
           </div>
         )}
@@ -62,17 +66,10 @@ const columns = col.columns([
       const s = row.original.state;
       if (!s) return <span className="text-muted-foreground">Unknown</span>;
       return (
-        <Badge
-          variant="outline"
-          className={cn(
-            "whitespace-nowrap",
-            s === "running"
-              ? "border-emerald-600/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
-              : "text-muted-foreground",
-          )}
-        >
-          {s === "running" ? "Running" : "Stopped"}
-        </Badge>
+        <StatusBadge
+          tone={s === "running" ? "success" : "neutral"}
+          label={s === "running" ? "Running" : "Stopped"}
+        />
       );
     },
   }),
@@ -118,14 +115,7 @@ const columns = col.columns([
   col.accessor("since", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="In this state since" />,
     sortFn: (a, b) => Date.parse(a.original.since) - Date.parse(b.original.since),
-    cell: ({ row }) => (
-      <span
-        className="text-muted-foreground whitespace-nowrap"
-        title={formatDateTime(row.original.since)}
-      >
-        {relativeTime(row.original.since)}
-      </span>
-    ),
+    cell: ({ row }) => <TimeAgo iso={row.original.since} className="text-muted-foreground" />,
   }),
 ]);
 

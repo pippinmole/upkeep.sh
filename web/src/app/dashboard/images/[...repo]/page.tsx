@@ -1,17 +1,16 @@
-import { ArrowLeft, X } from "lucide-react";
+import { Container, X } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import {
-  ContainerStateBadge,
-  HostLink,
-  WARN_BADGE,
-  shortId,
-} from "@/components/docker-fleet/badges";
+import { RegistryLogo } from "@/components/brand";
+import { ContainerStateBadge, HostLink, shortId } from "@/components/docker-fleet/badges";
 import { DockerCoverageNote } from "@/components/docker-fleet/coverage-note";
 import { repoHref } from "@/components/docker-fleet/links";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -141,34 +140,42 @@ export default async function FleetImagePage({
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
-      <div>
-        <Link
-          href="/dashboard/images"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ArrowLeft className="size-3.5" />
-          All images
-        </Link>
-        <h1 className={cn("mt-2 text-2xl font-bold break-all", !untagged && "font-mono")}>
-          {untagged ? "Untagged images" : repo}
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          {hostCount === 0
+      <PageHeader
+        breadcrumbs={[
+          { label: "Images", href: "/dashboard/images" },
+          { label: untagged ? "Untagged images" : repo },
+        ]}
+        title={untagged ? "Untagged images" : repo}
+        mono={!untagged}
+        icon={<RegistryLogo repo={repo} size={24} colored />}
+        description={
+          hostCount === 0
             ? "Not currently present on any of your hosts."
-            : `${idCount} image ID${idCount === 1 ? "" : "s"} on ${hostCount} host${hostCount === 1 ? "" : "s"}, ${running} running container${running === 1 ? "" : "s"}.`}
-        </p>
-      </div>
+            : `${idCount} image ID${idCount === 1 ? "" : "s"} on ${hostCount} host${hostCount === 1 ? "" : "s"}, ${running} running container${running === 1 ? "" : "s"}.`
+        }
+      />
 
-      {rows.length === 0 && <DockerCoverageNote coverage={coverage} />}
+      {rows.length === 0 && (
+        <>
+          <DockerCoverageNote coverage={coverage} />
+          <EmptyState
+            icon={Container}
+            title="No host has this image now"
+            description="It may have been removed, or the hosts that had it stopped reporting Docker data."
+            action={
+              <Button asChild variant="outline">
+                <Link href="/dashboard/images">All images</Link>
+              </Button>
+            }
+          />
+        </>
+      )}
 
       {tags.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="font-semibold">Tags</h2>
-          <p className="text-muted-foreground -mt-1 text-sm">
-            A tag flagged as varying points to different image content on different hosts (more than
-            one digest, or more image IDs than platforms): some hosts have an older or locally built
-            image under the same name.
-          </p>
+          <SectionHeading description="A tag flagged as varying points to different image content on different hosts (more than one digest, or more image IDs than platforms): some hosts have an older or locally built image under the same name.">
+            Tags
+          </SectionHeading>
           <div className="bg-card rounded-lg border">
             <Table>
               <TableHeader>
@@ -203,7 +210,7 @@ export default async function FleetImagePage({
                             {t.tag}
                           </Link>
                           {drift && (
-                            <Badge variant="outline" className={WARN_BADGE}>
+                            <Badge variant="warning" className="font-normal">
                               varies across hosts
                             </Badge>
                           )}
@@ -243,7 +250,7 @@ export default async function FleetImagePage({
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="text-muted-foreground align-top text-xs">
+                      <TableCell className="text-muted-foreground align-top font-mono text-xs">
                         {t.platforms.join(", ") || "—"}
                       </TableCell>
                       <TableCell className="text-right align-top tabular-nums">{t.hosts}</TableCell>
@@ -259,9 +266,9 @@ export default async function FleetImagePage({
       {rows.length > 0 && (
         <section className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-semibold">
+            <SectionHeading>
               Hosts with {untagged ? "untagged images" : <span className="font-mono">{repo}</span>}
-            </h2>
+            </SectionHeading>
             {filterLabel && (
               <Link href={repoHref(repoKey)}>
                 <Badge variant="secondary" className="gap-1 font-normal">
@@ -289,7 +296,13 @@ export default async function FleetImagePage({
                       colSpan={untagged ? 4 : 5}
                       className="text-muted-foreground h-20 text-center"
                     >
-                      No host has {filterLabel}.
+                      No host has {filterLabel}.{" "}
+                      <Link
+                        href={repoHref(repoKey)}
+                        className="text-foreground underline underline-offset-4"
+                      >
+                        Clear filter
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -321,8 +334,8 @@ export default async function FleetImagePage({
                           </div>
                           {r.otherRefs.length > 0 && (
                             <div
-                              className="text-muted-foreground mt-1 font-mono text-xs"
-                              title="Other names for the same image on this host"
+                              className="text-muted-foreground mt-1 line-clamp-2 font-mono text-xs break-all"
+                              title={`Other names for the same image on this host: ${r.otherRefs.join(", ")}`}
                             >
                               also {r.otherRefs.join(", ")}
                             </div>

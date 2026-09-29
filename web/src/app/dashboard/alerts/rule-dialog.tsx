@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -204,7 +205,16 @@ export function RuleDialog({
             </div>
             {v.hostScope === "selected" &&
               (scopeHosts.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No hosts yet.</p>
+                <p className="text-muted-foreground text-sm">
+                  Rules can target all hosts; hosts appear once an agent reports. See{" "}
+                  <Link
+                    href="/dashboard/hosts"
+                    className="text-foreground font-medium underline underline-offset-4"
+                  >
+                    Hosts
+                  </Link>
+                  .
+                </p>
               ) : (
                 <CheckList
                   items={scopeHosts}

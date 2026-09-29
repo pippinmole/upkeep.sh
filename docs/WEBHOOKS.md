@@ -2,8 +2,9 @@
 
 A **webhook** notification channel receives an HTTPS `POST` of a JSON
 document for every notification a rule or a report schedule sends to it
-(and for "Send test"). Channels and report schedules are configured under
-**Dashboard → Settings → Notification settings** and the rules that send to
+(and for "Send test"). Channels are configured under
+**Dashboard → Settings → Channels**, report schedules under **Dashboard →
+Reports**, and the rules that send to
 them under **Dashboard → Alerts** (which also holds the delivery log); the
 pipeline behind them is described in
 [ARCHITECTURE.md § Alerting](ARCHITECTURE.md#alerting). Scheduled reports

@@ -1,10 +1,19 @@
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { vulnHref } from "@/components/vuln/links";
 import { imageHref, shortImageId } from "@/lib/image-key";
 import type { UrgentVulnRow } from "@/lib/queries-overview-images";
+import { cn } from "@/lib/utils";
 
 import { plural } from "./cards";
 
@@ -37,60 +46,65 @@ function Where({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function UrgentVulns({ rows }: { rows: UrgentVulnRow[] }) {
+export function UrgentVulns({ rows, className }: { rows: UrgentVulnRow[]; className?: string }) {
   return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="font-semibold">Most urgent vulnerabilities</h2>
-        <Link
-          href="/dashboard/vulnerabilities"
-          className="text-muted-foreground hover:text-foreground text-sm hover:underline"
-        >
-          View all
-        </Link>
-      </div>
-      {rows.length === 0 ? (
-        <p className="text-muted-foreground text-sm">Nothing open.</p>
-      ) : (
-        <ul className="bg-card divide-y rounded-lg border">
-          {rows.map((r) => {
-            const inHost = r.hostPackageHosts > 0;
-            const imgName = r.topImage
-              ? (r.topImage.refs[0] ?? shortImageId(r.topImage.imageId))
-              : null;
-            return (
-              <li
-                key={r.vulnKey}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5"
-              >
-                <Link
-                  href={inHost ? vulnHref(r.vulnKey) : imageLink(r)}
-                  className="font-medium hover:underline"
+    <Card className={cn("gap-3", className)}>
+      <CardHeader>
+        <CardTitle>Most urgent vulnerabilities</CardTitle>
+        <CardDescription>Host packages and container images, worst first.</CardDescription>
+        <CardAction>
+          <Link
+            href="/dashboard/vulnerabilities"
+            className="text-muted-foreground hover:text-foreground text-sm hover:underline"
+          >
+            View all
+          </Link>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="px-0">
+        {rows.length === 0 ? (
+          <p className="text-muted-foreground px-6 text-sm">Nothing open.</p>
+        ) : (
+          <ul className="divide-y border-t">
+            {rows.map((r) => {
+              const inHost = r.hostPackageHosts > 0;
+              const imgName = r.topImage
+                ? (r.topImage.refs[0] ?? shortImageId(r.topImage.imageId))
+                : null;
+              return (
+                <li
+                  key={r.vulnKey}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 px-6 py-2.5"
                 >
-                  {r.vulnKey}
-                </Link>
-                <SeverityBadge severity={r.severity} />
-                {r.isKev && <KevBadge />}
-                {inHost && (
-                  <Where label="Host package">
-                    {r.hostPackages.join(", ")} · {plural(r.hostPackageHosts, "host", "hosts")}
-                  </Where>
-                )}
-                {r.images > 0 && (
-                  <Where label="Image">
-                    <Link href={imageLink(r)} className="hover:text-foreground hover:underline">
-                      {r.images === 1 && imgName ? imgName : plural(r.images, "image", "images")}
-                    </Link>
-                    {r.imagePackages.length > 0 && ` · ${r.imagePackages.join(", ")}`}
-                    {" · "}
-                    {plural(r.imageHosts, "host", "hosts")}
-                  </Where>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
+                  <Link
+                    href={inHost ? vulnHref(r.vulnKey) : imageLink(r)}
+                    className="font-medium hover:underline"
+                  >
+                    {r.vulnKey}
+                  </Link>
+                  <SeverityBadge severity={r.severity} />
+                  {r.isKev && <KevBadge />}
+                  {inHost && (
+                    <Where label="Host package">
+                      {r.hostPackages.join(", ")} · {plural(r.hostPackageHosts, "host", "hosts")}
+                    </Where>
+                  )}
+                  {r.images > 0 && (
+                    <Where label="Image">
+                      <Link href={imageLink(r)} className="hover:text-foreground hover:underline">
+                        {r.images === 1 && imgName ? imgName : plural(r.images, "image", "images")}
+                      </Link>
+                      {r.imagePackages.length > 0 && ` · ${r.imagePackages.join(", ")}`}
+                      {" · "}
+                      {plural(r.imageHosts, "host", "hosts")}
+                    </Where>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

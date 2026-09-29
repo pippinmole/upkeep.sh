@@ -4,7 +4,8 @@ import { MoreHorizontal, Plus } from "lucide-react";
 import Link from "next/link";
 import { useState, useTransition } from "react";
 
-import { NOTIFICATION_SETTINGS_URL } from "@/components/notifications/links";
+import { ChannelIcon } from "@/components/brand/channel-icon";
+import { CHANNELS_URL } from "@/components/notifications/links";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
@@ -146,10 +147,21 @@ function makeColumns(ctx: Ctx) {
       id: "channels",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Channels" />,
       // Channels are managed under Settings; link there rather than to nowhere.
-      cell: ({ getValue }) =>
+      cell: ({ getValue, row }) =>
         getValue() ? (
-          <Link href={NOTIFICATION_SETTINGS_URL} className="hover:underline">
-            {getValue()}
+          <Link
+            href={CHANNELS_URL}
+            className="inline-flex max-w-64 items-center gap-1.5 hover:underline"
+            title={getValue()}
+          >
+            {row.original.channels.slice(0, 3).map((c) => (
+              <ChannelIcon
+                key={c.id}
+                type={c.type}
+                className="text-muted-foreground size-4 shrink-0"
+              />
+            ))}
+            <span className="truncate">{getValue()}</span>
           </Link>
         ) : (
           <span className="text-muted-foreground">None</span>
@@ -182,14 +194,19 @@ function makeColumns(ctx: Ctx) {
   ]);
 }
 
+// A rule needs somewhere to send to: disabled, with the reason on hover,
+// until a channel exists (same as AddScheduleButton).
 export function AddRuleButton(ctx: Ctx) {
   const [open, setOpen] = useState(false);
+  const noChannels = ctx.channels.length === 0;
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus />
-        New rule
-      </Button>
+      <span title={noChannels ? "Add a channel first" : undefined} className="inline-flex">
+        <Button onClick={() => setOpen(true)} disabled={noChannels}>
+          <Plus />
+          New rule
+        </Button>
+      </span>
       {open && <RuleDialog open={open} onOpenChange={setOpen} {...ctx} />}
     </>
   );

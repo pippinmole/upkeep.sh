@@ -71,7 +71,7 @@ export type RuleRow = {
   digestIntervalSeconds: number;
   lastDigestAt: string | null;
   createdAt: string;
-  channels: { id: string; name: string; enabled: boolean }[];
+  channels: { id: string; name: string; type: string; enabled: boolean }[];
 };
 
 export async function getRules(userId: string): Promise<RuleRow[]> {
@@ -89,12 +89,13 @@ export async function getRules(userId: string): Promise<RuleRow[]> {
     digest_interval_seconds: number;
     last_digest_at: Date | null;
     created_at: Date;
-    channels: { id: string; name: string; enabled: boolean }[];
+    channels: RuleRow["channels"];
   }>(
     `SELECT r.id, r.name, r.enabled, r.event_types, r.min_severity_rank, r.kev_only, r.finding_kinds,
             r.host_ids::text[] AS host_ids, r.dedup_window_seconds, r.digest,
             r.digest_interval_seconds, r.last_digest_at, r.created_at,
-            COALESCE((SELECT json_agg(json_build_object('id', c.id, 'name', c.name, 'enabled', c.enabled) ORDER BY c.name)
+            COALESCE((SELECT json_agg(json_build_object('id', c.id, 'name', c.name, 'type', c.type,
+                                                        'enabled', c.enabled) ORDER BY c.name)
                       FROM alert_rule_channels rc JOIN notification_channels c ON c.id = rc.channel_id
                       WHERE rc.rule_id = r.id), '[]') AS channels
      FROM alert_rules r

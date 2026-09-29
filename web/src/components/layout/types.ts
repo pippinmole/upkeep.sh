@@ -1,32 +1,34 @@
+import type { LucideIcon } from "lucide-react";
+
 interface User {
   name: string;
   email: string;
 }
 
-interface BaseNavItem {
-  title: string;
-  badge?: string;
-  icon?: React.ElementType;
+// "Needs action" counts behind the nav badges (lib/queries-nav.ts), and
+// whether the Swarm item shows at all.
+interface NavCounts {
+  vulnsUrgent: number;
+  staleHosts: number;
+  staleAgents: number;
+  failedDeliveries: number;
+  hasSwarm: boolean;
 }
 
-export type NavItem =
-  | (BaseNavItem & {
-      items: (BaseNavItem & { url: string })[];
-      url?: never;
-    })
-  | (BaseNavItem & {
-      url: string;
-      items?: never;
-    });
+type NavBadgeKey = Exclude<keyof NavCounts, "hasSwarm">;
+type NavBadgeTone = "critical" | "warning";
+
+interface NavItem {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  badge?: { count: number; tone: NavBadgeTone };
+}
 
 interface NavGroup {
-  title: string;
+  // Omitted for the top group (Overview), which has no label.
+  title?: string;
   items: NavItem[];
 }
 
-interface SidebarData {
-  user: User;
-  navGroups: NavGroup[];
-}
-
-export type { NavGroup, SidebarData, User };
+export type { NavBadgeKey, NavBadgeTone, NavCounts, NavGroup, NavItem, User };

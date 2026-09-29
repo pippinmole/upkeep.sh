@@ -2,6 +2,7 @@
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
+import { EcosystemIcon } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { IMAGE_PACKAGE_STATUS_LABEL } from "@/lib/image-tables";
@@ -48,8 +49,8 @@ function StatusCell({ r }: { r: ImagePackageRow }) {
     case "not-assessed":
       return (
         <Badge
-          variant="outline"
-          className="text-muted-foreground cursor-help border-dashed font-normal whitespace-nowrap"
+          variant="dashed"
+          className="cursor-help font-normal whitespace-nowrap"
           title={notAssessedTitle(r)}
         >
           Not assessed
@@ -98,6 +99,7 @@ export const packageColumns = col.columns([
       return (
         <div className="flex flex-col items-start gap-0.5">
           <Badge variant="outline" className="font-normal">
+            <EcosystemIcon ecosystem={r.ecosystem} />
             {r.ecosystem}
           </Badge>
           {r.distro && (

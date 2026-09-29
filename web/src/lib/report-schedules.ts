@@ -1,5 +1,5 @@
 // Report schedules (migration 0017, docs/tasks/phase-1-7-reports.md): the
-// pure parts shared by the Settings → Notification settings dialog and the
+// pure parts shared by the Reports page schedule dialog and the
 // server actions, which validate everything again. Client-safe: no
 // database imports.
 //

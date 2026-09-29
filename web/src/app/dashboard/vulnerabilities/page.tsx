@@ -1,9 +1,14 @@
+import { Plus, ShieldCheck } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/inventory/filter-bar";
+import { clearFiltersHref, NoMatches } from "@/components/inventory/no-matches";
 import { Pager } from "@/components/inventory/pager";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -59,16 +64,54 @@ export default async function FleetVulnerabilitiesPage({
   ]);
   const basePath = "/dashboard/vulnerabilities";
   const hasFilters = filters.q || filters.severity || filters.kev || filters.fix;
+  const hidden = { status: status === "resolved" ? "resolved" : null };
+  const header = (
+    <PageHeader
+      title="Vulnerabilities"
+      description="Known vulnerabilities in packages installed on your hosts, ranked by real-world exploitability."
+    />
+  );
+
+  // Nothing open anywhere (not a filter miss): say why and what's next.
+  if (status === "open" && !hasFilters && stats.distinctOpenVulns === 0) {
+    return (
+      <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
+        {header}
+        {stats.hosts === 0 ? (
+          <EmptyState
+            size="page"
+            icon={ShieldCheck}
+            title="No hosts yet"
+            description="Vulnerabilities are matched against the packages your hosts report. Add a host to start."
+            action={
+              <Button asChild>
+                <Link href="/dashboard/hosts">
+                  <Plus aria-hidden />
+                  Add a host
+                </Link>
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            size="page"
+            icon={ShieldCheck}
+            title="No open vulnerabilities"
+            description={`No package on your ${stats.hosts === 1 ? "host" : `${stats.hosts} hosts`} matches a known vulnerability. New advisories are matched as they're published.`}
+            action={
+              <Button asChild variant="outline">
+                <Link href={`${basePath}?status=resolved`}>Resolved vulnerabilities</Link>
+              </Button>
+            }
+          />
+        )}
+      </main>
+    );
+  }
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Vulnerabilities</h1>
-        <p className="text-muted-foreground text-sm">
-          Known vulnerabilities in packages installed on your hosts, most urgent first (known
-          exploited, then exploit likelihood, then distro priority).
-        </p>
-      </div>
+      {header}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedLinks
@@ -76,7 +119,14 @@ export default async function FleetVulnerabilitiesPage({
           items={[
             {
               href: `${basePath}${withParams(sp, { status: null, page: null })}`,
-              label: `Affecting hosts (${stats.distinctOpenVulns})`,
+              label: (
+                <>
+                  Affecting hosts
+                  <span className="text-muted-foreground ml-1.5 tabular-nums">
+                    {stats.distinctOpenVulns.toLocaleString("en-US")}
+                  </span>
+                </>
+              ),
               active: status === "open",
             },
             {
@@ -109,7 +159,7 @@ export default async function FleetVulnerabilitiesPage({
         q={filters.q}
         qPlaceholder="CVE id or source package…"
         qLabel="Search vulnerabilities"
-        hidden={{ status: status === "resolved" ? "resolved" : null }}
+        hidden={hidden}
         selects={[
           {
             name: "severity",
@@ -166,13 +216,16 @@ export default async function FleetVulnerabilitiesPage({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-muted-foreground h-24 text-center">
-                  {hasFilters
-                    ? "No vulnerabilities match these filters."
-                    : status === "open"
-                      ? stats.hosts === 0
-                        ? "No hosts yet. Register an agent to start matching its packages."
-                        : "No open vulnerabilities on any host."
-                      : "No vulnerabilities have been resolved on every host yet."}
+                  {hasFilters ? (
+                    <NoMatches
+                      things="vulnerabilities"
+                      clearHref={clearFiltersHref(basePath, hidden)}
+                    />
+                  ) : status === "open" ? (
+                    "Nothing on this page."
+                  ) : (
+                    "No vulnerabilities have been resolved on every host yet."
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -183,7 +236,10 @@ export default async function FleetVulnerabilitiesPage({
                       {r.vulnKey}
                     </Link>
                     {r.description && (
-                      <p className="text-muted-foreground line-clamp-2 text-xs whitespace-normal">
+                      <p
+                        className="text-muted-foreground line-clamp-2 text-xs whitespace-normal"
+                        title={r.description}
+                      >
                         {r.description}
                       </p>
                     )}
@@ -209,7 +265,10 @@ export default async function FleetVulnerabilitiesPage({
                     )}
                   </TableCell>
                   <TableCell className="align-top">
-                    <span className="line-clamp-2 max-w-56 text-sm whitespace-normal">
+                    <span
+                      className="line-clamp-2 max-w-56 text-sm whitespace-normal"
+                      title={r.packages.join(", ") || undefined}
+                    >
                       {r.packages.join(", ") || "—"}
                     </span>
                   </TableCell>

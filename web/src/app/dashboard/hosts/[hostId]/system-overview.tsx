@@ -1,6 +1,8 @@
 import { formatUptime, getHostSystem } from "@/lib/queries-host-facts";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
+import { Muted, OverviewCard } from "./overview-card";
+
 // Overview sections for the Linux breadth facts: system (uptime, arch,
 // automatic updates) and "needs restart" (processes on deleted libraries).
 // Server component; getHostSystem is scoped by userId.
@@ -12,9 +14,8 @@ export async function SystemOverview({ userId, hostId }: { userId: string; hostI
 
   return (
     <>
-      <section className="bg-card rounded-lg border p-4">
-        <h2 className="font-semibold">System</h2>
-        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+      <OverviewCard title="System">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
           <dt className="text-muted-foreground">Uptime</dt>
           <dd>
             {sys.uptimeSeconds !== null ? (
@@ -35,11 +36,9 @@ export async function SystemOverview({ userId, hostId }: { userId: string; hostI
             {!uu ? (
               <span className="text-muted-foreground">Not reported</span>
             ) : uu.enabled ? (
-              <span className="text-emerald-700 dark:text-emerald-400">
-                unattended-upgrades enabled
-              </span>
+              <span className="text-success-fg">unattended-upgrades enabled</span>
             ) : (
-              <span className="text-amber-700 dark:text-amber-400">
+              <span className="text-warning-fg">
                 {uu.package_installed === false
                   ? "unattended-upgrades not installed"
                   : "unattended-upgrades disabled"}
@@ -64,7 +63,10 @@ export async function SystemOverview({ userId, hostId }: { userId: string; hostI
                   <span className="text-muted-foreground">Unknown</span>
                 )}
                 {uu.last_unattended_run && (
-                  <span className="text-muted-foreground">
+                  <span
+                    className="text-muted-foreground"
+                    title={formatDateTime(uu.last_unattended_run)}
+                  >
                     {" "}
                     · unattended run {relativeTime(uu.last_unattended_run)}
                   </span>
@@ -73,26 +75,23 @@ export async function SystemOverview({ userId, hostId }: { userId: string; hostI
             </>
           )}
         </dl>
-      </section>
+      </OverviewCard>
 
-      <section className="bg-card rounded-lg border p-4 md:col-span-2">
-        <h2 className="font-semibold">Needs restart</h2>
+      <OverviewCard title="Needs restart" className="md:col-span-2">
         {!nr ? (
-          <p className="text-muted-foreground mt-2 text-sm">
+          <Muted>
             Not reported (older agent, or the agent can&apos;t read this host&apos;s processes).
-          </p>
+          </Muted>
         ) : nr.processes.length === 0 ? (
-          <p className="text-muted-foreground mt-2 text-sm">
-            No process is running a deleted (upgraded) shared library.
-          </p>
+          <Muted>No process is running a deleted (upgraded) shared library.</Muted>
         ) : (
           <>
-            <p className="text-muted-foreground mt-1 text-sm">
+            <Muted>
               {nr.processes.length}
               {nr.truncated ? "+" : ""} {nr.processes.length === 1 ? "process is" : "processes are"}{" "}
               still running code from libraries replaced by an upgrade. Restart them (or reboot) for
               the fix to take effect.
-            </p>
+            </Muted>
             <ul className="mt-3 space-y-2 text-sm">
               {nr.processes.map((p) => (
                 <li key={p.pid}>
@@ -114,7 +113,7 @@ export async function SystemOverview({ userId, hostId }: { userId: string; hostI
             agent runs without ptrace access).
           </p>
         )}
-      </section>
+      </OverviewCard>
     </>
   );
 }

@@ -1,16 +1,6 @@
 "use client";
 
-import {
-  BellRing,
-  Boxes,
-  Container,
-  LayoutDashboard,
-  Monitor,
-  Package,
-  Server,
-  ShieldAlert,
-  ShieldCheck,
-} from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import * as React from "react";
 
 import { NavGroup } from "@/components/layout/nav-group";
@@ -24,39 +14,17 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 
-import type { NavGroup as NavGroupType, User } from "./types";
-
-const SWARM_URL = "/dashboard/swarm";
-
-export const navGroups: NavGroupType[] = [
-  {
-    title: "General",
-    items: [
-      { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
-      // Hosts are the machines, Agents the collectors (DOMAIN_MODEL.md
-      // §3.1, §4, Q15); both can enroll an agent.
-      { title: "Hosts", url: "/dashboard/hosts", icon: Monitor },
-      { title: "Agents", url: "/dashboard/agents", icon: Server },
-      { title: "Vulnerabilities", url: "/dashboard/vulnerabilities", icon: ShieldAlert },
-      { title: "Packages", url: "/dashboard/packages", icon: Package },
-      { title: "Images", url: "/dashboard/images", icon: Container },
-      // In the sidebar only when a host is in a Swarm (AppSidebar
-      // hasSwarm); the command menu always lists it.
-      { title: "Swarm", url: SWARM_URL, icon: Boxes },
-      { title: "Alerts", url: "/dashboard/alerts", icon: BellRing },
-    ],
-  },
-];
+import { navGroupsFor } from "./nav-config";
+import type { NavCounts, User } from "./types";
 
 interface Props extends React.ComponentProps<typeof Sidebar> {
   user: User;
-  hasSwarm: boolean;
+  counts: NavCounts;
 }
 
-export function AppSidebar({ user, hasSwarm, ...props }: Props) {
-  const groups = hasSwarm
-    ? navGroups
-    : navGroups.map((g) => ({ ...g, items: g.items.filter((i) => i.url !== SWARM_URL) }));
+export function AppSidebar({ user, counts, ...props }: Props) {
+  const groups = navGroupsFor(counts);
+  const navUrls = groups.flatMap((g) => g.items.map((i) => i.url));
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -66,13 +34,13 @@ export function AppSidebar({ user, hasSwarm, ...props }: Props) {
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate font-semibold">upkeep.sh</span>
-            <span className="text-muted-foreground truncate text-xs">Monitoring</span>
+            <span className="text-muted-foreground truncate text-xs">Estate security</span>
           </div>
         </div>
       </SidebarHeader>
       <SidebarContent>
-        {groups.map((group) => (
-          <NavGroup key={group.title} {...group} />
+        {groups.map((group, i) => (
+          <NavGroup key={group.title ?? i} {...group} navUrls={navUrls} />
         ))}
       </SidebarContent>
       <SidebarFooter>
