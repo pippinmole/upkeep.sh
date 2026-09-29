@@ -22,19 +22,30 @@
       `credentials.json` (PROTOCOL.md §3).
 - [x] Host management UI: rename / archive / merge / delete on Hosts,
       revoke / rotate on Agents.
-- [ ] `agent/docker-compose.example.yml` references
-      `ghcr.io/icondesk/upkeep-agent:latest` (so does the dashboard's
-      `docker run` line), which doesn't
-      exist yet — needs a build/publish pipeline before that snippet is
-      actually usable end-to-end.
-- [ ] Release supply chain (the realistic way the agent gets
-      compromised, and with the Docker socket mounted a bad release is
-      root on every opted-in host): sign agent images (cosign) with SBOM
-      + build provenance; release only from tagged commits in CI;
-      versioned tags (not `:latest`) in the compose example and the
-      dashboard snippet so a bad release doesn't auto-propagate; 2FA and
-      branch protection on the publishing account, narrowly scoped
-      publish tokens.
+- [x] Agent image namespace and pin: the compose example and the
+      dashboard's `docker run` line used `ghcr.io/icondesk/upkeep-agent:latest`,
+      which never existed. Both now pin `ghcr.io/pippinmole/upkeep-agent:0.1.0`
+      from one place (`web/src/lib/agent-image.ts`, `SW_AGENT_IMAGE`
+      overrides it at runtime); `scripts/check-version-pins.sh` keeps the
+      two in step.
+- [x] Release supply chain, pipeline side (the realistic way the agent
+      gets compromised, and with the Docker socket mounted a bad release
+      is root on every opted-in host): `.github/workflows/release.yml`
+      publishes agent, server and web to GHCR only from a `vX.Y.Z` tag
+      reachable from `main` whose version matches the pins; multi-arch;
+      BuildKit SBOM + max provenance; cosign keyless signature on the
+      digest; GitHub build provenance attestation (only while the repo is
+      public); `GITHUB_TOKEN` only, no stored publish tokens; write
+      permissions only in the publish job, behind a `release`
+      environment; exact versions (not `:latest`) in the compose example
+      and dashboard snippet. [RELEASING.md](../RELEASING.md).
+- [ ] Release supply chain, **waiting on owner**
+      ([RELEASING.md owner checklist](../RELEASING.md#owner-checklist-account-settings-by-hand)):
+      fix Actions billing / spending limit; 2FA on the publishing
+      account; ruleset on `main` (PR + required checks, no force-push or
+      deletion) and on `v*` tags; read-only default workflow permissions;
+      required reviewer on the `release` environment; cut the first real
+      release `v0.1.0`, then make the three GHCR packages public.
 - [x] Expired-enrollment-token cleanup: hourly River `credential_cleanup`
       job in the worker (also clears expired post-rotation secrets).
 - [x] `server/Dockerfile` runtime base bumped `alpine:3.20` → `alpine:3.24`

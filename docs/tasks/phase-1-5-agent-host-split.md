@@ -31,8 +31,10 @@ Today agent == host: enrollment creates a `hosts` row and the returned
 - [ ] Agent/host reporting gaps: ~~`hosts.arch`~~ (done: agent `arch`
       collector → `os.arch`, `snapshots.arch`, `hosts.arch`);
       `hosts.os_build` is never written (only meaningful for the
-      Windows/macOS agents); the production image build needs
-      `--build-arg VERSION=...` so `agent.version` isn't `dev`.
+      Windows/macOS agents); ~~the production image build needs
+      `--build-arg VERSION=...` so `agent.version` isn't `dev`~~ (done:
+      `.github/workflows/release.yml` passes the tag's version, e.g.
+      `0.1.0`, [RELEASING.md](../RELEASING.md)).
 - [x] Dashboard **Agents** page lists collectors (name, status online /
       stale / revoked / never connected, version, platform, host count,
       vuln pills, last seen) with their hosts as expandable sub-rows (OS,
