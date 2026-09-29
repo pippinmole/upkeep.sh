@@ -53,8 +53,9 @@
     matcher writes take a Postgres advisory lock, so extra replicas are
     safe.
 
-- **`web/`** — Next.js (App Router) on Bun. Marketing page, Auth.js
-  credentials auth (self-hosted, bcrypt, own `users` table), and the
+- **`web/`** — Next.js (App Router) on Bun. Marketing page, Better Auth
+  username + password auth (self-hosted library, database sessions,
+  bcrypt, own `users` table; migrations/0018_better_auth), and the
   dashboard. Deployed as a standalone Docker image (`output: "standalone"`
   in `next.config.ts`) since this is self-hosted via Dokploy, not Vercel.
   Also serves one internal route to the worker: report emails are
@@ -611,7 +612,7 @@ The route is not part of the public site: it answers 404 when the secret
 is unset on web, and when the request's `Host` (and any
 `X-Forwarded-Host`, which the public reverse proxy adds) isn't the host
 of `SW_WEB_INTERNAL_URL`. That URL must therefore not name the public
-host (`NEXTAUTH_URL` / `AUTH_URL`); if it does, the route accepts
+host (`BETTER_AUTH_URL`); if it does, the route accepts
 nothing. A wrong secret gets 401 (compared in constant time), a
 malformed body 400.
 

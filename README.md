@@ -34,7 +34,7 @@ agent/       Go, single static binary. Read-only, outbound-only host
              reboot state). No inbound ports, no remote command execution.
 server/      Go. Agent enrollment + snapshot ingest today; vulnerability
              matching, exposure analysis, and alert dispatch land here.
-web/         Next.js (App Router) + Bun + Auth.js. Marketing, auth,
+web/         Next.js (App Router) + Bun + Better Auth. Marketing, auth,
              dashboard. Reads Postgres directly (see
              docs/decisions/direct-postgres-reads.md).
 migrations/  SQL migrations (golang-migrate format) — the actual schema
@@ -78,7 +78,8 @@ docker compose up --build -d
 `docker-compose.yml` is the production stack (Postgres + migrate + api +
 web), meant to run once on your own box via Dokploy. Required vars (see
 `.env.example`): `POSTGRES_PASSWORD`, `PUBLIC_API_URL`, `PUBLIC_WEB_URL`,
-`AUTH_SECRET` (generate with `openssl rand -base64 32`), and
+`BETTER_AUTH_SECRET` (generate with `openssl rand -base64 32`; an older
+`.env` with `AUTH_SECRET` still works), and
 `SW_INTERNAL_RENDER_SECRET` (the same way), which the worker uses to have
 `web` render report emails. The worker reaches `web` over the compose
 network at `SW_WEB_INTERNAL_URL` (default `http://web:3000`); change it

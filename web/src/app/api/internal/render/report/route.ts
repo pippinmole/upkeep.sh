@@ -8,8 +8,8 @@
 //     http://web:3000 on the compose network), and an X-Forwarded-Host, which
 //     the public reverse proxy adds, must match it too. Anything else -> 404,
 //     so the route doesn't exist as far as the public domain is concerned.
-//     If SW_WEB_INTERNAL_URL is unset or names the public host (NEXTAUTH_URL /
-//     AUTH_URL), nothing is accepted.
+//     If SW_WEB_INTERNAL_URL is unset or names the public host
+//     (BETTER_AUTH_URL), nothing is accepted.
 //   - Authorization: Bearer <secret>, compared in constant time -> 401.
 //   - Body {"snapshot": <ReportSnapshot>, "report_url": string | null} -> 400
 //     when malformed; render errors -> 500, which the worker retries.
@@ -50,9 +50,7 @@ function normaliseHost(value: string, protocol: string): string | null {
 function onInternalHost(request: Request): boolean {
   const internal = hostOf(process.env.SW_WEB_INTERNAL_URL);
   if (!internal) return false;
-  const publicHosts = [process.env.NEXTAUTH_URL, process.env.AUTH_URL]
-    .map((u) => hostOf(u)?.host)
-    .filter(Boolean);
+  const publicHosts = [process.env.BETTER_AUTH_URL].map((u) => hostOf(u)?.host).filter(Boolean);
   if (publicHosts.includes(internal.host)) return false;
 
   const host = request.headers.get("host");

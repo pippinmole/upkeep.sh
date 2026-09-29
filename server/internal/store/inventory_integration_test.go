@@ -46,7 +46,7 @@ func newFixture(t *testing.T) *fixture {
 
 	f := &fixture{t: t, s: s, distro: tag, t0: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	var userID string
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 		tag+"@test.invalid").Scan(&userID); err != nil {
 		t.Fatal(err)
 	}

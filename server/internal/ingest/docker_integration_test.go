@@ -48,7 +48,7 @@ func (e *dockerEnv) user() string {
 	_, _ = rand.Read(b)
 	ctx := context.Background()
 	var id string
-	if err := e.s.Pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+	if err := e.s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 		"swtest-"+hex.EncodeToString(b)+"@test.invalid").Scan(&id); err != nil {
 		e.t.Fatal(err)
 	}

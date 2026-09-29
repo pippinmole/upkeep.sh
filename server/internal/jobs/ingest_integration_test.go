@@ -32,7 +32,7 @@ func TestEnqueueAfterIngestIsTransactional(t *testing.T) {
 	_, _ = rand.Read(b)
 	tag := "swtest-" + hex.EncodeToString(b)
 	var userID string
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 		tag+"@test.invalid").Scan(&userID); err != nil {
 		t.Fatal(err)
 	}

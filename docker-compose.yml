@@ -80,12 +80,13 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
       NEXT_PUBLIC_API_URL: "${PUBLIC_API_URL:?e.g. https://api.yourdomain.com}"
-      AUTH_SECRET: "${AUTH_SECRET:?generate with 'openssl rand -base64 32'}"
-      NEXTAUTH_URL: "${PUBLIC_WEB_URL:?e.g. https://yourdomain.com}"
-      # Only set AUTH_TRUST_HOST=true if the host Auth.js sees doesn't
-      # match PUBLIC_WEB_URL (e.g. a reverse proxy not forwarding the
-      # original Host header). Leave unset/false otherwise.
-      AUTH_TRUST_HOST: "${AUTH_TRUST_HOST:-false}"
+      # Better Auth. An .env from before Better Auth still works: the old
+      # AUTH_SECRET is used when BETTER_AUTH_SECRET is unset.
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-${AUTH_SECRET:?generate BETTER_AUTH_SECRET with 'openssl rand -base64 32'}}"
+      BETTER_AUTH_URL: "${PUBLIC_WEB_URL:?e.g. https://yourdomain.com}"
+      # Auth requests are only accepted from PUBLIC_WEB_URL's origin. List
+      # any other origins serving this app here, comma-separated.
+      BETTER_AUTH_TRUSTED_ORIGINS: "${BETTER_AUTH_TRUSTED_ORIGINS:-}"
       # The report render route (/api/internal/render/report) only answers
       # requests addressed to this host, never the public domain, and with
       # the shared secret. Must match the worker's values above.

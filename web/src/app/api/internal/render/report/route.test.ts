@@ -6,20 +6,14 @@ import { POST } from "./route";
 
 const SECRET = "test-render-secret";
 const INTERNAL = "http://web:3000";
-const ENV_KEYS = [
-  "SW_INTERNAL_RENDER_SECRET",
-  "SW_WEB_INTERNAL_URL",
-  "NEXTAUTH_URL",
-  "AUTH_URL",
-] as const;
+const ENV_KEYS = ["SW_INTERNAL_RENDER_SECRET", "SW_WEB_INTERNAL_URL", "BETTER_AUTH_URL"] as const;
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   for (const k of ENV_KEYS) saved[k] = process.env[k];
   process.env.SW_INTERNAL_RENDER_SECRET = SECRET;
   process.env.SW_WEB_INTERNAL_URL = INTERNAL;
-  process.env.NEXTAUTH_URL = "https://upkeep.example.com";
-  delete process.env.AUTH_URL;
+  process.env.BETTER_AUTH_URL = "https://upkeep.example.com";
 });
 
 afterEach(() => {

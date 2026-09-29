@@ -38,7 +38,7 @@ func newRotateEnv(t *testing.T) (*rotateEnv, string) {
 	_, _ = rand.Read(b)
 	tag := "swtest-" + hex.EncodeToString(b)
 	e := &rotateEnv{t: t, s: s, h: &Handler{Store: s, RotationGrace: time.Hour}}
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 		tag+"@test.invalid").Scan(&e.userID); err != nil {
 		t.Fatal(err)
 	}

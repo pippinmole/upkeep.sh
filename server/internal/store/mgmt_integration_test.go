@@ -26,7 +26,7 @@ func (f *agentFixture) mgmt(q string, args ...any) string {
 func (f *agentFixture) otherUser() string {
 	f.t.Helper()
 	var id string
-	if err := f.s.Pool.QueryRow(context.Background(), `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+	if err := f.s.Pool.QueryRow(context.Background(), `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 		f.tag+"-b@test.invalid").Scan(&id); err != nil {
 		f.t.Fatal(err)
 	}

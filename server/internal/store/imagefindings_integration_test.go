@@ -31,7 +31,7 @@ func newImageFixture(t *testing.T) *imageFixture {
 	if err := f.s.Pool.QueryRow(ctx, `SELECT user_id FROM hosts WHERE id = $1`, f.hostID).Scan(&f.userU); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 		f.distro+"-v@test.invalid").Scan(&f.userV); err != nil {
 		t.Fatal(err)
 	}

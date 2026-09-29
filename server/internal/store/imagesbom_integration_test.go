@@ -40,7 +40,7 @@ func newSBOMFixture(t *testing.T) *sbomFixture {
 	tag := "swtest-" + hex.EncodeToString(b)
 	f := &sbomFixture{t: t, s: s, tag: tag, osr: purl.OSRelease{ID: tag, VersionID: "12"}}
 	for suffix, u := range map[string]*string{"a": &f.userA, "b": &f.userB} {
-		if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+		if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 			tag+"-"+suffix+"@test.invalid").Scan(u); err != nil {
 			t.Fatal(err)
 		}
