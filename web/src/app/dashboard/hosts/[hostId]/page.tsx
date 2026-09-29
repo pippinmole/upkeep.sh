@@ -3,10 +3,13 @@ import Link from "next/link";
 
 import { SeverityBars } from "@/components/overview/cards";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
+import { imageName } from "@/components/vuln/where";
 import { hostTitle, requireHost } from "@/lib/host-page";
+import type { ImageKey } from "@/lib/image-key";
 import { getHostDockerCounts } from "@/lib/queries-docker";
 import { getHostListeners } from "@/lib/queries-host-facts";
-import { getHostFindings, getHostVulnSummary } from "@/lib/queries-vulns";
+import { getHostVulnList } from "@/lib/queries-vuln-list";
+import { getHostImageVulnSummary, getHostVulnSummary } from "@/lib/queries-vulns";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
 import { Muted, OverviewCard } from "./overview-card";
@@ -24,20 +27,24 @@ const TOP_FINDINGS = 5;
 // Host overview: what needs attention on this host (vulnerabilities by
 // severity, the most urgent open findings, what listens on every
 // interface) and its inventory and system facts, each linking to its tab.
+// Host package and container image findings are counted apart, never
+// summed (DOMAIN_MODEL.md §3.5); "Most urgent" ranks both.
 export default async function HostOverviewPage({ params }: { params: Params }) {
   const { workspaceId, host } = await requireHost((await params).hostId);
   const snap = host.latestSnapshot;
   const base = `/dashboard/hosts/${host.id}`;
 
-  const [vulns, top, listeners, docker] = await Promise.all([
+  const [vulns, imageVulns, top, listeners, docker] = await Promise.all([
     getHostVulnSummary(workspaceId, host.id),
-    getHostFindings(workspaceId, host.id, {
+    getHostImageVulnSummary(workspaceId, host.id),
+    getHostVulnList(workspaceId, host.id, {
       status: "open",
       q: null,
-      severity: null,
+      kinds: null,
+      severities: null,
       kev: false,
       fix: null,
-      sort: "severity",
+      sort: { id: "severity", desc: true },
       page: 1,
       pageSize: TOP_FINDINGS,
     }),
@@ -52,13 +59,13 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
     <div className="grid gap-4 md:grid-cols-2">
       <OverviewCard
         title="Vulnerabilities"
-        href={`${base}/vulnerabilities`}
+        href={`${base}/vulnerabilities?kind=package`}
         linkLabel={vulns.open > 0 ? `All ${vulns.open}` : "View"}
       >
         {host.inventory.length === 0 ? (
           <Muted>Matched once the agent reports a package inventory.</Muted>
         ) : vulns.open === 0 ? (
-          <Muted>No open vulnerabilities.</Muted>
+          <Muted>No open vulnerabilities in host packages.</Muted>
         ) : (
           <>
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -73,9 +80,19 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
             <SeverityBars
               counts={vulns.bySeverity}
               total={vulns.open}
-              href={(s) => `${base}/vulnerabilities?severity=${s}`}
+              href={(s) => `${base}/vulnerabilities?kind=package&severity=${s}`}
             />
           </>
+        )}
+        {imageVulns.open > 0 && (
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-3 text-sm">
+            <Link href={`${base}/vulnerabilities?kind=image`} className="hover:underline">
+              <span className="font-semibold tabular-nums">{imageVulns.open}</span> open in
+              container images
+            </Link>
+            {imageVulns.kev > 0 && <KevBadge count={imageVulns.kev} />}
+            <span className="text-muted-foreground">fixed by rebuilding or re-pulling</span>
+          </p>
         )}
       </OverviewCard>
 
@@ -89,10 +106,7 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
         ) : (
           <ul className="flex flex-col divide-y text-sm">
             {top.rows.map((f) => (
-              <li
-                key={`${f.sourcePackage}:${f.vulnKey}`}
-                className="flex items-center gap-2 py-2 first:pt-0 last:pb-0"
-              >
+              <li key={findingKey(f)} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
                 <SeverityBadge severity={f.severity} />
                 {f.isKev && <KevBadge />}
                 <Link
@@ -103,9 +117,13 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
                 </Link>
                 <span
                   className="text-muted-foreground ml-auto truncate font-mono text-xs"
-                  title={f.sourcePackage ?? undefined}
+                  title={
+                    f.image
+                      ? `${f.sourcePackage} in ${imageName(f.image)}`
+                      : (f.sourcePackage ?? undefined)
+                  }
                 >
-                  {f.sourcePackage}
+                  {f.image ? imageName(f.image) : f.sourcePackage}
                 </span>
               </li>
             ))}
@@ -214,4 +232,10 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
       <SystemOverview workspaceId={workspaceId} hostId={host.id} />
     </div>
   );
+}
+
+// A finding's identity within one host: the dedup key's parts.
+function findingKey(f: { vulnKey: string; sourcePackage: string | null; image: ImageKey | null }) {
+  const i = f.image;
+  return [f.vulnKey, f.sourcePackage, i?.imageId, i?.os, i?.arch, i?.variant].join("|");
 }

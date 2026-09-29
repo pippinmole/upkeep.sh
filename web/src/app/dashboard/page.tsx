@@ -31,6 +31,8 @@ export const metadata: Metadata = {
   title: "Overview",
 };
 
+// Host package cards link to the fleet list narrowed to host packages, so
+// its numbers match the card's (DOMAIN_MODEL.md §3.6).
 const VULNS = "/dashboard/vulnerabilities";
 
 export default async function DashboardPage() {
@@ -104,7 +106,7 @@ export default async function DashboardPage() {
             value={v.open}
             tone="neutral"
             icon={<Bug />}
-            href={VULNS}
+            href={`${VULNS}?kind=package`}
           >
             {plural(stats.distinctOpenVulns, "distinct vulnerability", "distinct vulnerabilities")}{" "}
             on {plural(stats.hostsWithOpen, "host", "hosts")}
@@ -114,7 +116,7 @@ export default async function DashboardPage() {
             value={v.kev}
             tone="kev"
             icon={<Flame />}
-            href={v.kev > 0 ? `${VULNS}?kev=1` : undefined}
+            href={v.kev > 0 ? `${VULNS}?kind=package&kev=1` : undefined}
           >
             {v.kev > 0
               ? `On ${plural(stats.hostsWithKev, "host", "hosts")}: patch these first`
@@ -127,9 +129,9 @@ export default async function DashboardPage() {
             icon={<TriangleAlert />}
             href={
               v.bySeverity.critical > 0
-                ? `${VULNS}?severity=critical`
+                ? `${VULNS}?kind=package&severity=critical`
                 : critHigh > 0
-                  ? `${VULNS}?severity=high`
+                  ? `${VULNS}?kind=package&severity=high`
                   : undefined
             }
           >
@@ -141,7 +143,7 @@ export default async function DashboardPage() {
             value={v.unfixed}
             tone="neutral"
             icon={<SearchX />}
-            href={v.unfixed > 0 ? `${VULNS}?fix=none` : undefined}
+            href={v.unfixed > 0 ? `${VULNS}?kind=package&fix=none` : undefined}
           >
             No fixed version published yet
           </MetricCard>
@@ -176,7 +178,7 @@ function HostSeverityCard({
   const v = stats.vulns;
   const fixRows = [
     {
-      href: `${VULNS}?fix=available`,
+      href: `${VULNS}?kind=package&fix=available`,
       label: "Fix available",
       help: "An upgrade from the standard archive fixes it",
       value: v.fixable,
@@ -184,7 +186,7 @@ function HostSeverityCard({
     ...(v.proOnly > 0
       ? [
           {
-            href: `${VULNS}?fix=pro`,
+            href: `${VULNS}?kind=package&fix=pro`,
             label: "Fix requires Ubuntu Pro",
             help: "Only fixed in ESM / Ubuntu Pro",
             value: v.proOnly,
@@ -192,7 +194,7 @@ function HostSeverityCard({
         ]
       : []),
     {
-      href: `${VULNS}?fix=none`,
+      href: `${VULNS}?kind=package&fix=none`,
       label: "No fix yet",
       help: "No fixed version published for the release",
       value: v.unfixed,
@@ -211,7 +213,7 @@ function HostSeverityCard({
             <SeverityBars
               counts={v.bySeverity}
               total={v.open}
-              href={(s) => `${VULNS}?severity=${s}`}
+              href={(s) => `${VULNS}?kind=package&severity=${s}`}
             />
             <div className="flex flex-col gap-2 border-t pt-4">
               <h3 className="text-sm font-semibold">Fix availability</h3>

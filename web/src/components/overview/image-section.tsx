@@ -25,6 +25,7 @@ import { plural, SeverityBars } from "./cards";
 // re-pulling the image, not by upgrading the host.
 
 const IMAGES = "/dashboard/images";
+const VULNS = "/dashboard/vulnerabilities";
 const MAX_HOSTS = 2;
 
 function imageName(img: OverviewImage): string {
@@ -172,19 +173,28 @@ export function ContainerImagesSection({
                   </span>
                 </p>
                 <p className="text-muted-foreground text-sm">
-                  {plural(f.open, "open finding", "open findings")} on{" "}
-                  {plural(f.hosts, "host", "hosts")}
+                  <Link href={`${VULNS}?kind=image`} className="hover:underline">
+                    {plural(f.open, "open finding", "open findings")}
+                  </Link>{" "}
+                  on {plural(f.hosts, "host", "hosts")}
                 </p>
                 {f.kev > 0 && (
                   <p className="text-muted-foreground flex items-center gap-2 text-sm">
-                    <KevBadge count={f.kev} /> rebuild or re-pull first
+                    <Link href={`${VULNS}?kind=image&kev=1`}>
+                      <KevBadge count={f.kev} />
+                    </Link>{" "}
+                    rebuild or re-pull first
                   </p>
                 )}
               </div>
               {f.open === 0 ? (
                 <p className="text-muted-foreground text-sm">No open image findings.</p>
               ) : (
-                <SeverityBars counts={f.bySeverity} total={f.open} />
+                <SeverityBars
+                  counts={f.bySeverity}
+                  total={f.open}
+                  href={(sev) => `${VULNS}?kind=image&severity=${sev}`}
+                />
               )}
             </div>
             <MostVulnerable images={s.top} />

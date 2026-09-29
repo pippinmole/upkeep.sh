@@ -65,7 +65,8 @@ export const vulnerabilities: AttentionProvider<VulnCounts> = {
             : "No fix available yet",
         why: "Listed in CISA's KEV catalog: attackers use these now, so patch them first.",
         count: v.kev,
-        href: "/dashboard/vulnerabilities?kev=1",
+        // Host packages only (images: the estate provider's item).
+        href: "/dashboard/vulnerabilities?kind=package&kev=1",
       });
     }
     if (v.criticalFixable > 0) {
@@ -78,7 +79,7 @@ export const vulnerabilities: AttentionProvider<VulnCounts> = {
         subject: `On ${plural(v.criticalFixableHosts, "host", "hosts")}`,
         why: "A package upgrade from the distribution fixes them today.",
         count: v.criticalFixable,
-        href: "/dashboard/vulnerabilities?severity=critical&fix=available",
+        href: "/dashboard/vulnerabilities?kind=package&severity=critical&fix=available",
       });
     }
     return items;

@@ -11,7 +11,7 @@ import { collectorLabel, osLabel, requireHost } from "@/lib/host-page";
 import { getHostFiringAlerts } from "@/lib/queries-alerts";
 import { getHostSystem } from "@/lib/queries-host-facts";
 import { getHostCollectors } from "@/lib/queries-remote";
-import { getHostVulnSummary } from "@/lib/queries-vulns";
+import { getHostImageVulnSummary, getHostVulnSummary } from "@/lib/queries-vulns";
 import { formatDateTime, relativeTime } from "@/lib/time";
 
 import { CollectedBy } from "./collected-by";
@@ -28,8 +28,9 @@ export default async function HostLayout({
 }) {
   const { hostId } = await params;
   const { workspaceId, host } = await requireHost(hostId);
-  const [vulns, sys, collectors, firing] = await Promise.all([
+  const [vulns, imageVulns, sys, collectors, firing] = await Promise.all([
     getHostVulnSummary(workspaceId, host.id),
+    getHostImageVulnSummary(workspaceId, host.id),
     getHostSystem(workspaceId, host.id),
     getHostCollectors(workspaceId, host.id),
     getHostFiringAlerts(workspaceId, host.id),
@@ -127,15 +128,16 @@ export default async function HostLayout({
             <RestartBadge sys={sys} hostId={host.id} />
             {vulns.open > 0 ? (
               <Link
-                href={`${base}/vulnerabilities`}
+                href={`${base}/vulnerabilities?kind=package`}
                 className="inline-flex items-center gap-1.5"
-                title={`${vulns.open} open vulnerabilities; most severe: ${vulns.topSeverity}`}
+                title={`${vulns.open} open in host packages; most severe: ${vulns.topSeverity}`}
               >
                 {vulns.topSeverity && <SeverityBadge severity={vulns.topSeverity} />}
                 {vulns.kev > 0 && <KevBadge count={vulns.kev} />}
               </Link>
             ) : (
-              host.inventory.length > 0 && (
+              host.inventory.length > 0 &&
+              imageVulns.open === 0 && (
                 <Badge variant="success">
                   <ShieldCheck aria-hidden />
                   No open vulnerabilities
@@ -160,6 +162,7 @@ export default async function HostLayout({
       <HostTabs
         hostId={host.id}
         openVulns={vulns.open}
+        openImageVulns={imageVulns.open}
         packages={host.inventory.length > 0 ? packages : null}
       />
       <div className="min-h-0 flex-1">{children}</div>

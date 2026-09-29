@@ -19,10 +19,10 @@ import { plural } from "./cards";
 
 // "Most urgent vulnerabilities" over both finding kinds, each row saying
 // where the CVE is: in host packages (upgrade the host) and/or in images
-// (rebuild or re-pull). The CVE page lists host findings only
-// (docs/tasks/phase-2a-image-vulns.md), so an image-only CVE in one image
-// links to that image's
-// Vulnerabilities tab filtered to it.
+// (rebuild or re-pull). A CVE in host packages links to the CVE page
+// (which lists both kinds); an image-only CVE in one image links straight
+// to that image's Vulnerabilities tab filtered to it, else to the CVE
+// page. "View all" opens the fleet list with no kind filter.
 
 function imageLink(r: UrgentVulnRow): string {
   if (r.images === 1 && r.topImage) {
@@ -32,7 +32,7 @@ function imageLink(r: UrgentVulnRow): string {
       q: r.vulnKey,
     });
   }
-  return "/dashboard/images";
+  return vulnHref(r.vulnKey);
 }
 
 function Where({ label, children }: { label: string; children: React.ReactNode }) {
