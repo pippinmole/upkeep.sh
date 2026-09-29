@@ -7,7 +7,7 @@ COPY . .
 # (compose overrides the entrypoint for the worker service).
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/api ./cmd/worker
 
-FROM alpine:3.20
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates
 COPY --from=build /out/api /api
 COPY --from=build /out/worker /worker

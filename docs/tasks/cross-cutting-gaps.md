@@ -34,5 +34,6 @@
       publish tokens.
 - [x] Expired-enrollment-token cleanup: hourly River `credential_cleanup`
       job in the worker (also clears expired post-rotation secrets).
-- [ ] `server/Dockerfile` runtime base (`alpine:3.20`) wasn't covered by
-      the last version audit — check it.
+- [x] `server/Dockerfile` runtime base bumped `alpine:3.20` → `alpine:3.24`
+      (latest minor on Docker Hub, 2026-09-29); the other base images were
+      re-checked and are current (`docs/decisions/version-policy.md`).
