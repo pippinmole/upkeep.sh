@@ -96,7 +96,8 @@ import (
 //	   .not_assessed_count), and version re-evaluation only restamps.
 //	4  npm packages are matched (npmversion, OSV range semantics; see
 //	   "Language ecosystems"), evaluated as "not matched" before.
-const Version = 4
+//	5  PyPI packages are matched (pep440).
+const Version = 5
 
 // Channels, as in advisory_affected.channel.
 const (

@@ -23,7 +23,7 @@ import (
 // ones ("Debian:12", "Alpine:v3.20") went stale in 2024-10 and are not
 // read. Every distro directory maps to one distro (osv.DistroFor); a
 // language directory ("npm") to one package ecosystem (osv.Languages).
-var OSVEcosystems = []string{"Debian", "Ubuntu", "Alpine", "npm"}
+var OSVEcosystems = []string{"Debian", "Ubuntu", "Alpine", "npm", "PyPI"}
 
 // OSVStats summarizes one OSV sync (also stored in feed_sync_state.stats).
 type OSVStats struct {

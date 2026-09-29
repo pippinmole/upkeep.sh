@@ -101,17 +101,66 @@ func TestNormalizeLanguageOnlyImported(t *testing.T) {
 	if a.CVSSv3Vector != "" && !a.CVSSIfMissing {
 		t.Error("a GHSA's CVE score must not override a distro's")
 	}
-	// Only the imported language ecosystems' packages (npm; RubyGems and,
-	// until it is added, PyPI are not).
+	// Only the imported language ecosystems' packages (npm and PyPI, not
+	// RubyGems), whichever feed reads it: the same record sits in both
+	// npm's and PyPI's all.zip.
 	var got []string
 	for _, r := range a.Affected {
 		got = append(got, r.Release+"/"+r.SourcePackage)
 	}
-	if strings.Join(got, ",") != "npm/@openc3/tool-common" {
+	if strings.Join(got, ",") != "npm/@openc3/tool-common,pypi/openc3" {
 		t.Errorf("rows = %v", got)
 	}
-	if str(a.Affected[0].DistroSeverity) != "moderate" {
+	if str(a.Affected[0].DistroSeverity) != "moderate" || str(a.Affected[1].DistroSeverity) != "moderate" {
 		t.Errorf("severity = %s", str(a.Affected[0].DistroSeverity))
+	}
+}
+
+// PyPI fixtures: a GHSA and the PYSEC record for the same CVE and
+// package, from PyPI/all.zip (2026-09-29) with their `versions` lists
+// removed (the ranges are used).
+func TestNormalizePyPIGHSAAndPYSEC(t *testing.T) {
+	g, ok := load(t, "pypi_ghsa_jinja2.json", "osv-pypi")
+	if !ok {
+		t.Fatal("GHSA must be relevant")
+	}
+	p, ok := load(t, "pypi_pysec_jinja2.json", "osv-pypi")
+	if !ok {
+		t.Fatal("PYSEC must be relevant")
+	}
+	// Both key the CVE: the matcher dedupes them into one finding.
+	if g.VulnKey != "CVE-2025-27516" || p.VulnKey != "CVE-2025-27516" {
+		t.Errorf("vuln_keys = %s / %s", g.VulnKey, p.VulnKey)
+	}
+	for _, a := range []Advisory{g, p} {
+		if len(a.Affected) != 1 {
+			t.Fatalf("%s rows = %+v", a.ID, a.Affected)
+		}
+		r := a.Affected[0]
+		if r.Distro != "" || r.Release != "pypi" || r.SourcePackage != "jinja2" || r.Introduced != "0" ||
+			str(r.FixedVersion) != "3.1.6" || r.Ecosystem != "PyPI" {
+			t.Errorf("%s row = %+v", a.ID, r)
+		}
+		// CVSS v4 only: nothing for cves (it stores v3).
+		if a.CVSSv3Vector != "" {
+			t.Errorf("%s cvss = %q", a.ID, a.CVSSv3Vector)
+		}
+	}
+	// Only the GHSA carries a reviewed severity.
+	if str(g.Affected[0].DistroSeverity) != "moderate" || p.Affected[0].DistroSeverity != nil {
+		t.Errorf("severities = %s / %s", str(g.Affected[0].DistroSeverity), str(p.Affected[0].DistroSeverity))
+	}
+}
+
+func TestLanguageNamePyPI(t *testing.T) {
+	for in, want := range map[string]string{"Django": "django", "zope.interface": "zope-interface",
+		"Foo__Bar-.baz": "foo-bar-baz", "jinja2": "jinja2"} {
+		if got := languageName("PyPI", in); got != want {
+			t.Errorf("languageName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if languageName("npm", "@Scope/Name") != "@Scope/Name" {
+		t.Error("npm names are kept")
 	}
 }
 

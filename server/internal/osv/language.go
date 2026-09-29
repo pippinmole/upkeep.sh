@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -30,7 +31,8 @@ import (
 // Languages maps each imported OSV language ecosystem (also its bucket
 // directory) to its software_versions.ecosystem (the purl type).
 var Languages = map[string]string{
-	"npm": "npm",
+	"npm":  "npm",
+	"PyPI": "pypi",
 }
 
 // LanguageFor returns the software ecosystem of an imported OSV language
@@ -41,11 +43,18 @@ func LanguageFor(osvEcosystem string) (string, bool) {
 }
 
 // languageName maps an OSV package name to the stored name
-// (purl.Map's form): npm "@scope/name" and Go module paths are the same
-// in both.
+// (purl.Map's form): PyPI names are PEP 503 normalised (OSV keeps the
+// project's spelling, "Django", "zope.interface"); npm "@scope/name" and
+// Go module paths are the same in both.
 func languageName(osvEcosystem, name string) string {
+	if osvEcosystem == "PyPI" {
+		return pep503Sep.ReplaceAllString(strings.ToLower(name), "-")
+	}
 	return name
 }
+
+// pep503Sep: runs of "-", "_" and "." are one "-" (as purl's pypiName).
+var pep503Sep = regexp.MustCompile(`[-_.]+`)
 
 // IsMalicious reports an OSSF malicious-packages record (MAL-*). They are
 // not imported yet: they flag a package as malware (every version), not

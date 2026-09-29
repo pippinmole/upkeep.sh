@@ -24,6 +24,7 @@ func TestAssessed(t *testing.T) {
 		{"npm", "", "", false, true}, // language: no distro, release ignored
 		{"npm", "", "", true, true},
 		{"npm", "debian", "12", true, false}, // language packages are never distro-scoped
+		{"pypi", "", "", false, true},
 		{"gem", "", "", false, false},
 		{"homebrew", "", "", false, false},
 	}
@@ -191,5 +192,40 @@ func TestEvaluateNpmRanges(t *testing.T) {
 	ms, st := Evaluate("1.0.0", npm, []Row{langRow(ghsa, cve, []string{cve}, "0", sp("1.0"), nil)})
 	if len(ms) != 0 || st.BadVersions != 1 {
 		t.Errorf("invalid fixed: %+v %+v", ms, st)
+	}
+}
+
+// PyPI: PEP 440 ordering, and a GHSA plus a PYSEC record for one CVE
+// giving one match that cites both.
+func TestEvaluatePyPI(t *testing.T) {
+	py, ok := ComparatorFor("pypi")
+	if !ok {
+		t.Fatal("pypi not registered")
+	}
+	const cve = "CVE-2025-27516"
+	rows := []Row{
+		langRow("GHSA-cpwx-vrp4-4pq7", cve, []string{cve}, "0", sp("3.1.6"), nil),
+		langRow("PYSEC-2026-1471", cve, []string{cve}, "0", sp("3.1.6"), nil),
+	}
+	for _, tt := range []struct {
+		v    string
+		want bool
+	}{
+		{"3.1.5", true}, {"3.1.6rc1", true}, {"3.1.6.dev0", true}, {"3.1.6", false},
+		{"3.1.6.post1", false}, {"3.1.6+local", false}, {"3.1.10", false}, {"3.1", true},
+	} {
+		ms, st := Evaluate(tt.v, py, rows)
+		if st.BadVersions != 0 || (len(ms) == 1) != tt.want {
+			t.Errorf("%s: %+v %+v, want matched=%v", tt.v, ms, st, tt.want)
+			continue
+		}
+		if tt.want && (ms[0].VulnKey != cve || strings.Join(ms[0].AdvisoryIDs, ",") != "GHSA-cpwx-vrp4-4pq7,PYSEC-2026-1471" ||
+			*ms[0].FixedVersion != "3.1.6") {
+			t.Errorf("%s: %+v", tt.v, ms[0])
+		}
+	}
+	// A legacy (non-PEP 440) installed version is invalid, never guessed.
+	if py.Validate("0.1.0.dev-120828c") == nil {
+		t.Error("legacy version accepted")
 	}
 }

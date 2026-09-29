@@ -6,6 +6,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/apkversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/debversion"
 	"github.com/pippinmole/upkeep.sh/server/internal/npmversion"
+	"github.com/pippinmole/upkeep.sh/server/internal/pep440"
 )
 
 // Comparator orders the versions of one package ecosystem. Advisory
@@ -38,9 +39,10 @@ func (e ecosystem) language() bool { return e.distros[""] }
 // language); everything not listed here is inventoried but "not
 // assessed", never "no vulnerabilities".
 var ecosystems = map[string]ecosystem{
-	"deb": {debComparator{}, set("debian", "ubuntu")},
-	"apk": {apkComparator{}, set("alpine")},
-	"npm": {osvRanges{npmComparator{}}, set("")},
+	"deb":  {debComparator{}, set("debian", "ubuntu")},
+	"apk":  {apkComparator{}, set("alpine")},
+	"npm":  {osvRanges{npmComparator{}}, set("")},
+	"pypi": {osvRanges{pypiComparator{}}, set("")},
 }
 
 // osvRanges wraps the comparator of a language ecosystem. Evaluate
@@ -163,3 +165,15 @@ func (npmComparator) Validate(v string) error {
 }
 
 func (npmComparator) Compare(a, b string) (int, error) { return npmversion.CompareStrings(a, b) }
+
+// pypiComparator: PEP 440 ordering (pep440, as pypa/packaging), for
+// installed versions and OSV ECOSYSTEM ranges alike. Legacy non-PEP 440
+// versions are invalid.
+type pypiComparator struct{}
+
+func (pypiComparator) Validate(v string) error {
+	_, err := pep440.Parse(v)
+	return err
+}
+
+func (pypiComparator) Compare(a, b string) (int, error) { return pep440.CompareStrings(a, b) }
