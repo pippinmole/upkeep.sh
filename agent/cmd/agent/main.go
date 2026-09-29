@@ -54,15 +54,22 @@ func main() {
 		log.Fatalf("enrollment failed: %v", err)
 	}
 
-	// The host the agent runs on, visible read-only under SW_HOST_ROOT
-	// (the /:/host bind mount in Docker; "/" for a bare-metal install).
+	// The host the agent runs on, visible read-only under SW_HOST_ROOT:
+	// in Docker the host's / bound non-recursively at /host, plus the few
+	// nested directories the collectors read bound under
+	// SW_HOST_EXTRA_ROOT (agent/docker-compose.example.yml); "/" for a
+	// bare-metal install.
 	hostRoot := envOr("SW_HOST_ROOT", "/host")
 	local := target.NewLocal(hostRoot, "/proc")
+	if hostRoot != "/" {
+		local = target.NewLocalWithExtra(hostRoot, envOr("SW_HOST_EXTRA_ROOT", target.DefaultExtraRoot), "/proc")
+	}
 	collect := snapshot.New()
 	collect.Agent = &collector.Agent{Version: version, Platform: platform(), IntervalSeconds: int(interval.Seconds())}
 	// Docker collection is opt-in: it runs only if the engine socket is
 	// mounted at this path (docs/decisions/docker-collection.md).
 	collect.DockerSocket = envOr("SW_DOCKER_SOCKET", dockerapi.DefaultSocket)
+	warnReachableSockets(local, collect.DockerSocket)
 	// Remote targets never touch the socket: Collect already skips Docker
 	// for any non-local target before looking at the path, and their
 	// collector has no socket configured at all.
@@ -166,5 +173,20 @@ func logCollectorErrors(t target.Target, snap collector.Snapshot) {
 		if st := snap.Collectors[name]; st.Status == collector.StatusError {
 			log.Printf("[%s] collector %s failed: %s", t.Ref(), name, st.Error)
 		}
+	}
+}
+
+// warnReachableSockets is the startup self-check: host control sockets
+// (Docker, containerd, systemd, D-Bus...) must not be reachable under the
+// host root, or opting out of Docker collection means nothing. It is also
+// reported on every push as the host_mount collector.
+func warnReachableSockets(l *target.Local, dockerSocket string) {
+	socks := l.ReachableSockets(dockerSocket)
+	if len(socks) == 0 {
+		return
+	}
+	log.Printf("WARN: %s", l.SocketWarning(socks))
+	for _, s := range socks {
+		log.Printf("WARN: reachable host socket: %s", filepath.Join(l.HostRoot(), s))
 	}
 }

@@ -29,7 +29,10 @@ func (Dpkg) Applies(o detect.OS) bool {
 func (Dpkg) Collect(_ context.Context, t target.Target) ([]collector.Package, error) {
 	f, err := t.FS().Open(dpkgStatusPath)
 	if err != nil {
-		return nil, err
+		// Applies() already says this is a dpkg host, so a missing
+		// database means the agent can't see it (its mounts), not "no
+		// packages".
+		return nil, target.NotVisible(t, err)
 	}
 	defer f.Close()
 	pkgs, err := parseDpkgStatus(f)

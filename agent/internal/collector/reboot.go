@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 )
 
 // Debian/Ubuntu's pending-reboot flag files (written by update-notifier /
 // unattended-upgrades). They live in /run: /var/run is an *absolute*
-// symlink to /run on modern hosts, which under a /:/host bind mount
-// resolves inside the agent's container instead of the host, so reading
+// symlink to /run on modern hosts, which under a /host bind mount resolves
+// inside the agent's container instead of the host, so reading
 // var/run/... through the host root silently finds nothing. var/run is
 // kept only as a fallback for old hosts where it is a real directory.
 var (
@@ -19,10 +20,97 @@ var (
 	rebootRequiredPkgsPaths = []string{"run/reboot-required.pkgs", "var/run/reboot-required.pkgs"}
 )
 
-// CollectRebootRequired reports whether the host has a pending reboot and,
-// if available, which packages triggered it. A missing flag file is the
-// normal "no reboot pending" case, not an error.
-func CollectRebootRequired(fsys fs.FS) (required bool, pkgs []string, err error) {
+// Values of Reboot.Source (the wire's reboot_required_source).
+const (
+	// RebootSourceFlagFile: the host's /run/reboot-required was readable
+	// (present or, authoritatively, absent). Newer installed kernels are
+	// still OR-ed in.
+	RebootSourceFlagFile = "flag_file"
+	// RebootSourceKernel: derived from the running kernel vs the kernels
+	// installed in dpkg (the flag file wasn't visible, or was absent while
+	// a newer kernel is installed).
+	RebootSourceKernel = "kernel"
+)
+
+// ErrRebootUnknown means neither source could decide: the flag file isn't
+// visible and the running kernel isn't a dpkg-installed one (a VM/container
+// kernel, WSL, a custom build) or the package inventory is unavailable.
+var ErrRebootUnknown = errors.New("pending reboot unknown")
+
+// Reboot is the reboot_required collector's result.
+type Reboot struct {
+	Required bool
+	// Packages that triggered it: the flag file's .pkgs list, plus any
+	// newer installed kernel image packages.
+	Packages []string
+	Source   string
+}
+
+// CollectRebootRequired reports whether the host has a pending reboot,
+// from two signals:
+//
+//   - the flag file /run/reboot-required{,.pkgs}, when the host's /run is
+//     visible (remote targets, bare metal, and a recursive host mount; the
+//     Docker deployment's non-recursive /host doesn't carry /run, whose
+//     tmpfs also holds the host's control sockets). A missing flag file is
+//     then the normal "no reboot pending".
+//   - the kernels: a reboot is pending when dpkg has a newer kernel image
+//     of the running kernel's flavour installed than the one running
+//     (Debian version ordering). runningKernel is the release from
+//     /proc/sys/kernel/osrelease; pkgs is the dpkg inventory, nil when it
+//     wasn't collected.
+//
+// When the flag file isn't visible and the kernel can't decide either, it
+// returns ErrRebootUnknown rather than a false "no reboot pending".
+func CollectRebootRequired(fsys fs.FS, runningKernel string, pkgs []Package) (Reboot, error) {
+	kernelReq, kernelPkgs, kernelErr := kernelRebootRequired(runningKernel, pkgs)
+
+	if !runVisible(fsys) {
+		if kernelErr != nil {
+			return Reboot{}, fmt.Errorf("%w: /run/reboot-required isn't visible (the host's /run isn't mounted, by design) and %v", ErrRebootUnknown, kernelErr)
+		}
+		return Reboot{Required: kernelReq, Packages: kernelPkgs, Source: RebootSourceKernel}, nil
+	}
+
+	req, flagPkgs, err := readRebootFlag(fsys)
+	if err != nil {
+		return Reboot{}, err
+	}
+	r := Reboot{Required: req, Packages: flagPkgs, Source: RebootSourceFlagFile}
+	if kernelErr == nil && kernelReq {
+		if !req {
+			r.Source = RebootSourceKernel
+		}
+		r.Required = true
+		for _, p := range kernelPkgs {
+			if !slices.Contains(r.Packages, p) {
+				r.Packages = append(r.Packages, p)
+			}
+		}
+	}
+	return r, nil
+}
+
+// runVisible reports whether the host's /run contents are visible. The
+// non-recursive host mount shows /run as its empty mountpoint directory
+// on the root filesystem; a real /run is never empty.
+func runVisible(fsys fs.FS) bool {
+	entries, err := fs.ReadDir(fsys, "run")
+	if err == nil {
+		return len(entries) > 0
+	}
+	// Old hosts without a /run: /var/run is the real directory. Never
+	// follow it as a symlink: an absolute one resolves into the agent's
+	// own container.
+	if fi, lerr := fs.Lstat(fsys, "var/run"); lerr != nil || !fi.IsDir() {
+		return false
+	}
+	entries, err = fs.ReadDir(fsys, "var/run")
+	return err == nil && len(entries) > 0
+}
+
+func readRebootFlag(fsys fs.FS) (bool, []string, error) {
+	required := false
 	for _, p := range rebootRequiredPaths {
 		_, statErr := fs.Stat(fsys, p)
 		if statErr == nil {
@@ -36,7 +124,7 @@ func CollectRebootRequired(fsys fs.FS) (required bool, pkgs []string, err error)
 	if !required {
 		return false, nil, nil
 	}
-
+	var pkgs []string
 	for _, p := range rebootRequiredPkgsPaths {
 		f, openErr := fsys.Open(p)
 		if openErr != nil {
@@ -44,12 +132,12 @@ func CollectRebootRequired(fsys fs.FS) (required bool, pkgs []string, err error)
 		}
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
-			if line := strings.TrimSpace(sc.Text()); line != "" {
+			if line := strings.TrimSpace(sc.Text()); line != "" && !slices.Contains(pkgs, line) {
 				pkgs = append(pkgs, line)
 			}
 		}
 		f.Close()
 		break
 	}
-	return required, pkgs, nil
+	return true, pkgs, nil
 }

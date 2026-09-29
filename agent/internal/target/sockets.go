@@ -163,3 +163,20 @@ func resolveUnder(root, rel string) (string, bool) {
 	}
 	return strings.Join(cur, "/"), true
 }
+
+// SocketWarning explains a non-empty ReachableSockets result and how to
+// fix it, for the startup log and the host_mount collector status.
+func (l *Local) SocketWarning(socks []string) string {
+	if len(socks) == 0 {
+		return ""
+	}
+	msg := "host unix sockets reachable under " + l.hostRoot + ": " + strings.Join(socks, ", ") +
+		". Anything that can connect() to them controls the host (a read-only mount doesn't stop connect()), whether or not Docker collection is enabled. "
+	recursive := slices.ContainsFunc(socks, func(s string) bool { return strings.HasPrefix(s, "run/") })
+	if recursive {
+		return msg + "The host mount is recursive: mount the host's / with bind-recursive=disabled (Docker 25 or later; " +
+			"on older Docker the option is ignored or rejected), as in agent/docker-compose.example.yml."
+	}
+	return msg + "They sit on the host's root filesystem itself, which the non-recursive host mount still carries; " +
+		"see agent/docker-compose.example.yml."
+}

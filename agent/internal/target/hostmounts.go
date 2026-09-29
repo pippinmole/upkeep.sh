@@ -121,19 +121,20 @@ type MissingHinter interface {
 	MissingHint(name string) string
 }
 
-// NotVisible wraps err (an fs.ErrNotExist for name, a path every host of
-// this kind has) with the target's explanation, so a misconfigured mount
-// reads as such instead of as an empty or odd result. Other errors, and
-// targets without a hint, return err unchanged.
-func NotVisible(t Target, name string, err error) error {
-	if err == nil || !errors.Is(err, fs.ErrNotExist) {
+// NotVisible wraps err when it is an fs.ErrNotExist *fs.PathError for a
+// path every host of this kind has, with the target's explanation, so a
+// misconfigured mount reads as such instead of as an empty or odd result.
+// Other errors, and targets without a hint, return err unchanged.
+func NotVisible(t Target, err error) error {
+	var pe *fs.PathError
+	if err == nil || !errors.Is(err, fs.ErrNotExist) || !errors.As(err, &pe) {
 		return err
 	}
 	h, ok := t.(MissingHinter)
 	if !ok {
 		return err
 	}
-	if hint := h.MissingHint(name); hint != "" {
+	if hint := h.MissingHint(pe.Path); hint != "" {
 		return &notVisibleError{msg: hint, err: err}
 	}
 	return err

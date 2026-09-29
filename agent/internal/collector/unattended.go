@@ -13,6 +13,7 @@ import (
 
 const (
 	aptConfDir         = "etc/apt/apt.conf.d"
+	aptStateDir        = "var/lib/apt"
 	aptUpdateStamp     = "var/lib/apt/periodic/update-success-stamp"
 	aptListsDir        = "var/lib/apt/lists"
 	unattendedRunStamp = "var/lib/apt/periodic/unattended-upgrades-stamp"
@@ -40,6 +41,13 @@ const (
 // nested-braces form is not parsed.
 func CollectUnattendedUpgrades(fsys fs.FS, pkgs []Package) (UnattendedUpgrades, error) {
 	var u UnattendedUpgrades
+
+	// Every apt host has /var/lib/apt. When it isn't visible the agent
+	// can't see it (e.g. a separate /var the host mount doesn't carry),
+	// and the timestamps below would silently be empty.
+	if _, err := fs.Stat(fsys, aptStateDir); err != nil {
+		return u, err
+	}
 
 	var confFiles []string
 	entries, err := fs.ReadDir(fsys, aptConfDir)

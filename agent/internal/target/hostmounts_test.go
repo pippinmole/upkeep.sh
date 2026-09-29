@@ -85,7 +85,7 @@ func TestNotVisible(t *testing.T) {
 	errNX := &fs.PathError{Op: "open", Path: "var/lib/dpkg/status", Err: fs.ErrNotExist}
 
 	container := NewLocalWithExtra("/host", "/host-extra", "/proc")
-	err := NotVisible(container, "var/lib/dpkg/status", errNX)
+	err := NotVisible(container, errNX)
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("hint must keep ErrNotExist: %v", err)
 	}
@@ -94,20 +94,20 @@ func TestNotVisible(t *testing.T) {
 			t.Errorf("%q missing %q", err, want)
 		}
 	}
-	if err := NotVisible(container, "etc/passwd", errNX); !strings.HasPrefix(err.Error(), "etc/passwd not visible under /host;") {
+	if err := NotVisible(container, &fs.PathError{Op: "open", Path: "etc/passwd", Err: fs.ErrNotExist}); !strings.HasPrefix(err.Error(), "etc/passwd not visible under /host;") {
 		t.Errorf("etc/passwd: %v", err)
 	}
 
 	// Bare metal: genuinely missing, no mount hint.
-	if err := NotVisible(NewLocal("/", "/proc"), "etc/passwd", errNX); err != errNX {
+	if err := NotVisible(NewLocal("/", "/proc"), errNX); err != errNX {
 		t.Errorf("bare metal: %v", err)
 	}
 	// Other errors pass through.
 	perm := &fs.PathError{Op: "open", Path: "x", Err: fs.ErrPermission}
-	if err := NotVisible(container, "x", perm); err != perm {
+	if err := NotVisible(container, perm); err != perm {
 		t.Errorf("permission error rewritten: %v", err)
 	}
-	if err := NotVisible(container, "x", nil); err != nil {
+	if err := NotVisible(container, nil); err != nil {
 		t.Errorf("nil: %v", err)
 	}
 }

@@ -55,6 +55,7 @@ func TestCollectUbuntu(t *testing.T) {
 		collector.CollectorDockerImages:     collector.StatusSkipped,
 		collector.CollectorDockerNetworks:   collector.StatusSkipped,
 		collector.CollectorSwarmServices:    collector.StatusSkipped,
+		collector.CollectorHostMount:        collector.StatusOK,
 	}
 	if got := statuses(snap); !reflect.DeepEqual(got, wantStatus) {
 		t.Errorf("collectors = %v, want %v (full: %+v)", got, wantStatus, snap.Collectors)
