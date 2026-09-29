@@ -19,6 +19,7 @@ const CASES: [string, string, string, boolean | null, boolean][] = [
   ["npm", "", "", null, true], // language: no distro, release ignored
   ["npm", "", "", true, true],
   ["npm", "debian", "12", true, false], // language packages are never distro-scoped
+  ["pypi", "", "", false, true],
   ["gem", "", "", null, false],
   ["homebrew", "", "", null, false],
 ];
