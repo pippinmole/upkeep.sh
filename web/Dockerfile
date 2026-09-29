@@ -12,11 +12,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Build-time-only values; real secrets are injected at runtime below.
-# DATABASE_URL/AUTH_SECRET aren't read during `next build` itself, but
+# DATABASE_URL/BETTER_AUTH_SECRET aren't read during `next build` itself, but
 # some libraries validate env at import time, so stub values keep the
 # build hermetic and independent of production credentials.
 ENV DATABASE_URL="postgres://build:build@localhost:5432/build"
-ENV AUTH_SECRET="build-time-placeholder-not-used-at-runtime"
+ENV BETTER_AUTH_SECRET="build-time-placeholder-not-used-at-runtime"
 RUN bun run build
 
 # Runtime stays on plain node: Next.js's standalone output's server.js is

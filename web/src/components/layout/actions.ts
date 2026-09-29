@@ -1,7 +1,12 @@
 "use server";
 
-import { signOut } from "@/lib/auth";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+
+import { authServer } from "@/lib/auth";
 
 export async function logOut() {
-  await signOut({ redirectTo: "/login" });
+  // nextCookies clears the session cookie on the response.
+  await authServer.api.signOut({ headers: await headers() });
+  redirect("/login");
 }

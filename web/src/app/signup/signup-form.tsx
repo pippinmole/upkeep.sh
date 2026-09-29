@@ -16,6 +16,26 @@ export function SignupForm() {
   return (
     <form action={action} className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
+        <Label htmlFor="username">Username</Label>
+        <Input
+          id="username"
+          name="username"
+          type="text"
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          minLength={3}
+          maxLength={30}
+          pattern="[a-zA-Z0-9_.]+"
+          defaultValue={state.username}
+          required
+          aria-describedby="username-help"
+        />
+        <p id="username-help" className="text-muted-foreground text-xs">
+          3 to 30 characters: letters, numbers, underscores and dots
+        </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"

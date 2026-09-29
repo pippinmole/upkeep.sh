@@ -138,7 +138,7 @@ func newImageFixture(t *testing.T) *imageFixture {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	f := &imageFixture{t: t, s: s, tag: "swtest-" + hex.EncodeToString(b)}
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
 		f.tag+"@test.invalid").Scan(&f.userID); err != nil {
 		t.Fatal(err)
 	}

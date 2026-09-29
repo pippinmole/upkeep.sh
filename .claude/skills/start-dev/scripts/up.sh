@@ -36,14 +36,24 @@ if [ ! -f .env.local ]; then
   echo "==> web/.env.local missing, creating it from .env.example..."
   cp .env.example .env.local
   # Generate a real secret instead of leaving the placeholder in place —
-  # Auth.js needs an actual random value to sign session JWTs, and the
+  # Better Auth needs an actual random value to sign session cookies, and the
   # placeholder in .env.example is intentionally not a usable secret.
   SECRET="$(openssl rand -base64 32)"
   # Portable in-place edit: BSD sed (macOS) and GNU sed (Linux/Git Bash)
   # disagree on `-i` syntax, so write to a temp file instead of relying on it.
-  awk -v secret="$SECRET" '{gsub(/^AUTH_SECRET=.*/, "AUTH_SECRET=" secret); print}' .env.local > .env.local.tmp
+  awk -v secret="$SECRET" '{gsub(/^BETTER_AUTH_SECRET=.*/, "BETTER_AUTH_SECRET=" secret); print}' .env.local > .env.local.tmp
   mv .env.local.tmp .env.local
-  echo "    Generated a fresh AUTH_SECRET."
+  echo "    Generated a fresh BETTER_AUTH_SECRET."
+fi
+
+# A .env.local from the Auth.js days: rename its variables for Better Auth
+# (same secret value) and drop AUTH_TRUST_HOST, which Better Auth doesn't use.
+if grep -q '^AUTH_SECRET=' .env.local && ! grep -q '^BETTER_AUTH_SECRET=' .env.local; then
+  echo "==> Renaming the Auth.js settings in web/.env.local for Better Auth..."
+  awk '/^AUTH_TRUST_HOST=/ || /Auth.js won.t trust/ { next }
+       { sub(/^AUTH_SECRET=/, "BETTER_AUTH_SECRET="); sub(/^NEXTAUTH_URL=/, "BETTER_AUTH_URL="); print }' \
+    .env.local > .env.local.tmp
+  mv .env.local.tmp .env.local
 fi
 
 # Report emails: the dev worker (docker-compose.dev.yml) renders them through
