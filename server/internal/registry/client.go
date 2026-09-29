@@ -17,6 +17,7 @@ const (
 	DefaultMaxBlobBytes     = 64 << 20 // an SBOM document (postgres:17's SPDX is ~6 MiB)
 	DefaultRequestTimeout   = 30 * time.Second
 	DefaultBlobTimeout      = 2 * time.Minute
+	DefaultLayerTimeout     = 10 * time.Minute // one image layer (server-side Syft)
 	DefaultRateLimitBackoff = 10 * time.Minute // after a 429 without Retry-After
 	MaxRateLimitBackoff     = 6 * time.Hour    // cap on what a Retry-After can ask for
 	// MaxRedirects bounds the redirects of one request (a blob GET is
@@ -43,6 +44,8 @@ type Config struct {
 	MaxBlobBytes     int64
 	// Per-request timeouts (0 = default): manifests and tokens, blobs.
 	RequestTimeout, BlobTimeout time.Duration
+	// LayerTimeout bounds one image layer download (0 = default).
+	LayerTimeout time.Duration
 	// RateLimitBackoff is how long a registry is left alone after a 429
 	// without a Retry-After (0 = default).
 	RateLimitBackoff time.Duration
@@ -71,6 +74,7 @@ func New(cfg Config) *Client {
 	cfg.MaxBlobBytes = cmp.Or(cfg.MaxBlobBytes, DefaultMaxBlobBytes)
 	cfg.RequestTimeout = cmp.Or(cfg.RequestTimeout, DefaultRequestTimeout)
 	cfg.BlobTimeout = cmp.Or(cfg.BlobTimeout, DefaultBlobTimeout)
+	cfg.LayerTimeout = cmp.Or(cfg.LayerTimeout, DefaultLayerTimeout)
 	cfg.RateLimitBackoff = cmp.Or(cfg.RateLimitBackoff, DefaultRateLimitBackoff)
 	if cfg.Now == nil {
 		cfg.Now = time.Now
