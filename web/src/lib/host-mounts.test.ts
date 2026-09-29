@@ -65,6 +65,16 @@ describe("host filesystem mount", () => {
     expect(HOST_MOUNTS.join("\n")).not.toContain("-v /:/host");
   });
 
+  test("compose extra binds never create a missing host directory", () => {
+    // Without create_host_path: false, compose passes a long-form bind as a
+    // legacy -v bind, which silently mkdirs a missing source on the host;
+    // docker run --mount errors instead. Both forms must behave alike.
+    const blocks = compose.split(/\n\s*- type: bind\n/).slice(1);
+    const extras = blocks.filter((b) => /target:\s*\/host-extra\//.test(b));
+    expect(extras.length).toBe(HOST_MOUNTS.length - 1);
+    for (const b of extras) expect(b).toMatch(/create_host_path:\s*false/);
+  });
+
   test("nothing under /run itself is bound (the sockets live there)", () => {
     for (const m of HOST_MOUNTS) {
       expect(m).not.toMatch(/dst=\/host\/run(,|$)/);
