@@ -17,7 +17,7 @@
 # key instead, mount it read-only and set SW_SSH_KEY_FILE to its path.
 services:
   upkeep-agent:
-    image: ghcr.io/icondesk/upkeep-agent:latest
+    image: ghcr.io/pippinmole/upkeep-agent:0.1.0
     restart: unless-stopped
     pid: host
     network_mode: host

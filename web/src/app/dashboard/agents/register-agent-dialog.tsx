@@ -35,7 +35,14 @@ const POLL_MS = 3000;
 // volume there, the read-only container can't save its credentials.
 // withDocker adds the opt-in Docker socket mount
 // (docs/decisions/docker-collection.md), the same line as agent/docker-compose.example.yml.
-function dockerRunCommand(serverUrl: string, token: string, withDocker: boolean): string {
+// image comes from issueEnrollmentToken (lib/agent-image.ts), never
+// hard-coded here.
+export function dockerRunCommand(
+  serverUrl: string,
+  token: string,
+  withDocker: boolean,
+  image: string,
+): string {
   const socket = withDocker ? `\n  ${DOCKER_SOCKET_MOUNT} \\` : "";
   return `docker run -d --restart unless-stopped \\
   --pid host --network host --read-only \\
@@ -44,7 +51,7 @@ function dockerRunCommand(serverUrl: string, token: string, withDocker: boolean)
   -v upkeep-agent-data:/var/lib/upkeep \\${socket}
   -e SW_SERVER_URL=${serverUrl} \\
   -e SW_ENROLLMENT_TOKEN=${token} \\
-  ghcr.io/icondesk/upkeep-agent:latest`;
+  ${image}`;
 }
 
 // One-time token generation, the agent install command, then live progress
@@ -60,7 +67,11 @@ export function EnrollAgentPanel({
   serverUrl: string;
   defaultWithDocker?: boolean;
 }) {
-  const [issued, setIssued] = useState<{ token: string; issuedAt: string } | null>(null);
+  const [issued, setIssued] = useState<{
+    token: string;
+    issuedAt: string;
+    agentImage: string;
+  } | null>(null);
   const [agentName, setAgentName] = useState("");
   const [withDocker, setWithDocker] = useState(defaultWithDocker);
   const [error, setError] = useState<string | null>(null);
@@ -111,8 +122,8 @@ export function EnrollAgentPanel({
     );
   }
 
-  const { token, issuedAt } = issued;
-  const command = dockerRunCommand(serverUrl, token, withDocker);
+  const { token, issuedAt, agentImage } = issued;
+  const command = dockerRunCommand(serverUrl, token, withDocker, agentImage);
 
   return (
     <div className="flex flex-col gap-4">
