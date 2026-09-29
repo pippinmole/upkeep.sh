@@ -16,7 +16,8 @@ import (
 // worst severity bucket plus counts per bucket, max CVSS and KEV
 // (findings.ScoreOf), for every image whether a container uses it or not.
 // Written here by the worker; read through image_scores(user)
-// (imagescore_read.go, and the dashboard).
+// (imagescore_read.go, and the dashboard). The groups it counts are kept
+// row by row in image_sbom_vulns (imagescore_vulns.go).
 
 // ScoreResult reports ScoreImageSBOM.
 type ScoreResult struct {
@@ -95,7 +96,8 @@ func (s *Store) ScoreImageSBOM(ctx context.Context, sbomID int64) (ScoreResult, 
 	if err != nil {
 		return res, err
 	}
-	sc := findings.ScoreOf(matches[sbomID], cves)
+	groups := findings.BuildImage(findings.Image{}, matches[sbomID], cves)
+	sc := findings.ScoreGroups(groups)
 	res.Score = sc
 
 	var worst any
@@ -123,6 +125,9 @@ func (s *Store) ScoreImageSBOM(ctx context.Context, sbomID int64) (ScoreResult, 
 		b[severity.BucketCritical], b[severity.BucketHigh], b[severity.BucketMedium],
 		b[severity.BucketUnknown], b[severity.BucketLow], b[severity.BucketNegligible],
 		worst, int(sc.Worst), int64(sc.TopKey), sc.KEV, sc.Fixable, sc.MaxCVSS, matcher.Version); err != nil {
+		return res, err
+	}
+	if err := writeImageSBOMVulns(ctx, tx, sbomID, groups); err != nil {
 		return res, err
 	}
 	return res, tx.Commit(ctx)
@@ -163,15 +168,18 @@ func (s *Store) ImageSBOMsWithCVEsChangedSince(ctx context.Context, since time.T
 
 // StaleImageScores returns the ok lists whose score is missing, older than
 // the list (rewritten since) or from an older matcher.Version (coverage
-// may have changed): image_score_sweep's work, and the backstop for a
-// lost scoring job. At most limit ids, oldest list first.
+// may have changed), or counts vulnerabilities that have no
+// image_sbom_vulns rows (scored before migration 0018: the backfill):
+// image_score_sweep's work, and the backstop for a lost scoring job. At
+// most limit ids, oldest list first.
 func (s *Store) StaleImageScores(ctx context.Context, limit int) ([]int64, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT st.id
 		FROM image_sbom_state st
 		LEFT JOIN image_sbom_scores sc ON sc.sbom_id = st.id
 		WHERE st.status = 'ok'
-		  AND (sc.sbom_id IS NULL OR sc.computed_at < st.updated_at OR sc.matcher_version < $1)
+		  AND (sc.sbom_id IS NULL OR sc.computed_at < st.updated_at OR sc.matcher_version < $1
+		       OR (sc.vuln_count > 0 AND NOT EXISTS (SELECT 1 FROM image_sbom_vulns v WHERE v.sbom_id = st.id)))
 		ORDER BY st.id
 		LIMIT $2
 	`, matcher.Version, limit)

@@ -72,6 +72,7 @@ type Desired struct {
 	Kind                      string // KindVulnerablePackage | KindVulnerableImage
 	DedupKey, VulnKey, Source string
 	InstalledVersion          string // lowest installed source version carrying it
+	Ecosystem                 string // that row's software_versions.ecosystem ("" = deb, host packages)
 	FixedVersion              *string
 	FixChannel                string // "" | standard | ubuntu-pro
 	FixAdvisoryID             string
@@ -148,6 +149,7 @@ func group(rows []HostMatch, cves map[string]CVE, keyOf func(HostMatch) (string,
 		if lower || a.d.InstalledVersion == "" {
 			a.ok = a.ok || valid
 			a.d.InstalledVersion = r.Version
+			a.d.Ecosystem = r.Ecosystem
 			a.d.FixedVersion = r.Match.FixedVersion
 			a.d.FixChannel = r.Match.FixChannel
 			a.d.FixAdvisoryID = r.Match.FixAdvisoryID
