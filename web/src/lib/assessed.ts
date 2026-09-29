@@ -20,6 +20,7 @@ export const ASSESSED_ECOSYSTEMS: Readonly<Record<string, readonly string[]>> = 
   apk: ["alpine"],
   npm: [""], // language ecosystems: no distro
   pypi: [""],
+  golang: [""],
 };
 
 // matcher.Assessed: the ecosystem has a comparator, the distro's
