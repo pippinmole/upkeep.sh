@@ -120,7 +120,7 @@ func parseSPDX(b []byte) (*Document, error) {
 				continue
 			}
 			if u, err := purl.Parse(ref.ReferenceLocator); err == nil {
-				purls[p.SPDXID] = u
+				purls[p.SPDXID] = goModuleSubpath(u, p.Name)
 				break
 			}
 		}
@@ -181,6 +181,28 @@ func debSourceOnly(name string, evidence []string) bool {
 		}
 	}
 	return info && !own
+}
+
+// goModuleSubpath undoes Docker Scout's split of a nested Go module path:
+// it writes github.com/moby/sys/user as pkg:golang/github.com/moby/sys#user,
+// which in purl terms is package "user" of module github.com/moby/sys (no
+// such module), while the SPDX package name is the module path. When the
+// name is namespace/name/subpath the subpath is part of the module path;
+// otherwise (a real package subpath) the purl is left as it is.
+func goModuleSubpath(u purl.PURL, spdxName string) purl.PURL {
+	if u.Type != "golang" || u.Subpath == "" {
+		return u
+	}
+	full := u.Name + "/" + u.Subpath
+	if u.Namespace != "" {
+		full = u.Namespace + "/" + full
+	}
+	if spdxName != full {
+		return u
+	}
+	i := strings.LastIndex(full, "/")
+	u.Namespace, u.Name, u.Subpath = full[:i], full[i+1:], ""
+	return u
 }
 
 // filesCovered reports whether every file the source entry id CONTAINS is

@@ -124,6 +124,36 @@ func TestParseSPDXAlpine(t *testing.T) {
 	}
 }
 
+// Docker Scout splits a nested Go module path into a purl subpath
+// (postgres:17-alpine's gosu, 2026-09-29); a real package subpath stays.
+func TestParseSPDXGoModuleSubpath(t *testing.T) {
+	doc := `{
+	 "spdxVersion": "SPDX-2.3",
+	 "creationInfo": {"creators": ["Tool: docker-scout-1.18.1"], "created": "2026-09-17T21:31:48Z"},
+	 "packages": [
+	  {"SPDXID": "a", "name": "github.com/moby/sys/user", "versionInfo": "0.1.0",
+	   "externalRefs": [{"referenceType": "purl", "referenceLocator": "pkg:golang/github.com/moby/sys@0.1.0#user"}]},
+	  {"SPDXID": "b", "name": "google.golang.org/genproto", "versionInfo": "0.0.1",
+	   "externalRefs": [{"referenceType": "purl", "referenceLocator": "pkg:golang/google.golang.org/genproto@0.0.1#googleapis/api"}]}
+	 ]
+	}`
+	d, err := Parse(FormatSPDX, []byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pk := byName(d)
+	if u, ok := pk["golang:user"]; !ok || u.PURL.Namespace != "github.com/moby/sys" || u.PURL.Subpath != "" {
+		t.Errorf("moby/sys/user = %+v", pk)
+	}
+	if u := pk["golang:genproto"].PURL; u.Namespace != "google.golang.org" || u.Subpath != "googleapis/api" {
+		t.Errorf("genproto = %+v", u)
+	}
+	m, err := purl.Map(pk["golang:user"].PURL, d.OS, nil)
+	if err != nil || m.Item.Name != "github.com/moby/sys/user" {
+		t.Errorf("mapped = %+v, %v", m, err)
+	}
+}
+
 // Syft-style SPDX: an OPERATING-SYSTEM package, sourceInfo paths.
 func TestParseSPDXSyft(t *testing.T) {
 	doc := `{
