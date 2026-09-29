@@ -998,6 +998,30 @@ above the table lists `host_kernel_packages` grouped by kernel release
 explains that findings cover every installed kernel while the running
 kernel is unknown.
 
+**With container images (P2a, as built).** The tab also lists the
+host's `vulnerable_image` findings (images a current container on the
+host uses, §2.6), one row per finding, in a server-mode DataTable
+(`getHostVulnList`, `web/src/lib/queries-vuln-list.ts`; URL state
+`hostVulnsTable()` in `web/src/lib/vuln-tables.ts`): `?q` (CVE, package,
+binary, image ref or container name), facets `kind` = `package` |
+`image` (none = both), `severity`, `kev=1`, `fix` = `available` | `pro`
+| `none`, sort `severity` | `vuln` | `seen` (first seen when open,
+resolved at when resolved; the resolved default). A **Where** column
+says where the finding is: a host package (source package, binaries,
+installed version) or an image (first ref, else the short id; platform;
+container names; the package and version inside the image) linking to
+the image page's Vulnerabilities tab filtered to the CVE
+(`imageHref(..., {platform, tab: "vulnerabilities", q, host})`, the shape
+of `store.ImageFindingURL` plus the platform). The fix column for an
+image reads "Rebuild or re-pull image; fixed in <version>". Counts are
+per kind and never summed: one line per kind above the table (open or
+resolved count, severity badges and KEV, each narrowing to that kind),
+two pills on the tab (host packages, and container images with an
+icon). The host header's severity badge and the Overview tab's
+Vulnerabilities card stay host-package counts (the card links
+`?kind=package` and adds a separate container-images line); its "Most
+urgent" ranks both kinds. The `?v=` sheet lists both kinds.
+
 ### 3.6 Fleet-wide views
 
 **`/dashboard/packages`**. Search box first (`?q=openssl`), no giant
@@ -1088,8 +1112,42 @@ package changes across fleet".
   ranking) and badges where each is: "Host package" (packages, hosts)
   and/or "Image" (the image or image count, packages, hosts). The CVE
   link goes to the CVE page when a host package is affected, else to
-  the single image's Vulnerabilities tab filtered to the CVE (the CVE
-  page lists host findings only).
+  the single image's Vulnerabilities tab filtered to the CVE (several
+  images: the CVE page). "View all" opens the fleet list with no kind
+  filter; the host package cards, bars and the KEV "Needs attention"
+  item link with `kind=package`, the Container images section's
+  findings, KEV and bars with `kind=image`, so the list matches the
+  number clicked.
+- Fleet list with container images (P2a): `/dashboard/vulnerabilities`
+  lists `vulnerable_package` and `vulnerable_image` findings in one
+  server-mode DataTable (`getFleetVulnList`,
+  `web/src/lib/queries-vuln-list.ts`; URL state `FLEET_VULNS_TABLE`).
+  Rows: one per `vuln_key` for host packages (grouped across hosts, as
+  before) and one per (`vuln_key`, image key) for images, since each
+  image is its own fix. Facets `kind` (`package` | `image`, none =
+  both), `severity`, `kev=1`, `fix`; sort `severity` | `vuln` | `hosts` |
+  `first_seen`; `?q` also matches image refs and container names.
+  **Where**: host package source packages, or the image (first ref,
+  platform, containers) linking to the image page's Vulnerabilities tab
+  filtered to the CVE. Fix: host rows as before ("Upgrade available" /
+  Pro / no fix), image rows "Rebuild or re-pull image; fixed in
+  <package> <version>". `status=resolved` is per row: a CVE fixed in
+  host packages but still in an image is resolved in one row and open
+  in the other. Above the table, one card per kind (distinct CVEs,
+  hosts, images, KEV findings), never summed; each links to that kind.
+- CVE page with container images: "Host packages on hosts" (as before)
+  and **Container images**: one row per image key with a
+  `vulnerable_image` finding for the CVE on the user's hosts (image
+  linking to its Vulnerabilities tab filtered to the CVE, platform,
+  package + installed version, severity/KEV, hosts with their
+  containers, fix, since; resolved images badged), client-mode
+  DataTable. The header says where separately ("In host packages on N
+  of your hosts", "In M container images on K hosts"); the severity
+  badge is the worst of both kinds.
+- Sidebar badge (`queries-nav.ts` `vulnsUrgent`): distinct KEV or
+  critical CVEs in host packages only. A single number can't show both
+  kinds and they are never summed; urgent images have their own "Needs
+  attention" item on the Overview.
 - Severity colours live in one component
   (`web/src/components/vuln/badges.tsx`).
 

@@ -21,7 +21,7 @@ before or while building them.
 | [Overview — Needs attention](needs-attention.md) | in progress: 7 open, 1 done |
 | [Phase 1.6 — Docker inventory + host-side port exposure](phase-1-6-docker-exposure.md) | in progress: 5 open, 7 done |
 | [Phase 1.7 — scheduled estate reports](phase-1-7-reports.md) | done: 10 done |
-| [Phase 2a — container image packages + vulnerabilities](phase-2a-image-vulns.md) | in progress: 9 open, 8 done |
+| [Phase 2a — container image packages + vulnerabilities](phase-2a-image-vulns.md) | in progress: 8 open, 9 done |
 | [Members and roles](members-roles.md) | in progress: 3 open, 8 done |
 | [Cross-cutting gaps worth closing before real users](cross-cutting-gaps.md) | in progress: 3 open, 7 done |
 | [Phase 2+ (explicitly deferred, don't start early)](phase-2-plus-deferred.md) | not started: 8 open |

@@ -130,8 +130,25 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       (`web/src/lib/assessed.ts`): persist a per-package "assessed" flag
       (or the not-assessed reason) with the list so the Packages tab and
       list states read Go's answer.
-- [ ] Image findings on the host Vulnerabilities tab and the fleet
+- [x] Image findings on the host Vulnerabilities tab and the fleet
       vulnerability pages (they list only `vulnerable_package` today).
+      (Done 2026-09-29, DOMAIN_MODEL.md §3.5, §3.6;
+      `web/src/lib/queries-vuln-list.ts`, `web/src/lib/vuln-tables.ts`,
+      `web/src/components/vuln/where.tsx`. Host tab and fleet list are
+      server-mode DataTables over both kinds with a Where column (host
+      package, or image ref + platform + containers linking to the image
+      page's Vulnerabilities tab filtered to the CVE) and a Kind facet
+      (`?kind=package|image`, none = both); fleet rows are per `vuln_key`
+      for host packages and per (`vuln_key`, image key) for images. Fix
+      for images: "Rebuild or re-pull image; fixed in X". Counts per
+      kind, never summed (cards above the fleet list, lines and two tab
+      pills on the host). The CVE page has "Host packages on hosts" and
+      "Container images" (image, platform, package, hosts + containers,
+      fix). Overview "View all" is unfiltered; host package cards link
+      `kind=package`, image numbers `kind=image`; multi-image "Most
+      urgent" rows now open the CVE page. Sidebar badge stays host
+      packages only. Checked on a copy of dev data: per host and fleet,
+      open findings per kind from SQL equal the query results.)
 - [ ] Server-side Syft for public images without an SBOM attestation:
       pull by digest (the image's platform only) and run Syft as a Go
       library. Bound CPU, memory, disk and concurrency in the worker;
