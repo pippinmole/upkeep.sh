@@ -93,6 +93,9 @@ jobs:
             migrate/migrate:v4.20.1 \
             -path /migrations -database "$SW_TEST_DATABASE_URL" up
       - name: go test (with Postgres)
+        # Explicit bash gets -o pipefail; the default shell doesn't, and
+        # the tee below would otherwise hide a failing go test.
+        shell: bash
         run: |
           if [ -z "$SW_TEST_DATABASE_URL" ]; then
             echo "SW_TEST_DATABASE_URL is unset; integration tests would skip" >&2
