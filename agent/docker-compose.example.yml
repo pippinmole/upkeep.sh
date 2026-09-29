@@ -6,9 +6,40 @@
 #
 # pid: host + network_mode: host let the agent read the REAL host's
 # process table and listening sockets (not the container's own).
-# /:/host:ro is a read-only bind mount used only for filesystem facts
-# (dpkg database, os-release, reboot-required flag) that aren't
-# visible through the host namespaces above.
+#
+# The host filesystem is mounted read-only for filesystem facts (dpkg
+# database, os-release, systemd units, apt state) that aren't visible
+# through the host namespaces above. It is bound in two parts, and the
+# split is deliberate — do not replace it with a plain `- /:/host:ro`:
+#
+#   - The host's / at /host, bound NON-recursively
+#     (bind-recursive=disabled). A plain recursive `-v /:/host:ro` also
+#     exposes every mount nested under /, including the sockets on the
+#     /run tmpfs: /host/run/docker.sock, containerd, systemd's private
+#     socket and D-Bus. `:ro` does NOT stop connect() on a socket, so a
+#     recursive mount is full Docker/root access to the host whether or
+#     not Docker collection (below) is enabled — it makes opting out of
+#     Docker meaningless. bind-recursive=disabled carries only the root
+#     filesystem, so none of those sockets appear under /host.
+#   - The few directories the collectors read that live on a SEPARATE
+#     mount are bound one by one, read-only, under /host-extra (NOT
+#     inside /host: a mountpoint nested in the read-only /host bind can't
+#     be created when its parent is a separate mount). /run is a tmpfs
+#     and /var is often its own filesystem, so var/lib/dpkg, var/lib/apt
+#     and run/systemd/system are listed explicitly. Never bind /run or
+#     /var wholesale: the sockets live directly on /run, and the LXD
+#     socket on /var.
+#
+# The agent's /run/reboot-required flag file sits on the /run tmpfs next
+# to the sockets, so it is intentionally NOT mounted; the agent instead
+# derives a pending reboot by comparing the running kernel with the
+# installed linux-image-* packages (docs/PROTOCOL.md).
+#
+# Requires Docker Engine 25 or newer (bind-recursive=disabled). On older
+# Docker the option is rejected or silently ignored (a recursive mount);
+# the agent logs a startup WARN and reports the host_mount collector as
+# an error if any host socket is reachable under /host, so upgrade Docker
+# or run the agent as a bare-metal systemd service instead.
 #
 # upkeep-agent-data is the agent's persistent data directory (a folder):
 # credentials.json and the agent's SSH key for remote hosts (ssh/). Keep
@@ -27,7 +58,30 @@ services:
     cap_drop:
       - ALL
     volumes:
-      - /:/host:ro
+      # The host's / at /host, non-recursively (see the note above).
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          recursive: disabled
+      # Directories the collectors read that may be on a separate mount,
+      # each bound read-only under /host-extra. Keep this list in step
+      # with target.ExtraPaths in the agent.
+      - type: bind
+        source: /var/lib/dpkg
+        target: /host-extra/var/lib/dpkg
+        read_only: true
+      - type: bind
+        source: /var/lib/apt
+        target: /host-extra/var/lib/apt
+        read_only: true
+      # run/systemd/system exists only once systemd has generated runtime
+      # units; harmless if absent.
+      - type: bind
+        source: /run/systemd/system
+        target: /host-extra/run/systemd/system
+        read_only: true
       - upkeep-agent-data:/var/lib/upkeep
       # Optional: Docker containers and images (off by default).
       #
@@ -64,6 +118,13 @@ services:
       # rootful engine), also add the socket's group id, as shown by
       # `stat -c %g <socket>`, e.g.:
       #   group_add: ["1000"]
+      #
+      # Unlike the /host binds above, this is the one socket the agent is
+      # meant to reach: it is mounted at its own path, not under /host, so
+      # the startup self-check and the host_mount collector don't flag it.
+      # (A future agent-side image scan, Phase 2a, will additionally bind
+      # /var/lib/docker and /var/lib/containerd read-only under /host-extra
+      # here; not built yet.)
       #
       # - /var/run/docker.sock:/var/run/docker.sock
     environment:
