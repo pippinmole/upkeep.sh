@@ -233,8 +233,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          cache-from: type=gha,scope=release-${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.image }}
+          # No build cache: a signed release is built from the tagged
+          # source alone, never from layers another run could have written.
+          no-cache: true
 
       # GitHub's attestation store, pushed to the registry too, so both
       # `gh attestation verify` and registry-side tooling find it.
