@@ -221,7 +221,13 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
 - [ ] Language ecosystems, one at a time, each with its OSV feed and
       comparator: likely npm, PyPI, Go, then crates.io / Maven. Until an
       ecosystem is added its packages are listed but marked "not
-      assessed".
+      assessed". npm done 2026-09-29 (`server/internal/npmversion`,
+      `osv/language.go`, `matcher.Version` 4; DOMAIN_MODEL.md §2.3, §2.5
+      "As built"): OSV `npm` feed (MAL- records skipped), rows under
+      ('', 'npm', name), OSV range semantics for language ecosystems,
+      GHSA severity as the ranking priority. Live: 7,504 advisories, the
+      node images' not-assessed counts 189 → 2 and 318 → 120, 48 npm
+      rows in `image_sbom_vulns`.
 - [ ] Agent: package lists for images the server can't pull (no repo
       digest = built locally, or a private registry). The push response
       carries "need a package list for these image IDs"; the agent runs

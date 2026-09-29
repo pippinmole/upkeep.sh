@@ -350,6 +350,66 @@ all CVE-keyed), 12,940 affected rows: 3.21 3,096 · 3.22 3,229 · 3.23
 3,396 · 3.24 3,219, over ~270-280 source packages per branch; 10 s,
 19 MB heap.
 
+**As built (P2a, language ecosystems).** `feeds.OSVEcosystems` also
+lists the language directories: `npm`. A language directory maps to a
+package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
+`software_versions.ecosystem` `npm`; `osv.DistroFor` is `''`), and
+`osv/language.go` normalizes its records:
+
+- **Rows**: `distro = ''`, `release` = the software ecosystem (`npm`),
+  `source_package` = the package name as `software_versions` stores it
+  (§4.5: npm `@scope/name`), so one (distro, release, source) key never
+  mixes two ecosystems' packages of the same name. The matcher maps a
+  language package (interned with distro and release `''`) to that key
+  (`matcher.AdvisoryScope`), and the `advisory_changes` drain joins
+  `('', ecosystem, name)` keys to `software_versions` by ecosystem.
+- **Ranges**: `SEMVER` and `ECOSYSTEM` ranges (npm uses `SEMVER`; 54
+  entries `ECOSYSTEM`), `introduced` / `fixed` / `last_affected`; `GIT`
+  ranges are skipped. An entry with no usable range falls back to its
+  `versions` list, one exact row per version (`introduced` =
+  `last_affected` = the version; 129 rows in npm), and keeps that list in
+  `raw`. Records list one package per branch routinely (minimatch: eight
+  ranges), which the matcher's language rule handles (§2.5).
+- **Keys**: `vuln_key` is the record's CVE alias when it has exactly one;
+  a record citing several is keyed by its own id and matched per CVE (as
+  a DSA is); a record without a CVE is keyed by its GHSA id, its own or
+  its lowest GHSA alias (a `GO-`/`PYSEC-` record and the GHSA it aliases
+  then key one finding), else its own id. npm: 6,027 CVE-keyed, 1,101
+  GHSA-keyed.
+- **Severity**: the GHSA's reviewed severity (record-level
+  `database_specific.severity`, lowercased: `critical` / `high` /
+  `moderate` / `low`) is the rows' `distro_severity`, so it ranks like a
+  distro priority (`severity.ParsePriority`: `moderate` = medium); KEV and
+  EPSS still escalate CVE-keyed ones, and CVSS stays the tiebreaker. Its
+  `CVSS_V3` vector goes to `cves` under the `vuln_key`: authoritative for
+  a GHSA-keyed record (a `cves` row under the GHSA id; `cves` holds the
+  enrichment of every `vuln_key`, KEV/EPSS just never match those), and
+  only filling in a CVE no distro per-CVE record has scored
+  (`Advisory.CVSSIfMissing`), so distro scores win and two GHSAs don't
+  flip-flop. A multi-CVE record's single score isn't stored.
+- **Shared records**: one GHSA can list packages of several ecosystems
+  and then sits in each ecosystem's `all.zip` under the same id (46
+  npm/PyPI, 10 npm/Go, 16 PyPI/Go on 2026-09-29). Every language feed
+  therefore stores the entries of *every* imported language ecosystem, so
+  both feeds write identical content (the second sees an unchanged hash);
+  the owner (`advisories.source`) is whichever wrote it last. The set of
+  imported languages is in each language feed's fingerprint
+  (`osv.FeedFingerprint`): adding one reloads the others. A record that
+  leaves one ecosystem's zip but not the other's is deleted by its owner
+  and restored by the other feed's next full sync (weekly) at the latest.
+- **Malicious packages** (`MAL-*`, OpenSSF): not imported for now. The
+  full sync skips them by file name unread, the incremental one before
+  fetching or counting them (`OSVStats.malicious`); they would otherwise
+  force a full import almost every hour. Of npm's 229,533 records,
+  222,028 are `MAL-`.
+- 5 rows of 9,754 are dropped as duplicate keys (the same package listed
+  twice with the same `introduced`), as for Ubuntu's duplicate releases.
+
+Live first sync of `npm` (2026-09-29, on a copy of dev data): all.zip
+207 MB, 229,533 records, 7,504 imported (355 withdrawn), 9,749 affected
+rows over 6,295 packages; 55 s of which ~50 s download, ~5 s import,
+120 MB heap, 143 MB RSS. An immediate incremental run: 0.2 s.
+
 ### 2.4 Advisory schema (replaces `vulnerabilities`)
 
 ```sql
@@ -439,8 +499,9 @@ this way here for readability.)
   drained by the `advisory_rematch` job (§2.6).
 - **`advisories.vuln_key` rule**: the record's own CVE (a `CVE-` id, or
   the CVE a `DEBIAN-CVE-`/`UBUNTU-CVE-`/`ALPINE-CVE-` record wraps); else the single CVE
-  a DSA/DLA/USN cites; else the advisory id (a notice citing several
-  CVEs). The matcher then keys *matches* by CVE wherever possible: a
+  a DSA/DLA/USN cites; else, for a record without a CVE that is or
+  aliases a GHSA, that GHSA id (language records, §2.3); else the
+  advisory id (a notice citing several CVEs). The matcher then keys *matches* by CVE wherever possible: a
   multi-CVE notice is expanded to each CVE it cites (§2.5 "As built").
 
 **Deduplication across sources.** Debian publishes `DSA-5532-1` *and*
@@ -569,7 +630,26 @@ _hg _p`, `~hash`, `-rN`; a leading-zero component compares as a
 string), tested with apk-tools' own `version.data`. An invalid version
 counts as a bad version and is skipped, never ordered by guess (13
 distinct values in the whole Alpine feed, e.g. `1999-12-14`). Adding an
-ecosystem (npm, PyPI, Go: task G) is one comparator plus its feed.
+ecosystem is one comparator plus its feed. Language ecosystems:
+
+- `npm` → `server/internal/npmversion`: node-semver's `compare` in loose
+  mode (three numbers, optional leading `v`/`=`, prerelease identifiers
+  numeric < alphanumeric, a prerelease below its release, build ignored,
+  numbers capped at `MAX_SAFE_INTEGER`), in-tree because node-semver's
+  syntax differs from `golang.org/x/mod/semver`'s (`1.2` is invalid for
+  npm); tested with node-semver's comparison and equality fixtures.
+- **Range semantics.** A language record lists one range per maintained
+  branch (`[0, 3.1.3)`, `[9.0.0, 9.0.6)`, ...), so the distro rule "any
+  row saying fixed wins" would call minimatch 9.0.4 fixed because it is
+  ≥ 3.1.3. For language ecosystems (the comparator is wrapped in
+  `osvRanges`) rows combine as the OSV schema defines them: affected when
+  any row of any record citing the key contains the version; the fix is
+  the lowest `fixed` among the rows that contain it. Several records for
+  one CVE and package (a GHSA and a PYSEC, a GHSA and a GO record) are
+  deduplicated by the key and their ranges united, as osv-scanner does;
+  every record's id lands in `advisory_ids`.
+- `matcher.Assessed`: a language ecosystem is listed with distro `''`, so
+  its packages are assessed whatever the (empty) release.
 
 - `matcher.Resolve` matches any ecosystem with a comparator by
   (source, source version) as interned (apk: the origin from the purl's
@@ -578,7 +658,8 @@ ecosystem (npm, PyPI, Go: task G) is one comparator plus its feed.
 - `matcher.Assessed(ecosystem, distro, release, supported)` is the
   single answer to "is this package matched at all" (for "not assessed"
   counts): `deb` on debian/ubuntu and `apk` on alpine, with a release
-  that `distro_releases` lists as supported. Advisories are imported
+  that `distro_releases` lists as supported; the language ecosystems
+  (`npm`) with distro `''`, release ignored. Advisories are imported
   only for supported releases, so a release out of support (Debian 10
   buster) or one not in `distro_releases` matches nothing and its
   packages are "not assessed", never "no vulnerabilities"
@@ -592,7 +673,8 @@ ecosystem (npm, PyPI, Go: task G) is one comparator plus its feed.
 - `matcher.Version` 2: apk versions interned before this were stamped
   "evaluated, nothing to match" under 1; the bump re-evaluates them.
   deb results are unchanged. 3: `Assessed` needs a supported release;
-  matches are unchanged, the bump re-scores image lists.
+  matches are unchanged, the bump re-scores image lists. 4: npm
+  packages are matched.
 - Host findings (`findings.Build`) still pick the lowest installed
   version with debversion; hosts only send deb today.
 
