@@ -17,6 +17,7 @@ import {
   DockerSocketAlternatives,
   DockerSocketGrant,
 } from "@/components/docker-socket-notes";
+import { HOST_MOUNTS } from "@/lib/host-mounts";
 import {
   Dialog,
   DialogContent,
@@ -44,10 +45,11 @@ export function dockerRunCommand(
   image: string,
 ): string {
   const socket = withDocker ? `\n  ${DOCKER_SOCKET_MOUNT} \\` : "";
+  const hostMounts = HOST_MOUNTS.map((m) => `  ${m} \\`).join("\n");
   return `docker run -d --restart unless-stopped \\
   --pid host --network host --read-only \\
   --cap-drop ALL --security-opt no-new-privileges:true \\
-  -v /:/host:ro \\
+${hostMounts}
   -v upkeep-agent-data:/var/lib/upkeep \\${socket}
   -e SW_SERVER_URL=${serverUrl} \\
   -e SW_ENROLLMENT_TOKEN=${token} \\
