@@ -67,6 +67,25 @@ Today agent == host: enrollment creates a `hosts` row and the returned
       listen on port N" page (`host_listeners_port_open_idx` is ready);
       retire `listening_sockets` (and its unused `is_public`) once
       exposure (Phase 1.6) reads `host_listeners` instead.
+- [ ] systemd service state is wrong in the container deployment: the
+      agent container has a private cgroup namespace, so
+      `/proc/<pid>/cgroup` of host processes reads relative paths like
+      `0::/../docker.service` and running services (e.g. `docker.service`)
+      show as stopped. Pre-existing, identical with the old `/:/host:ro`
+      mount (seen on Ubuntu 24.04 / Docker 29.8.1). Fix: take the last
+      `*.service` path component, or add `cgroup: host` to the compose
+      example and the `docker run` line (`--cgroupns host`).
+- [ ] Server: `reboot_required` is stored as `false` when the
+      `reboot_required` collector isn't `ok` (`error`, or `skipped` with
+      "pending reboot unknown", which the container agent now reports
+      when neither the flag file nor the kernel can decide). Store it as
+      unknown (NULL, keep the last known value, or read the status),
+      so "unknown" never shows or reports as "no reboot pending".
+- [ ] `reboot_required` in the container deployment covers kernels only
+      (the `/run/reboot-required` flag isn't mounted, by design): a
+      reboot Ubuntu flags for libc6, dbus or the like is missed there.
+      Possible: compare dpkg `info/*.list` mtimes of those packages with
+      the boot time.
 - [x] Remote collection over SSH for Linux (Q3–Q5 decided 2026-09-27;
       migration 0012, PROTOCOL.md §4): "Add host" → "Reach it from an
       existing agent", `GET /v1/agent/config` + `POST /v1/agent/status`,

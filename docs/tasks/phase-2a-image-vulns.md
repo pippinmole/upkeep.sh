@@ -151,8 +151,17 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       sends only package URLs + paths, once per image. New wire section
       in PROTOCOL.md; adding it is a privacy decision (the list names
       the software in private images). Weigh the agent binary size cost.
-      Keep `/var/lib/docker` / `/var/lib/containerd` readable when the
-      `/:/host:ro` mount is narrowed (Phase 1.6), only with Docker on.
+      The `/host` mount is now non-recursive (Phase 1.6), so this needs
+      its own binds; see "Agent Syft mounts" below.
+- [ ] Agent Syft mounts: the non-recursive `/host` (Phase 1.6) doesn't
+      carry `/var/lib/docker` or `/var/lib/containerd` when `/var` is a
+      separate filesystem. When agent-side Syft is built, bind both
+      read-only under `/host-extra` **only in the Docker opt-in** (the
+      compose example's commented socket block and the Register agent
+      dialog's Docker checkbox, via `web/src/lib/host-mounts.ts`), with
+      `create_host_path: false`, and extend `agent/test/host-mount/run.sh`
+      to check that neither directory carries a reachable socket
+      (containerd keeps its sockets in `/run`, but check).
 - [ ] Verification: compare our results with `docker scout cves` /
       Trivy / Grype on a fixed set of images (`postgres:17`,
       `nginx:1.27`, an Alpine variant, an EOL `debian:buster` image)
