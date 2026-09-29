@@ -171,14 +171,15 @@ export const getImageOverview = cache(async function getImageOverview(
       distro_name: string | null;
       release: string | null;
       supported: boolean | null;
-      eol_date: Date | null;
+      eol_date: string | null; // YYYY-MM-DD
       attempts: number;
       last_attempt_at: Date | null;
       next_attempt_at: Date | null;
     }>(
       `SELECT st.status, st.reason, st.source, st.tool_name, st.tool_version, st.generated_at,
               st.package_count, st.distro, st.distro_version, st.distro_name, st.release,
-              dr.supported, dr.eol_date, st.attempts, st.last_attempt_at, st.next_attempt_at
+              dr.supported, to_char(dr.eol_date, 'YYYY-MM-DD') AS eol_date, st.attempts,
+              st.last_attempt_at, st.next_attempt_at
        FROM image_sbom_state st
        LEFT JOIN distro_releases dr ON dr.distro = st.distro AND dr.codename = st.release
        WHERE st.image_id = $2 AND st.os = $3 AND st.arch = $4 AND st.variant = $5
@@ -222,7 +223,7 @@ export const getImageOverview = cache(async function getImageOverview(
           distroName: l.distro_name,
           release: l.release,
           releaseSupported: l.supported,
-          releaseEol: l.eol_date?.toISOString().slice(0, 10) ?? null,
+          releaseEol: l.eol_date,
           attempts: l.attempts,
           lastAttemptAt: l.last_attempt_at?.toISOString() ?? null,
           nextAttemptAt: l.next_attempt_at?.toISOString() ?? null,

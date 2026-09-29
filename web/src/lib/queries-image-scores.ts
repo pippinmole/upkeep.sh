@@ -16,12 +16,16 @@ import { isSeverity } from "./severity";
 
 export const IMAGE_SCORE_COLUMNS = `
   s.list_status, s.list_reason, s.list_source, s.distro, s.release, s.distro_name,
-  dr.supported AS release_supported, s.scored, s.package_count, s.not_assessed_count,
+  dr.supported AS release_supported, to_char(dr.eol_date, 'YYYY-MM-DD') AS release_eol,
+  sbst.distro_version, s.scored, s.package_count, s.not_assessed_count,
   s.vuln_count, s.worst_severity, s.critical_count, s.high_count, s.medium_count,
   s.unknown_count, s.low_count, s.negligible_count, s.kev_count, s.fixable_count,
   s.max_cvss`;
 
-export const RELEASE_JOIN = `LEFT JOIN distro_releases dr ON dr.distro = s.distro AND dr.codename = s.release`;
+// The list's distro_releases row (supported, EOL) and its os-release
+// VERSION_ID (image_scores has the codename only).
+export const RELEASE_JOIN = `LEFT JOIN distro_releases dr ON dr.distro = s.distro AND dr.codename = s.release
+  LEFT JOIN image_sbom_state sbst ON sbst.id = s.sbom_id`;
 
 export type ImageScoreDbRow = {
   list_status: string | null;
@@ -31,6 +35,8 @@ export type ImageScoreDbRow = {
   release: string | null;
   distro_name: string | null;
   release_supported: boolean | null;
+  release_eol: string | null;
+  distro_version: string | null;
   scored: boolean | null;
   package_count: number | null;
   not_assessed_count: number | null;
@@ -62,6 +68,8 @@ export function mapImageScore(r: ImageScoreDbRow): ImageScore | null {
     release: r.release,
     distroName: r.distro_name,
     releaseSupported: r.release_supported,
+    releaseEol: r.release_eol,
+    distroVersion: r.distro_version,
     scored: r.scored === true,
     packages: r.package_count,
     notAssessed: r.not_assessed_count,

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { ReleaseNotAssessedBadge } from "@/components/image/release-badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { imageScoreState, type ImageScore } from "@/lib/image-score";
 import { SEVERITIES, SEVERITY_LABEL } from "@/lib/severity";
@@ -80,15 +81,7 @@ export function ImageScoreCell({
       body = <Muted title="The package list is being matched against advisories">Scoring…</Muted>;
       break;
     case "release_not_assessed":
-      body = (
-        <Badge
-          variant="dashed"
-          className="font-normal whitespace-nowrap"
-          title={`${st.distro} ${st.release ?? ""} isn't assessed (out of support, or advisories not imported): no known vulnerabilities means nothing here`}
-        >
-          Release not assessed
-        </Badge>
-      );
+      body = <ReleaseNotAssessedBadge st={st} />;
       break;
     case "no_known":
       body = (

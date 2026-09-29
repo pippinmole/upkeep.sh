@@ -12,8 +12,8 @@ import { SCORED_LIST_SQL } from "./queries-image-vulns";
 //
 // A package's status, in order: vulnerable (has matches), pending (the
 // matcher hasn't evaluated the version yet), not assessed (ecosystem /
-// distro the matcher doesn't cover, matcher.Assessed mirrored in
-// assessed.ts, or a release out of support: distro_releases.supported),
+// distro the matcher doesn't cover, or a release out of support / not in
+// distro_releases: matcher.Assessed mirrored in assessed.ts),
 // else no known vulnerabilities. Match counts are the package's own
 // software_vulnerabilities rows; its worst severity is the worst of the
 // Vulnerabilities tab rows (image_sbom_vulns, Go-assessed per source
@@ -56,8 +56,7 @@ pk AS (
   SELECT sv.id, sv.ecosystem, sv.distro, sv.release, sv.name, sv.version, sv.arch,
          sv.source_name, sv.source_version, sv.matcher_version, sv.max_fixed_version,
          isw.paths, dr.supported AS release_supported,
-         ${assessedSql("sv.ecosystem", "sv.distro", "sv.release")}
-           AND (sv.distro = '' OR coalesce(dr.supported, false)) AS assessed
+         ${assessedSql("sv.ecosystem", "sv.distro", "sv.release", "dr.supported")} AS assessed
   FROM image_sbom_effective($1) e
   JOIN image_software isw ON isw.sbom_id = e.sbom_id
   JOIN software_versions sv ON sv.id = isw.software_id

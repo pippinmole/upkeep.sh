@@ -1,9 +1,14 @@
 import { AlertTriangle, Clock, Info, PackageX } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { isAssessedDistro } from "@/lib/assessed";
-import { SBOM_REASON_PRIVATE } from "@/lib/image-score";
-import type { ImageListState, ImageOverview } from "@/lib/queries-image";
+import {
+  RELEASE_NOT_ASSESSED_LABEL,
+  releaseName,
+  releaseNotAssessed,
+  releaseNotAssessedText,
+  SBOM_REASON_PRIVATE,
+} from "@/lib/image-score";
+import type { ImageOverview } from "@/lib/queries-image";
 import { formatDate, formatDateTime } from "@/lib/time";
 
 // Why the image has no package list, or why its list says less than it
@@ -19,11 +24,6 @@ export type ListView =
 
 export function listView(o: ImageOverview): ListView {
   return o.list?.status === "ok" ? "tables" : "state";
-}
-
-function releaseLabel(l: ImageListState): string {
-  const name = l.distroName ?? [l.distro, l.distroVersion].filter(Boolean).join(" ");
-  return l.release && !name.includes(l.release) ? `${name} (${l.release})` : name;
 }
 
 export function ImageListStateNote({ overview }: { overview: ImageOverview }) {
@@ -96,19 +96,16 @@ export function ImageListStateNote({ overview }: { overview: ImageOverview }) {
   }
 
   // ok: the list is there; say what it doesn't cover.
-  if (list.distro && (!isAssessedDistro(list.distro) || list.releaseSupported !== true)) {
-    const label = releaseLabel(list);
+  const why = releaseNotAssessed(list.distro, list.releaseSupported);
+  if (why && list.distro) {
+    const label = releaseName(list.distro, list.distroVersion, list.release, list.distroName);
     return (
       <Alert>
         <Info className="size-4" />
-        <AlertTitle>Release not assessed</AlertTitle>
+        <AlertTitle>{RELEASE_NOT_ASSESSED_LABEL[why]}, not assessed</AlertTitle>
         <AlertDescription>
-          {!isAssessedDistro(list.distro)
-            ? `${label}: this distribution's advisories aren't imported, so its packages aren't matched.`
-            : list.releaseSupported === false
-              ? `${label} is out of support${list.releaseEol ? ` since ${formatDate(list.releaseEol)}` : ""}: its advisories aren't imported, so its packages aren't matched.`
-              : `${label} isn't a release the matcher knows, so its packages aren't matched.`}{" "}
-          No vulnerabilities listed here doesn&apos;t mean there are none.
+          {releaseNotAssessedText(why, label, list.releaseEol, formatDate)} No vulnerabilities
+          listed here doesn&apos;t mean there are none.
         </AlertDescription>
       </Alert>
     );
