@@ -227,7 +227,10 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       ('', 'npm', name), OSV range semantics for language ecosystems,
       GHSA severity as the ranking priority. Live: 7,504 advisories, the
       node images' not-assessed counts 189 → 2 and 318 → 120, 48 npm
-      rows in `image_sbom_vulns`.
+      rows in `image_sbom_vulns`. PyPI done 2026-09-29
+      (`server/internal/pep440`, equal to pypa/packaging on the feed's
+      40,482 versions; `matcher.Version` 5): 13,947 advisories; GHSA and
+      PYSEC records for one CVE give one finding.
 - [ ] Agent: package lists for images the server can't pull (no repo
       digest = built locally, or a private registry). The push response
       carries "need a package list for these image IDs"; the agent runs

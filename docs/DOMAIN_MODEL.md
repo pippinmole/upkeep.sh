@@ -351,31 +351,36 @@ all CVE-keyed), 12,940 affected rows: 3.21 3,096 · 3.22 3,229 · 3.23
 19 MB heap.
 
 **As built (P2a, language ecosystems).** `feeds.OSVEcosystems` also
-lists the language directories: `npm`. A language directory maps to a
-package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
-`software_versions.ecosystem` `npm`; `osv.DistroFor` is `''`), and
-`osv/language.go` normalizes its records:
+lists the language directories: `npm`, `PyPI`. A language directory
+maps to a package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
+`software_versions.ecosystem` `npm`, `PyPI` → `pypi`; `osv.DistroFor` is
+`''`), and `osv/language.go` normalizes its records:
 
-- **Rows**: `distro = ''`, `release` = the software ecosystem (`npm`),
-  `source_package` = the package name as `software_versions` stores it
-  (§4.5: npm `@scope/name`), so one (distro, release, source) key never
+- **Rows**: `distro = ''`, `release` = the software ecosystem (`npm`,
+  `pypi`), `source_package` = the package name as `software_versions`
+  stores it (§4.5: npm `@scope/name`; PyPI PEP 503-normalised, which
+  OSV's PyPI names already are), so one (distro, release, source) key never
   mixes two ecosystems' packages of the same name. The matcher maps a
   language package (interned with distro and release `''`) to that key
   (`matcher.AdvisoryScope`), and the `advisory_changes` drain joins
   `('', ecosystem, name)` keys to `software_versions` by ecosystem.
-- **Ranges**: `SEMVER` and `ECOSYSTEM` ranges (npm uses `SEMVER`; 54
-  entries `ECOSYSTEM`), `introduced` / `fixed` / `last_affected`; `GIT`
-  ranges are skipped. An entry with no usable range falls back to its
+- **Ranges**: `SEMVER` and `ECOSYSTEM` ranges (npm uses `SEMVER`, 54
+  entries `ECOSYSTEM`; PyPI `ECOSYSTEM`, 1,567 entries with an extra
+  `GIT` range), `introduced` / `fixed` / `last_affected`; `GIT` ranges
+  (commits) are skipped. An entry with no usable range falls back to its
   `versions` list, one exact row per version (`introduced` =
-  `last_affected` = the version; 129 rows in npm), and keeps that list in
-  `raw`. Records list one package per branch routinely (minimatch: eight
-  ranges), which the matcher's language rule handles (§2.5).
+  `last_affected` = the version; 129 rows in npm, 180 in PyPI), and
+  keeps that list in `raw`. Records list one package per branch
+  routinely (minimatch: eight ranges), which the matcher's language rule
+  handles (§2.5).
 - **Keys**: `vuln_key` is the record's CVE alias when it has exactly one;
   a record citing several is keyed by its own id and matched per CVE (as
   a DSA is); a record without a CVE is keyed by its GHSA id, its own or
   its lowest GHSA alias (a `GO-`/`PYSEC-` record and the GHSA it aliases
-  then key one finding), else its own id. npm: 6,027 CVE-keyed, 1,101
-  GHSA-keyed.
+  then key one finding), else its own id. npm: 6,054 CVE-keyed, 1,404
+  GHSA-keyed; PyPI: 13,168 CVE-, 414 GHSA-, 360 PYSEC-keyed. PyPI has a
+  GHSA *and* a PYSEC record for 5,657 of its 6,320 CVEs, both keyed by
+  the CVE: one finding citing both ids.
 - **Severity**: the GHSA's reviewed severity (record-level
   `database_specific.severity`, lowercased: `critical` / `high` /
   `moderate` / `low`) is the rows' `distro_severity`, so it ranks like a
@@ -386,7 +391,11 @@ package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
   enrichment of every `vuln_key`, KEV/EPSS just never match those), and
   only filling in a CVE no distro per-CVE record has scored
   (`Advisory.CVSSIfMissing`), so distro scores win and two GHSAs don't
-  flip-flop. A multi-CVE record's single score isn't stored.
+  flip-flop. A multi-CVE record's single score isn't stored. PYSEC and
+  GO records carry no reviewed severity (and GO records no CVSS), so a
+  key only they cover ranks "unknown" with KEV/EPSS/CVSS, as an Alpine
+  one does. `CVSS_V4`-only records (1,210 npm, 1,129 PyPI) give `cves`
+  no score.
 - **Shared records**: one GHSA can list packages of several ecosystems
   and then sits in each ecosystem's `all.zip` under the same id (46
   npm/PyPI, 10 npm/Go, 16 PyPI/Go on 2026-09-29). Every language feed
@@ -401,14 +410,20 @@ package ecosystem, not a distro (`osv.Languages`: OSV `npm` →
   full sync skips them by file name unread, the incremental one before
   fetching or counting them (`OSVStats.malicious`); they would otherwise
   force a full import almost every hour. Of npm's 229,533 records,
-  222,028 are `MAL-`.
-- 5 rows of 9,754 are dropped as duplicate keys (the same package listed
-  twice with the same `introduced`), as for Ubuntu's duplicate releases.
+  222,028 are `MAL-`; of PyPI's 25,757, 11,787.
+- 5 npm rows of 9,754 are dropped as duplicate keys (the same package
+  listed twice with the same `introduced`), as for Ubuntu's duplicate
+  releases.
 
-Live first sync of `npm` (2026-09-29, on a copy of dev data): all.zip
-207 MB, 229,533 records, 7,504 imported (355 withdrawn), 9,749 affected
-rows over 6,295 packages; 55 s of which ~50 s download, ~5 s import,
-120 MB heap, 143 MB RSS. An immediate incremental run: 0.2 s.
+Live first syncs (2026-09-29, on a copy of dev data; records = zip
+entries including `MAL-`):
+
+| Feed | all.zip | Records | Imported (withdrawn) | Rows / packages | Time | Heap / RSS |
+|------|---------|---------|----------------------|-----------------|------|------------|
+| npm  | 207 MB  | 229,533 | 7,504 (355)          | 9,749 / 3,593   | 55 s (~50 s download) | 119 / 143 MB |
+| PyPI | 33 MB   | 25,757  | 13,947 (543)         | 22,166 / 1,652  | 11 s (~5 s download)  | 43 / 60 MB   |
+
+An immediate incremental run takes 0.2 s.
 
 ### 2.4 Advisory schema (replaces `vulnerabilities`)
 
@@ -638,6 +653,15 @@ ecosystem is one comparator plus its feed. Language ecosystems:
   numbers capped at `MAX_SAFE_INTEGER`), in-tree because node-semver's
   syntax differs from `golang.org/x/mod/semver`'s (`1.2` is invalid for
   npm); tested with node-semver's comparison and equality fixtures.
+- `pypi` → `server/internal/pep440`: PEP 440 as pypa/packaging's
+  `Version` (epochs, release with trailing zeros ignored, `a`/`b`/`rc`
+  and their spellings, `.post`/`-N`, `.dev`, local versions ordered
+  segment-wise), in-tree (one regex, one ordering); tested with
+  packaging's own ordering, normalisation and invalid-version vectors,
+  and checked equal to packaging 26.3 on all 40,482 valid versions in
+  the PyPI feed. Legacy (non-PEP 440) versions are invalid, as in
+  packaging ≥ 22: 2,051 distinct feed versions, nearly all in `versions`
+  lists (`0.1.0.dev-120828c`), are bad versions, skipped.
 - **Range semantics.** A language record lists one range per maintained
   branch (`[0, 3.1.3)`, `[9.0.0, 9.0.6)`, ...), so the distro rule "any
   row saying fixed wins" would call minimatch 9.0.4 fixed because it is
@@ -659,7 +683,7 @@ ecosystem is one comparator plus its feed. Language ecosystems:
   single answer to "is this package matched at all" (for "not assessed"
   counts): `deb` on debian/ubuntu and `apk` on alpine, with a release
   that `distro_releases` lists as supported; the language ecosystems
-  (`npm`) with distro `''`, release ignored. Advisories are imported
+  (`npm`, `pypi`) with distro `''`, release ignored. Advisories are imported
   only for supported releases, so a release out of support (Debian 10
   buster) or one not in `distro_releases` matches nothing and its
   packages are "not assessed", never "no vulnerabilities"
@@ -674,7 +698,7 @@ ecosystem is one comparator plus its feed. Language ecosystems:
   "evaluated, nothing to match" under 1; the bump re-evaluates them.
   deb results are unchanged. 3: `Assessed` needs a supported release;
   matches are unchanged, the bump re-scores image lists. 4: npm
-  packages are matched.
+  packages are matched. 5: PyPI packages are matched.
 - Host findings (`findings.Build`) still pick the lowest installed
   version with debversion; hosts only send deb today.
 
