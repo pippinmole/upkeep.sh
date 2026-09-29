@@ -18,9 +18,18 @@
 - **`agent/`** — single static Go binary, MIT/Apache-licensed, distributed
   as a Docker image (see `agent/docker-compose.example.yml`) or a plain
   systemd unit. Runs with `pid: host` + `network_mode: host` (to see the
-  real host's processes/sockets, not the container's own) and a read-only
-  `/:/host:ro` bind mount (for filesystem facts native namespaces don't
-  expose: dpkg database, `/etc/os-release`, reboot-required flag). It
+  real host's processes/sockets, not the container's own) and read-only
+  bind mounts for filesystem facts native namespaces don't expose (dpkg
+  database, `/etc/os-release`, apt state, systemd units): the host's `/`
+  at `/host`, bound non-recursively so no socket on the `/run` tmpfs
+  (docker.sock, containerd, D-Bus, systemd) is reachable, plus
+  `var/lib/dpkg`, `var/lib/apt` and `run/systemd/system` under
+  `/host-extra` (`target.ExtraPaths`, overlaid onto `/host` by the
+  agent's `hostFS`). `/run/reboot-required` isn't mounted, so a pending
+  reboot is derived from the kernel packages. The agent checks at
+  startup that no host socket is reachable under `/host` (a `WARN:` log,
+  the `host_mount` collector status, `agent check-mounts`), and CI checks
+  the compose example the same way (`.github/workflows/host-mount.yml`). It
   collects facts only — no command execution, no inbound ports. CVE
   matching happens server-side so the agent stays small and auditable.
   Planned ([tasks/phase-1-6-docker-exposure.md](tasks/phase-1-6-docker-exposure.md)): Docker containers, images and Swarm

@@ -51,11 +51,25 @@ supply chain instead (signed images, SBOM and provenance, versioned tags
 rather than `:latest`, scoped publish tokens; [cross-cutting gaps](../tasks/cross-cutting-gaps.md)), which protects
 every host whether or not Docker is enabled.
 
-Found while deciding this: the current `/:/host:ro` mount is recursive,
-so `/host/run/docker.sock` is already reachable, and was shown to allow
-`POST /containers/create` under the agent's exact hardening. The agent
-code never uses it, but it means opting out of Docker isn't real until
-that mount is fixed ([Phase 1.6](../tasks/phase-1-6-docker-exposure.md)).
+Found while deciding this: the original `/:/host:ro` mount was
+recursive, so `/host/run/docker.sock` was reachable, and was shown to
+allow `POST /containers/create` under the agent's exact hardening. The
+agent code never used it, but it meant opting out of Docker wasn't real.
+**Fixed** ([Phase 1.6](../tasks/phase-1-6-docker-exposure.md), "Make
+opting out real"): the host's `/` is now bound non-recursively
+(`bind: recursive: disabled`), so the `/run` tmpfs and its sockets
+(docker.sock, containerd, D-Bus, systemd) aren't carried into `/host`.
+The few directories the collectors read from other mounts
+(`var/lib/dpkg`, `var/lib/apt`, `run/systemd/system`) are bound one by
+one under `/host-extra`, and `/run/reboot-required` is replaced by a
+pending reboot derived from the kernel packages. A regression shows up:
+the agent logs a startup `WARN:` and reports the
+`host_mount` collector as an error when any host socket is reachable
+under `/host` (`agent check-mounts` does the same by hand), and the
+`Host mount` CI workflow runs that check and a socket probe against
+`agent/docker-compose.example.yml` itself. With the Docker opt-in, the
+socket is mounted at its own path outside `/host`, which is the only
+Docker access the agent has.
 
 **Client: Docker's official Go client** (see the package below),
 decided 2026-09-28 by the user, replacing a hand-written GET-only
