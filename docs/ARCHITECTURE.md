@@ -57,7 +57,8 @@
     ~800 MB) never compete with ingest. One-shot commands run the same
     code in the foreground: `worker sync osv|kev|epss`, `worker match`
     (sweep + drain), `worker reconcile [host…]`, `worker rerank`,
-    `worker image-sbom <image_id> <os> <arch> [variant]`. River
+    `worker image-sbom <image_id> <os> <arch> [variant]`,
+    `worker image-scan <image_id> <os> <arch> [variant]`. River
     elects a leader for periodic scheduling, syncs are unique jobs and
     matcher writes take a Postgres advisory lock, so extra replicas are
     safe.
@@ -209,7 +210,9 @@ findings queue:
 
 [tasks/phase-2a-image-vulns.md](tasks/phase-2a-image-vulns.md), [decisions/container-image-vulnerabilities.md](decisions/container-image-vulnerabilities.md). The
 server's own package list per image key (fleet-wide, `owner_workspace_id`
-NULL) comes from the image's registry SBOM attestation.
+NULL) comes from the image's registry SBOM attestation, else from
+pulling the image and cataloguing it with Syft on the server
+(`server-syft`).
 
 ```
 ingest tx: host_images range opened with a repo digest, key has no server
@@ -218,6 +221,10 @@ every 10 min (fetching enabled) ──> image_sbom_sweep: retry-due rows, keys w
   repo digest but no server row, rows recorded while fetching was disabled
 image_sbom: registry.FetchSBOM ─> sbom.Parse ─> purl.Map ─> WriteImageSBOM
   └─ newly interned versions ──> match_versions (same tx)
+  └─ no attestation, scanning on: hand-over ──> image_scan{key}       [image_scan]
+image_scan: registry.ResolveImage ─> DownloadBlob per layer (temp file)
+  ─> extract into <SW_IMAGE_SCAN_DIR>/scan-*/rootfs ─> child `worker syft-catalog`
+  ─> sbom.FromEntries ─> purl.Map ─> WriteImageSBOM (source server-syft) ─> rm -r
 ```
 
 - `image_sbom` is unique per image key while waiting or running, so the
@@ -241,9 +248,74 @@ image_sbom: registry.FetchSBOM ─> sbom.Parse ─> purl.Map ─> WriteImageSBOM
   `auth.docker.io` for Docker Hub images, only to raise the rate limit
   (anonymous: 100 manifest GETs per hour per IP; an image costs 2 to 3).
 - **`SW_IMAGE_FETCH_ENABLED=false`** (default true) turns all outbound
-  image fetching off for air-gapped installs: jobs record `unavailable`
-  "image fetching disabled on this server" and the sweep isn't
-  scheduled. Re-enabling it retries those rows.
+  image fetching off for air-gapped installs, image pulls included: jobs
+  record `unavailable` "image fetching disabled on this server" and the
+  sweep isn't scheduled. Re-enabling it retries those rows.
+
+### Server-side Syft (`image_scan`, `internal/imagescan`)
+
+For public images whose registry has no SBOM attestation (`unavailable`
+"registry has no SBOM attestation for this image", the work list).
+`SW_IMAGE_SCAN_ENABLED=false` (default true) keeps those rows as they
+are.
+
+- **Hand-over.** `image_sbom` finding no attestation records that reason
+  without counting an attempt and queues `image_scan{key}` (own queue,
+  unique per key). The sweep also queues `image_scan` for work-list rows
+  that still have a repo digest (a lost enqueue; rows from before
+  scanning was on). A failed scan's retry goes through `image_sbom`
+  again, so an attestation published since still wins; an `ok` list
+  (either source) is never rescanned and a failure never replaces it.
+- **Network.** Syft never touches the network: our registry client
+  resolves the platform manifest (same image-id check as attestations)
+  and downloads each layer blob by digest through `netguard`, streamed
+  to a temp file, digest and size verified, then extracted and deleted.
+- **Extraction** (`extract.go`) applies layers in order into one rootfs
+  through an `os.Root`: names are cleaned to the rootfs, a path through
+  a symlink that leaves it fails (entry skipped), whiteouts and opaque
+  directories are applied, device nodes and FIFOs skipped, owners and
+  setuid dropped. The decompressed stream is counted against the
+  uncompressed cap as it is read (a decompression bomb stops at the
+  cap); gzip, zstd and plain tar layers, others (Windows foreign
+  layers) are `unavailable`.
+- **Catalog** in a child process (the worker binary re-executed with
+  the hidden `syft-catalog` subcommand): Syft as a library
+  (`github.com/anchore/syft`, Apache-2.0) over the rootfs as a
+  directory source with the rootfs as its symlink base, with the
+  catalogers Syft uses for images (installed packages, squashed view),
+  file cataloging off. The child gets `GOMAXPROCS` and `GOMEMLIMIT`
+  (80 % of the memory limit), no `SW_*` or `DATABASE_URL`, and is
+  SIGKILLed at the image's deadline; on Linux a watchdog kills it when
+  its RSS passes the memory limit and it dies with the worker
+  (Pdeathsig). Why a child: Syft has no CPU/memory knobs and a goroutine
+  can't be stopped; a cgroup would be stricter but needs privileges the
+  container doesn't have, and `RLIMIT_AS` breaks the Go runtime. It
+  writes packages (purl + paths, sorted) and the os-release as JSON;
+  `sbom.FromEntries` then applies the same purl parsing and path rules
+  as SBOM documents, so lists map like attestation lists (Syft writes
+  `distro=`, `upstream=` and epochs folded into deb versions).
+- **Bounds** (worker env, defaults): `SW_IMAGE_SCAN_WORKERS` (1: scans
+  at once per worker), `SW_IMAGE_SCAN_MAX_COMPRESSED_BYTES` (2 GiB of
+  layer blobs, checked from the manifest before downloading and while
+  streaming), `SW_IMAGE_SCAN_MAX_UNCOMPRESSED_BYTES` (8 GiB extracted;
+  disk use is at most that plus one compressed layer per running scan),
+  `SW_IMAGE_SCAN_TIMEOUT` (20 min wall clock per image: pull, extract,
+  catalog), `SW_IMAGE_SCAN_CPUS` (1), `SW_IMAGE_SCAN_MEMORY_BYTES`
+  (2 GiB), `SW_IMAGE_SCAN_DIR` (`$TMPDIR/upkeep-image-scan`; one worker
+  process per directory).
+- **Cleanup.** Each scan's `scan-*` directory is removed when the scan
+  returns, whatever happened (the job's panics are recovered by River,
+  so the deferred removal still runs); scans a killed worker left
+  behind are swept on worker start.
+- **Outcomes.** `ok` with source `server-syft`, tool `syft` and Syft's
+  module version, `generated_at` = scan time. Over a size cap, an
+  unsupported layer format, over the memory limit: `unavailable` with
+  the scan's reason, no timer. Timeout or another failure (a crash,
+  disk I/O): `error` on the usual backoff. Registry errors as for
+  attestations.
+- **Cost.** Syft adds ~64 MB to the worker binary (linux/arm64,
+  stripped: 13.5 MB before, 77.6 MB after; the server image grows by the
+  same; tasks/phase-2a-image-vulns.md).
 
 ## Alerting
 
