@@ -5,22 +5,34 @@ import "testing"
 func TestAssessed(t *testing.T) {
 	tests := []struct {
 		eco, distro, release string
+		supported            bool
 		want                 bool
 	}{
-		{"deb", "debian", "bookworm", true},
-		{"deb", "ubuntu", "jammy", true},
-		{"apk", "alpine", "3.22", true},
-		{"deb", "debian", "", false},   // release unknown: can't join per-release advisories
-		{"apk", "debian", "12", false}, // apk packages in a non-Alpine image
-		{"deb", "alpine", "3.22", false},
-		{"rpm", "rhel", "9", false},
-		{"npm", "", "", false}, // task G
-		{"homebrew", "", "", false},
+		{"deb", "debian", "bookworm", true, true},
+		{"deb", "ubuntu", "jammy", true, true},
+		{"apk", "alpine", "3.22", true, true},
+		{"deb", "debian", "buster", false, false}, // out of support: advisories not imported
+		{"deb", "debian", "sid", false, false},    // not in distro_releases
+		{"apk", "alpine", "3.18", false, false},
+		{"deb", "debian", "", true, false},   // release unknown: can't join per-release advisories
+		{"apk", "debian", "12", true, false}, // apk packages in a non-Alpine image
+		{"deb", "alpine", "3.22", true, false},
+		{"rpm", "rhel", "9", true, false},
+		{"npm", "", "", false, false}, // task G
+		{"homebrew", "", "", false, false},
 	}
 	for _, tt := range tests {
-		if got := Assessed(tt.eco, tt.distro, tt.release); got != tt.want {
-			t.Errorf("Assessed(%q, %q, %q) = %v, want %v", tt.eco, tt.distro, tt.release, got, tt.want)
+		if got := Assessed(tt.eco, tt.distro, tt.release, tt.supported); got != tt.want {
+			t.Errorf("Assessed(%q, %q, %q, %v) = %v, want %v", tt.eco, tt.distro, tt.release, tt.supported, got, tt.want)
 		}
+	}
+}
+
+func TestReleaseStatusOf(t *testing.T) {
+	yes, no := true, false
+	if ReleaseStatusOf(&yes) != ReleaseSupported || ReleaseStatusOf(&no) != ReleaseOutOfSupport ||
+		ReleaseStatusOf(nil) != ReleaseUnknown {
+		t.Error("ReleaseStatusOf")
 	}
 }
 

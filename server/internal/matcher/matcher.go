@@ -73,7 +73,12 @@ import (
 //	   since migration 0014 and evaluated as "not matched" under 1) are
 //	   now matched with apkversion. deb results are unchanged; their
 //	   re-evaluation only restamps matcher_version.
-const Version = 2
+//	3  Assessed needs a supported release (distro_releases.supported):
+//	   packages of an end-of-life or unknown release are "not assessed".
+//	   Matches are unchanged (only supported releases' advisories are
+//	   imported); the bump re-scores image lists (image_sbom_scores
+//	   .not_assessed_count), and version re-evaluation only restamps.
+const Version = 3
 
 // Channels, as in advisory_affected.channel.
 const (

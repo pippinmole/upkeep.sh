@@ -53,13 +53,16 @@ func (s *Store) ScoreImageSBOM(ctx context.Context, sbomID int64) (ScoreResult, 
 	}
 	res.Found = true
 
-	// Package counts per (ecosystem, distro, release), for "not assessed", and the
-	// versions still waiting for the matcher.
+	// Package counts per (ecosystem, distro, release), for "not assessed"
+	// (a release out of support or not in distro_releases is not assessed),
+	// and the versions still waiting for the matcher.
 	rows, err := tx.Query(ctx, `
-		SELECT sv.ecosystem, sv.distro, sv.release, count(*), count(*) FILTER (WHERE sv.matcher_version IS NULL)
+		SELECT sv.ecosystem, sv.distro, sv.release, coalesce(dr.supported, false),
+		       count(*), count(*) FILTER (WHERE sv.matcher_version IS NULL)
 		FROM image_software isw JOIN software_versions sv ON sv.id = isw.software_id
+		LEFT JOIN distro_releases dr ON dr.distro = sv.distro AND dr.codename = sv.release
 		WHERE isw.sbom_id = $1
-		GROUP BY sv.ecosystem, sv.distro, sv.release
+		GROUP BY sv.ecosystem, sv.distro, sv.release, dr.supported
 	`, sbomID)
 	if err != nil {
 		return res, err
@@ -68,15 +71,16 @@ func (s *Store) ScoreImageSBOM(ctx context.Context, sbomID int64) (ScoreResult, 
 	for rows.Next() {
 		var (
 			eco, distro, release string
+			supported            bool
 			n, pending           int
 		)
-		if err := rows.Scan(&eco, &distro, &release, &n, &pending); err != nil {
+		if err := rows.Scan(&eco, &distro, &release, &supported, &n, &pending); err != nil {
 			rows.Close()
 			return res, err
 		}
 		packages += n
 		res.Pending += pending
-		if !matcher.Assessed(eco, distro, release) {
+		if !matcher.Assessed(eco, distro, release, supported) {
 			notAssessed += n
 		}
 	}

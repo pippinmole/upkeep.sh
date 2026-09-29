@@ -42,20 +42,44 @@ func ComparatorFor(eco string) (Comparator, bool) {
 }
 
 // Assessed reports whether packages of (ecosystem, distro, release) are
-// matched against advisories at all: the ecosystem has a comparator and
-// the distro's advisories are imported for it, and a distro-scoped
-// package has a release (one interned with an empty release can't be
-// joined to per-release advisories).
-//
-// Whether that release is still supported (distro_releases.supported,
-// i.e. not end-of-life) is data, not code: callers that need it join
-// distro_releases on (distro, codename = release).
-func Assessed(eco, distro, release string) bool {
+// matched against advisories at all: the ecosystem has a comparator, the
+// distro's advisories are imported for it, and a distro-scoped package
+// has a release that is still supported. supported is
+// distro_releases.supported for (distro, codename = release), false when
+// the release isn't in distro_releases: advisories are imported only for
+// supported releases, so a release out of support (debian buster) or one
+// we don't know matches nothing, and "no vulnerabilities" there means
+// nothing. It is ignored for packages without a distro (language
+// ecosystems). A package interned with an empty release can't be joined
+// to per-release advisories either.
+func Assessed(eco, distro, release string, supported bool) bool {
 	e, ok := ecosystems[eco]
 	if !ok || !e.distros[distro] {
 		return false
 	}
-	return distro == "" || release != ""
+	return distro == "" || (release != "" && supported)
+}
+
+// ReleaseStatus is how a distro release stands for the matcher, from its
+// distro_releases row: why an image of that release is or isn't assessed.
+type ReleaseStatus string
+
+const (
+	ReleaseSupported    ReleaseStatus = "supported"      // advisories imported
+	ReleaseOutOfSupport ReleaseStatus = "out_of_support" // known, end of life (supported = false)
+	ReleaseUnknown      ReleaseStatus = "unknown"        // not in distro_releases
+)
+
+// ReleaseStatusOf maps a distro_releases.supported lookup (nil = no row).
+func ReleaseStatusOf(supported *bool) ReleaseStatus {
+	switch {
+	case supported == nil:
+		return ReleaseUnknown
+	case *supported:
+		return ReleaseSupported
+	default:
+		return ReleaseOutOfSupport
+	}
 }
 
 func set(xs ...string) map[string]bool {

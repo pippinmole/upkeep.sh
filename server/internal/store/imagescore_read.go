@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pippinmole/upkeep.sh/server/internal/matcher"
 )
 
 // Image score read model: image_scores(user) (migration 0015) per image
@@ -25,6 +27,11 @@ type ImageScore struct {
 	Distro     *string
 	Release    *string
 	DistroName *string
+	// The list's release in distro_releases (a LEFT JOIN on distro,
+	// codename = release): supported (NULL = not in the table) and end of
+	// security support. See ReleaseStatus.
+	ReleaseSupported *bool
+	ReleaseEOL       *time.Time
 	// Scored: the ok list has a current score. False while it is being
 	// matched / scored; the counts below are then NULL or stale.
 	Scored   bool
@@ -42,6 +49,17 @@ type ImageScore struct {
 	MaxCVSS                        *float64
 }
 
+// ReleaseStatus is why the list's distro packages are or aren't
+// assessed: out of support or unknown releases match nothing
+// (matcher.Assessed), so the image is "release out of support, not
+// assessed", never clean. Empty when the list has no distro.
+func (s ImageScore) ReleaseStatus() matcher.ReleaseStatus {
+	if s.Distro == nil || *s.Distro == "" {
+		return ""
+	}
+	return matcher.ReleaseStatusOf(s.ReleaseSupported)
+}
+
 // Clean reports whether the image is known to have no vulnerabilities:
 // an ok, scored list with no matches and every package assessed. An image
 // without a list, or with unassessed packages, is never clean.
@@ -55,7 +73,10 @@ const imageScoreCols = `s.image_id, s.os, s.arch, s.variant, s.list_status, s.li
 	s.package_count, s.not_assessed_count, s.pending_count, s.vuln_count, s.worst_severity,
 	s.worst_severity_rank, s.top_severity_key, s.critical_count, s.high_count, s.medium_count,
 	s.unknown_count, s.low_count, s.negligible_count, s.kev, s.kev_count, s.fixable_count,
-	s.max_cvss::float8`
+	s.max_cvss::float8, dr.supported, dr.eol_date::timestamptz`
+
+// imageScoreRelease joins the list's distro_releases row (imageScoreCols' dr).
+const imageScoreRelease = `LEFT JOIN distro_releases dr ON dr.distro = s.distro AND dr.codename = s.release`
 
 func scanImageScore(r pgx.CollectableRow) (ImageScore, error) {
 	var x ImageScore
@@ -63,7 +84,7 @@ func scanImageScore(r pgx.CollectableRow) (ImageScore, error) {
 		&x.ListSource, &x.SBOMID, &x.Distro, &x.Release, &x.DistroName, &x.Scored, &x.ScoredAt,
 		&x.Packages, &x.NotAssessed, &x.Pending, &x.Vulns, &x.WorstSeverity, &x.WorstSeverityRank,
 		&x.TopSeverityKey, &x.Critical, &x.High, &x.Medium, &x.Unknown, &x.Low, &x.Negligible,
-		&x.KEV, &x.KEVCount, &x.Fixable, &x.MaxCVSS)
+		&x.KEV, &x.KEVCount, &x.Fixable, &x.MaxCVSS, &x.ReleaseSupported, &x.ReleaseEOL)
 	return x, err
 }
 
@@ -74,6 +95,7 @@ func (s *Store) FleetImageScores(ctx context.Context, workspaceID string) ([]Ima
 	rows, err := s.Pool.Query(ctx, `
 		SELECT `+imageScoreCols+`
 		FROM image_scores($1) s
+		`+imageScoreRelease+`
 		WHERE (s.image_id, s.os, s.arch, s.variant) IN (
 			SELECT hi.image_id, hi.os, hi.arch, hi.variant
 			FROM host_images hi JOIN hosts h ON h.id = hi.host_id
@@ -96,6 +118,7 @@ func (s *Store) HostImageScores(ctx context.Context, hostID string) ([]ImageScor
 		FROM hosts h
 		JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
 		CROSS JOIN LATERAL image_scores(h.workspace_id) s
+		`+imageScoreRelease+`
 		WHERE h.id = $1
 		  AND s.image_id = hi.image_id AND s.os = hi.os AND s.arch = hi.arch AND s.variant = hi.variant
 		ORDER BY s.top_severity_key DESC NULLS LAST, s.image_id
@@ -112,6 +135,7 @@ func (s *Store) ImageScoreOf(ctx context.Context, workspaceID string, key ImageK
 	rows, err := s.Pool.Query(ctx, `
 		SELECT `+imageScoreCols+`
 		FROM image_scores($1) s
+		`+imageScoreRelease+`
 		WHERE s.image_id = $2 AND s.os = $3 AND s.arch = $4 AND s.variant = $5
 	`, workspaceID, key.ImageID, key.OS, key.Arch, key.Variant)
 	if err != nil {
