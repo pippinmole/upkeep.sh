@@ -67,21 +67,30 @@ services:
           recursive: disabled
       # Directories the collectors read that may be on a separate mount,
       # each bound read-only under /host-extra. Keep this list in step
-      # with target.ExtraPaths in the agent.
+      # with target.ExtraPaths in the agent. create_host_path: false makes
+      # a missing source an error instead of Docker silently creating an
+      # empty directory on the host (an empty /run/systemd/system would
+      # make other software think the host boots with systemd). On a host
+      # without dpkg/apt (not Debian/Ubuntu) or without systemd, delete
+      # the matching entry; the collector then reports what isn't visible.
       - type: bind
         source: /var/lib/dpkg
         target: /host-extra/var/lib/dpkg
         read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: /var/lib/apt
         target: /host-extra/var/lib/apt
         read_only: true
-      # run/systemd/system exists only once systemd has generated runtime
-      # units; harmless if absent.
+        bind:
+          create_host_path: false
       - type: bind
         source: /run/systemd/system
         target: /host-extra/run/systemd/system
         read_only: true
+        bind:
+          create_host_path: false
       - upkeep-agent-data:/var/lib/upkeep
       # Optional: Docker containers and images (off by default).
       #
