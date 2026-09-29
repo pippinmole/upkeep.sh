@@ -59,6 +59,10 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
 )
 
+// version is the build version, set at build time with
+// -ldflags "-X main.version=..." (server/Dockerfile's VERSION build arg).
+var version = "dev"
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -194,8 +198,8 @@ func main() {
 	if err := client.Start(ctx); err != nil {
 		log.Fatalf("river start: %v", err)
 	}
-	log.Printf("worker started (periodic syncs: %v, osv ecosystems: %v, osv every %s, full every %s, kev/epss every %s, image fetching: %v)",
-		jcfg.PeriodicSyncs, jcfg.OSVEcosystems, jcfg.OSVInterval, fcfg.FullSyncInterval, jcfg.CVEFeedsInterval,
+	log.Printf("worker %s started (periodic syncs: %v, osv ecosystems: %v, osv every %s, full every %s, kev/epss every %s, image fetching: %v)",
+		version, jcfg.PeriodicSyncs, jcfg.OSVEcosystems, jcfg.OSVInterval, fcfg.FullSyncInterval, jcfg.CVEFeedsInterval,
 		jcfg.Images.FetchEnabled)
 
 	<-ctx.Done()
