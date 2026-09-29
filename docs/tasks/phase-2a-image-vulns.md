@@ -149,10 +149,42 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       urgent" rows now open the CVE page. Sidebar badge stays host
       packages only. Checked on a copy of dev data: per host and fleet,
       open findings per kind from SQL equal the query results.)
-- [ ] Server-side Syft for public images without an SBOM attestation:
+- [x] Server-side Syft for public images without an SBOM attestation:
       pull by digest (the image's platform only) and run Syft as a Go
       library. Bound CPU, memory, disk and concurrency in the worker;
-      delete pulled layers after cataloguing.
+      delete pulled layers after cataloguing. (Done 2026-09-29, no
+      migration; ARCHITECTURE.md "Server-side Syft", DOMAIN_MODEL.md
+      §4.5. `image_sbom` hands a no-attestation key over to a new
+      `image_scan` job (own queue, `SW_IMAGE_SCAN_WORKERS`, default 1)
+      without counting an attempt; the sweep also queues the existing
+      work-list rows. `internal/imagescan`: our registry client resolves
+      the platform manifest (same image-id check) and streams each layer
+      by digest through netguard to a temp file (digest + size verified),
+      layers are applied into one rootfs through an `os.Root` (no escape
+      via names or symlinks, whiteouts + opaque dirs, devices skipped,
+      decompressed bytes capped while streaming), then the worker binary
+      re-executes itself (`worker syft-catalog`) with GOMAXPROCS /
+      GOMEMLIMIT, killed at the deadline, RSS watchdog + Pdeathsig on
+      Linux; `sbom.FromEntries` feeds the same purl.Map ->
+      WriteImageSBOM -> match/score path with source `server-syft`.
+      Bounds: `SW_IMAGE_SCAN_MAX_COMPRESSED_BYTES` 2 GiB,
+      `…_MAX_UNCOMPRESSED_BYTES` 8 GiB, `SW_IMAGE_SCAN_TIMEOUT` 20 min,
+      `SW_IMAGE_SCAN_CPUS` 1, `SW_IMAGE_SCAN_MEMORY_BYTES` 2 GiB,
+      `SW_IMAGE_SCAN_DIR`; `SW_IMAGE_SCAN_ENABLED` and
+      `SW_IMAGE_FETCH_ENABLED=false` turn it off. Live on the dev data:
+      the 5 no-attestation arm64 images became ok server-syft lists
+      (pgadmin4 9.9: 203 packages, 9.18: 196, migrate v4.20.1: 122,
+      pgadmin4-docker-extension ×2: 26), scored; `debian:buster`
+      amd64 and arm64: 91 packages, identical to the syft v1.52.0 CLI;
+      pgadmin4 9.18: 196 purls + 14 purl-less binaries = the CLI's 210.
+      Worker binary (linux/arm64, stripped) 13.5 MB -> 77.6 MB.)
+- [ ] Server-side Syft follow-ups: run the RSS-watchdog / Pdeathsig path
+      in a Linux test (the unit tests run on macOS, where only
+      GOMEMLIMIT and the timeout apply); an opaque whiteout doesn't
+      empty a lower layer's copy of a directory the same layer merged
+      into earlier in its tar (rare ordering); a lock so two worker
+      processes can't share `SW_IMAGE_SCAN_DIR` (the start sweep would
+      delete the other's scans).
 - [x] Alpine: OSV `Alpine` ecosystem in `feeds.OSVEcosystems`, apk
       version comparator, `distro_releases` rows. Many official images
       ship `-alpine` variants, so this comes before language packages.

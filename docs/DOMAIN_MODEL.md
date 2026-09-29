@@ -1619,6 +1619,21 @@ a plain set, replaced as a whole when re-generated, not ranges.
   disabled; also too large, mismatch, unreadable) and no timer; `error`
   with `next_attempt_at` (30 min × 2^attempts, capped at 24 h, never
   before a registry's Retry-After).
+- **Server lists from pulling the image (`image_scan` worker,
+  `internal/imagescan`, source `server-syft`).** For the no-attestation
+  work list: `image_sbom` records "registry has no SBOM attestation"
+  as a hand-over (`attempts` unchanged, no timer) and queues
+  `image_scan`, which pulls the platform's layers by digest, extracts
+  them and runs Syft (tool `syft`, Syft's version, `generated_at` = scan
+  time). Syft's packages go through the same purl rules (`distro=`,
+  `upstream=`, epoch in the deb version) so they intern like attestation
+  and host packages; `paths` as above (the package database for distro
+  packages); packages Syft reports without a purl (e.g. Windows
+  launcher binaries in Python packages) are not stored. Scan failures
+  on the server row: `unavailable` over a size cap, unsupported layers
+  or the memory limit; `error` with the same backoff on timeout or
+  crash (the retry re-checks the attestation first). Neither source
+  ever replaces an `ok` list.
 
 ### 4.6 Target schema sketch (identity and topology)
 
