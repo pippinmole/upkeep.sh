@@ -2,7 +2,7 @@
 # dashboard + API you deploy once, on your own box, e.g. via Dokploy).
 # This is separate from agent/docker-compose.example.yml, which is what
 # gets deployed on each *monitored* host.
-name: security-whatnot
+name: upkeep-sh
 
 services:
   postgres:

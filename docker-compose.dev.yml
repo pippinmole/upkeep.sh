@@ -1,4 +1,4 @@
-name: security-whatnot-dev
+name: upkeep-sh-dev
 
 services:
   postgres:
