@@ -253,7 +253,11 @@ func (c *Collector) Collect(ctx context.Context, t target.Target) collector.Snap
 	if isLinux && osInfo.Like("debian", "ubuntu") {
 		// Without the host's /run (the Docker deployment doesn't mount it)
 		// this is derived from the running kernel vs dpkg's kernels.
-		r, err := collector.CollectRebootRequired(t.FS(), snap.OS.Kernel, debPkgs)
+		runVisible := true // remote targets read the real /run
+		if rv, ok := t.(interface{ RunVisible() bool }); ok {
+			runVisible = rv.RunVisible()
+		}
+		r, err := collector.CollectRebootRequired(t.FS(), runVisible, snap.OS.Kernel, debPkgs)
 		switch {
 		case errors.Is(err, collector.ErrRebootUnknown):
 			// Unknown, not "no reboot pending".

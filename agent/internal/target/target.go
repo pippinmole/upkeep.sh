@@ -77,6 +77,7 @@ type Local struct {
 	fsys      fs.FS
 	hostRoot  string
 	extraRoot string
+	withExtra bool // built by NewLocalWithExtra (the Docker deployment)
 	procRoot  string
 }
 
@@ -99,7 +100,22 @@ func NewLocal(hostRoot, procRoot string) *Local {
 // hostRoot, so an older compose file without the extra binds still works
 // wherever those directories sit on the root filesystem.
 func NewLocalWithExtra(hostRoot, extraRoot, procRoot string) *Local {
-	return &Local{fsys: newHostFS(hostRoot, extraRoot), hostRoot: hostRoot, extraRoot: extraRoot, procRoot: procRoot}
+	return &Local{fsys: newHostFS(hostRoot, extraRoot), hostRoot: hostRoot, extraRoot: extraRoot, withExtra: true, procRoot: procRoot}
+}
+
+// RunVisible reports whether the host's /run (a tmpfs, holding e.g.
+// /run/reboot-required) is visible under the host root. With NewLocal
+// (bare metal, fixtures) it is taken as visible. With NewLocalWithExtra
+// (the Docker deployment) it is visible only if <hostRoot>/run is a
+// different filesystem than <hostRoot>: under the non-recursive bind it
+// is just the mountpoint directory on the root filesystem, which can
+// hold stale leftovers (Ubuntu's cloud image has run/needrestart there),
+// so its contents mean nothing.
+func (l *Local) RunVisible() bool {
+	if !l.withExtra {
+		return true
+	}
+	return !sameDevice(l.hostRoot, path.Join(l.hostRoot, "run"))
 }
 
 // HostRoot is where the host's / is visible ("/" on bare metal).

@@ -47,7 +47,8 @@ type Reboot struct {
 }
 
 // CollectRebootRequired reports whether the host has a pending reboot,
-// from two signals:
+// from two signals (runVisible: whether the host's /run is visible at all,
+// see target.Local.RunVisible):
 //
 //   - the flag file /run/reboot-required{,.pkgs}, when the host's /run is
 //     visible (remote targets, bare metal, and a recursive host mount; the
@@ -62,10 +63,10 @@ type Reboot struct {
 //
 // When the flag file isn't visible and the kernel can't decide either, it
 // returns ErrRebootUnknown rather than a false "no reboot pending".
-func CollectRebootRequired(fsys fs.FS, runningKernel string, pkgs []Package) (Reboot, error) {
+func CollectRebootRequired(fsys fs.FS, runVisible bool, runningKernel string, pkgs []Package) (Reboot, error) {
 	kernelReq, kernelPkgs, kernelErr := kernelRebootRequired(runningKernel, pkgs)
 
-	if !runVisible(fsys) {
+	if !runVisible {
 		if kernelErr != nil {
 			return Reboot{}, fmt.Errorf("%w: /run/reboot-required isn't visible (the host's /run isn't mounted, by design) and %v", ErrRebootUnknown, kernelErr)
 		}
@@ -89,24 +90,6 @@ func CollectRebootRequired(fsys fs.FS, runningKernel string, pkgs []Package) (Re
 		}
 	}
 	return r, nil
-}
-
-// runVisible reports whether the host's /run contents are visible. The
-// non-recursive host mount shows /run as its empty mountpoint directory
-// on the root filesystem; a real /run is never empty.
-func runVisible(fsys fs.FS) bool {
-	entries, err := fs.ReadDir(fsys, "run")
-	if err == nil {
-		return len(entries) > 0
-	}
-	// Old hosts without a /run: /var/run is the real directory. Never
-	// follow it as a symlink: an absolute one resolves into the agent's
-	// own container.
-	if fi, lerr := fs.Lstat(fsys, "var/run"); lerr != nil || !fi.IsDir() {
-		return false
-	}
-	entries, err = fs.ReadDir(fsys, "var/run")
-	return err == nil && len(entries) > 0
 }
 
 func readRebootFlag(fsys fs.FS) (bool, []string, error) {

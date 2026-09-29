@@ -111,3 +111,17 @@ func TestNotVisible(t *testing.T) {
 		t.Errorf("nil: %v", err)
 	}
 }
+
+// Under the non-recursive bind, <host>/run is only the mountpoint
+// directory on the root filesystem (same device as the root), so it
+// doesn't show the host's /run even when it has stale contents.
+func TestRunVisible(t *testing.T) {
+	host := t.TempDir()
+	write(t, host, "run/needrestart/x", "stale")
+	if !NewLocal(host, "").RunVisible() {
+		t.Error("NewLocal: want visible (bare metal / fixtures)")
+	}
+	if NewLocalWithExtra(host, "", "").RunVisible() {
+		t.Error("NewLocalWithExtra, run on the root's device: want not visible")
+	}
+}

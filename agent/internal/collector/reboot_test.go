@@ -94,36 +94,37 @@ func TestCollectRebootRequired(t *testing.T) {
 	tests := []struct {
 		name    string
 		fsys    fstest.MapFS
+		visible bool
 		running string
 		pkgs    []Package
 		want    Reboot
 		unknown bool
 	}{
 		{
-			name: "flag file present",
-			fsys: visibleRun(map[string]string{"run/reboot-required": "", "run/reboot-required.pkgs": "libc6\nlibc6\n"}),
+			name:    "flag file present",
+			visible: true, fsys: visibleRun(map[string]string{"run/reboot-required": "", "run/reboot-required.pkgs": "libc6\nlibc6\n"}),
 			pkgs: ubuntuKernels, running: "6.8.0-45-generic",
 			want: Reboot{Required: true, Packages: []string{"libc6"}, Source: RebootSourceFlagFile},
 		},
 		{
-			name: "flag file present, plus a newer kernel",
-			fsys: visibleRun(map[string]string{"run/reboot-required": "", "run/reboot-required.pkgs": "libc6\n"}),
+			name:    "flag file present, plus a newer kernel",
+			visible: true, fsys: visibleRun(map[string]string{"run/reboot-required": "", "run/reboot-required.pkgs": "libc6\n"}),
 			pkgs: newer, running: "6.8.0-45-generic",
 			want: Reboot{Required: true, Packages: []string{"libc6", "linux-image-6.11.0-19-generic"}, Source: RebootSourceFlagFile},
 		},
 		{
-			name: "flag file absent",
-			fsys: visibleRun(nil), pkgs: ubuntuKernels, running: "6.8.0-45-generic",
+			name:    "flag file absent",
+			visible: true, fsys: visibleRun(nil), pkgs: ubuntuKernels, running: "6.8.0-45-generic",
 			want: Reboot{Source: RebootSourceFlagFile},
 		},
 		{
-			name: "flag file absent, newer kernel (Debian without update-notifier)",
-			fsys: visibleRun(nil), pkgs: newer, running: "6.8.0-45-generic",
+			name:    "flag file absent, newer kernel (Debian without update-notifier)",
+			visible: true, fsys: visibleRun(nil), pkgs: newer, running: "6.8.0-45-generic",
 			want: Reboot{Required: true, Packages: []string{"linux-image-6.11.0-19-generic"}, Source: RebootSourceKernel},
 		},
 		{
-			name: "flag file absent, kernel unknown: the flag file decides",
-			fsys: visibleRun(nil), pkgs: ubuntuKernels, running: "6.10.14-linuxkit",
+			name:    "flag file absent, kernel unknown: the flag file decides",
+			visible: true, fsys: visibleRun(nil), pkgs: ubuntuKernels, running: "6.10.14-linuxkit",
 			want: Reboot{Source: RebootSourceFlagFile},
 		},
 		{
@@ -137,6 +138,13 @@ func TestCollectRebootRequired(t *testing.T) {
 			want: Reboot{Source: RebootSourceKernel},
 		},
 		{
+			// The root filesystem's /run mountpoint dir can hold stale
+			// leftovers; they must not be read as the host's flag file.
+			name: "run hidden, stale flag file on the root fs is ignored",
+			fsys: visibleRun(map[string]string{"run/reboot-required": ""}), pkgs: ubuntuKernels, running: "6.8.0-45-generic",
+			want: Reboot{Source: RebootSourceKernel},
+		},
+		{
 			name: "run hidden, kernel not from dpkg: unknown",
 			fsys: hiddenRun, pkgs: ubuntuKernels, running: "6.10.14-linuxkit", unknown: true,
 		},
@@ -147,7 +155,7 @@ func TestCollectRebootRequired(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := CollectRebootRequired(tt.fsys, tt.running, tt.pkgs)
+			got, err := CollectRebootRequired(tt.fsys, tt.visible, tt.running, tt.pkgs)
 			if tt.unknown {
 				if !errors.Is(err, ErrRebootUnknown) {
 					t.Fatalf("err = %v, want ErrRebootUnknown", err)
