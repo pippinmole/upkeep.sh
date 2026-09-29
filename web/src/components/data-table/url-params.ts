@@ -63,3 +63,26 @@ export function toParams(s: DataTableServerState, opts: TableUrlOptions, base: U
   }
   return out;
 }
+
+// A faceted filter's values, kept to an allowlist; null = no filter.
+export function tableFacet<T extends string>(
+  state: DataTableServerState,
+  id: string,
+  allowed: readonly T[],
+): T[] | null {
+  const raw = state.columnFilters.find((f) => f.id === id)?.value;
+  const vals = Array.isArray(raw) ? raw.filter((v): v is T => allowed.includes(v as T)) : [];
+  return vals.length ? vals : null;
+}
+
+// The sort column, kept to an allowlist (else `fallback`, descending).
+export function tableSort<T extends string>(
+  state: DataTableServerState,
+  allowed: readonly T[],
+  fallback: T,
+): { id: T; desc: boolean } {
+  const s = state.sorting[0];
+  return s && allowed.includes(s.id as T)
+    ? { id: s.id as T, desc: s.desc }
+    : { id: fallback, desc: true };
+}

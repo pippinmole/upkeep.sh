@@ -1,5 +1,8 @@
-import type { DataTableServerState } from "@/components/data-table/data-table";
-import { tableStateFromParams } from "@/components/data-table/url-params";
+import {
+  tableFacet as facet,
+  tableSort as sortOf,
+  tableStateFromParams,
+} from "@/components/data-table/url-params";
 import type { ImageKey } from "@/lib/image-key";
 import {
   IMAGE_PACKAGE_SORTS,
@@ -19,23 +22,6 @@ import { ImageVulnsTable } from "./vulns-table";
 
 // The two tabs' Server Components: URL state -> allowlisted filters ->
 // SQL -> one page for the client table.
-
-function facet<T extends string>(
-  state: DataTableServerState,
-  id: string,
-  allowed: readonly T[],
-): T[] | null {
-  const raw = state.columnFilters.find((f) => f.id === id)?.value;
-  const vals = Array.isArray(raw) ? raw.filter((v): v is T => allowed.includes(v as T)) : [];
-  return vals.length ? vals : null;
-}
-
-function sortOf<T extends string>(state: DataTableServerState, allowed: readonly T[], fallback: T) {
-  const s = state.sorting[0];
-  return s && allowed.includes(s.id as T)
-    ? { id: s.id as T, desc: s.desc }
-    : { id: fallback, desc: true };
-}
 
 export async function PackagesTab({
   workspaceId,
