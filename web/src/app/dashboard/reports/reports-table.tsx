@@ -69,7 +69,7 @@ function SendNowDialog({
         ) : (
           <div className="flex flex-col gap-2 text-sm">
             <p className="flex items-center gap-2 font-medium">
-              <CheckCircle2 className="size-4 text-emerald-600" />
+              <CheckCircle2 className="text-success size-4" />
               Report queued; it&apos;ll appear under{" "}
               <Link
                 href={scheduleReportsHref(schedule.id)}
@@ -266,14 +266,19 @@ function makeColumns(ctx: Ctx) {
   ]);
 }
 
+// A schedule needs somewhere to send to: disabled, with the reason on
+// hover, until a channel exists (same as AddRuleButton).
 export function AddScheduleButton(ctx: Ctx) {
   const [open, setOpen] = useState(false);
+  const noChannels = ctx.channels.length === 0;
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)} disabled={ctx.channels.length === 0}>
-        <Plus />
-        New schedule
-      </Button>
+      <span title={noChannels ? "Add a channel first" : undefined} className="inline-flex">
+        <Button onClick={() => setOpen(true)} disabled={noChannels}>
+          <Plus />
+          New schedule
+        </Button>
+      </span>
       {open && <ScheduleDialog open={open} onOpenChange={setOpen} {...ctx} />}
     </>
   );

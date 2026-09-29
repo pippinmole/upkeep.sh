@@ -30,7 +30,7 @@
 //     `go test ./internal/notify/notifiers -update` (writes
 //     web/src/lib/notifier-types.json). The dashboard renders the channel
 //     form from it; for a type that needs a custom form, register a
-//     component in web/src/app/dashboard/settings/notifications/channel-forms.tsx.
+//     component in web/src/app/dashboard/settings/channels/channel-forms.tsx.
 //
 // That's all: rules, evaluation, dedup, digests, retries and the delivery
 // log are shared.

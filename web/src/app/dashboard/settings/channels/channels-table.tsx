@@ -3,6 +3,7 @@
 import { CheckCircle2, ChevronDown, Loader2, MoreHorizontal, Plus, XCircle } from "lucide-react";
 import { useState, useTransition } from "react";
 
+import { ChannelIcon } from "@/components/brand/channel-icon";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
@@ -76,7 +77,7 @@ function TestResultDialog({
           <div className="flex flex-col gap-2 text-sm">
             <p className="flex items-center gap-2 font-medium">
               {ok ? (
-                <CheckCircle2 className="size-4 text-emerald-600" />
+                <CheckCircle2 className="text-success size-4" />
               ) : (
                 <XCircle className="text-destructive size-4" />
               )}
@@ -190,7 +191,12 @@ const columns = col.columns([
   col.accessor("type", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
     filterFn: "arrHas",
-    cell: ({ row }) => channelType(row.original.type)?.label ?? row.original.type,
+    cell: ({ row }) => (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        <ChannelIcon type={row.original.type} className="text-muted-foreground size-4 shrink-0" />
+        {channelType(row.original.type)?.label ?? row.original.type}
+      </span>
+    ),
   }),
   col.accessor((c) => channelTarget(c.type, c.config), {
     id: "target",

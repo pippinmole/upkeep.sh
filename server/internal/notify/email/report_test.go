@@ -50,7 +50,7 @@ func TestRenderReportPlainText(t *testing.T) {
 	if SubjectPrefix+m.Subject != "[upkeep.sh] Monday patch list: 1 urgent action, 2 to patch this week, 1 image to update, 1 host not reporting" {
 		t.Errorf("subject %q", m.Subject)
 	}
-	for _, want := range []string{"Open findings: 42 (+12, +40%)", "Open in upkeep.sh: https://upkeep.example/dashboard/reports/r-1", "Notification settings"} {
+	for _, want := range []string{"Open findings: 42 (+12, +40%)", "Open in upkeep.sh: https://upkeep.example/dashboard/reports/r-1", "under Reports in the dashboard"} {
 		if !strings.Contains(m.Body, want) {
 			t.Errorf("body lacks %q:\n%s", want, m.Body)
 		}

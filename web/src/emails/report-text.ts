@@ -40,7 +40,7 @@ export function reportEmailText(m: ReportEmailModel): string {
   out.push(
     "",
     "--",
-    "Sent by upkeep.sh. Change or stop this report under Settings > Notification settings.",
+    "Sent by upkeep.sh. Change or stop this report under Reports in the dashboard.",
   );
   return `${out.join("\n")}\n`;
 }

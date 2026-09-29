@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
+import { ChannelIcon } from "@/components/brand/channel-icon";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
@@ -16,11 +17,7 @@ import type { DeliveryRow } from "@/lib/queries-notifications";
 import { formatDateTime, relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-import {
-  channelTypeIcon,
-  DELIVERY_STATUS_OPTIONS,
-  DeliveryStatusBadge,
-} from "@/components/notifications/shared";
+import { DELIVERY_STATUS_OPTIONS, DeliveryStatusBadge } from "@/components/notifications/shared";
 
 const KIND_OPTIONS = [
   { value: "alert", label: "Alert" },
@@ -104,17 +101,17 @@ const columns = col.columns([
   col.accessor("channelName", {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Channel" />,
     cell: ({ row }) => {
-      const Icon = channelTypeIcon(row.original.channelType);
+      const d = row.original;
+      const type = `${channelType(d.channelType)?.label ?? d.channelType}${d.channelId === null ? ", deleted" : ""}`;
       return (
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-          <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
-          <span>
-            {row.original.channelName}
-            <span className="text-muted-foreground">
-              {" "}
-              ({channelType(row.original.channelType)?.label ?? row.original.channelType}
-              {row.original.channelId === null && ", deleted"})
-            </span>
+        <span
+          className="inline-flex max-w-64 items-center gap-1.5 whitespace-nowrap"
+          title={`${d.channelName} (${type})`}
+        >
+          <ChannelIcon type={d.channelType} className="text-muted-foreground size-4 shrink-0" />
+          <span className="truncate">
+            {d.channelName}
+            <span className="text-muted-foreground"> ({type})</span>
           </span>
         </span>
       );
@@ -123,7 +120,14 @@ const columns = col.columns([
   col.accessor((d) => d.ruleName ?? "", {
     id: "rule",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Rule" />,
-    cell: ({ getValue }) => getValue() || <span className="text-muted-foreground">—</span>,
+    cell: ({ getValue }) =>
+      getValue() ? (
+        <span className="block max-w-48 truncate" title={getValue()}>
+          {getValue()}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
   }),
   col.accessor("summary", {
     header: "Summary",

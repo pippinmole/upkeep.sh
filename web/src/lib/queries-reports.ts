@@ -143,6 +143,51 @@ export async function getScheduleReports(
   }));
 }
 
+export type RecentReportRow = PastReportRow & {
+  scheduleId: string;
+  scheduleName: string;
+  scheduleTimezone: string;
+};
+
+// The newest reports across all of the user's schedules (the Reports page).
+export async function getRecentReports(userId: string, limit = 10): Promise<RecentReportRow[]> {
+  const { rows } = await pool.query<{
+    id: string;
+    schedule_id: string;
+    schedule_name: string;
+    schedule_timezone: string;
+    generated_at: Date;
+    trigger: ReportTrigger;
+    schema_version: number | null;
+    headline: ReportHeadline;
+    stale_agents: ReportCoverage["stale_agents"] | null;
+    deliveries: DeliveryCounts;
+  }>(
+    `SELECT r.id, r.schedule_id, s.name AS schedule_name, s.timezone AS schedule_timezone,
+            r.generated_at, r.trigger, (r.snapshot->>'schema_version')::int AS schema_version,
+            r.snapshot->'headline' AS headline,
+            r.snapshot->'coverage'->'stale_agents' AS stale_agents,
+            ${DELIVERY_COUNTS_SQL} AS deliveries
+     FROM reports r
+     JOIN report_schedules s ON s.id = r.schedule_id AND s.user_id = r.user_id
+     WHERE r.user_id = $1
+     ORDER BY r.generated_at DESC, r.id
+     LIMIT $2`,
+    [userId, limit],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    scheduleId: r.schedule_id,
+    scheduleName: r.schedule_name,
+    scheduleTimezone: r.schedule_timezone,
+    generatedAt: r.generated_at.toISOString(),
+    trigger: r.trigger,
+    schemaVersion: r.schema_version ?? 0,
+    summary: { headline: r.headline, coverage: { stale_agents: r.stale_agents ?? [] } },
+    deliveries: r.deliveries,
+  }));
+}
+
 export type ReportDelivery = {
   id: string;
   notificationId: string;

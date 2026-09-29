@@ -353,7 +353,7 @@ func Render(n notify.Notification) Message {
 		b.WriteString("\n\nRule: " + n.Rule.Name)
 	}
 	if n.Kind == notify.KindReport {
-		b.WriteString("\n\n-- \nSent by upkeep.sh. Change your reports under Settings > Notification settings in the dashboard.\n")
+		b.WriteString("\n\n-- \nSent by upkeep.sh. Change your reports under Reports in the dashboard.\n")
 	} else {
 		b.WriteString("\n\n-- \nSent by upkeep.sh. Change what you're alerted about under Alerts in the dashboard.\n")
 	}

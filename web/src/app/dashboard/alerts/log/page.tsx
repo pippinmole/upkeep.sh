@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { EmptyState } from "@/components/empty-state";
 import { NotificationSettingsLink } from "@/components/notifications/links";
 import { auth } from "@/lib/auth";
 import { getDeliveries } from "@/lib/queries-notifications";
@@ -48,22 +49,20 @@ export default async function DeliveryLogPage({
         </p>
       )}
       {deliveries.length === 0 ? (
-        <div className="border-border bg-card flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
-          <ScrollText className="text-muted-foreground size-8" />
-          <div>
-            <h2 className="font-semibold">Nothing sent yet</h2>
-            <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-              {notificationId ? (
-                "No deliveries for this notification (the log keeps 90 days)."
-              ) : (
-                <>
-                  Deliveries show up here once a rule matches or a report is sent, or when you send
-                  a test from <NotificationSettingsLink />.
-                </>
-              )}
-            </p>
-          </div>
-        </div>
+        <EmptyState
+          icon={ScrollText}
+          title="Nothing sent yet"
+          description={
+            notificationId ? (
+              "No deliveries for this notification (the log keeps 90 days)."
+            ) : (
+              <>
+                Deliveries show up here once a rule matches or a report is sent, or when you send a
+                test from <NotificationSettingsLink />.
+              </>
+            )
+          }
+        />
       ) : (
         <DeliveriesTable deliveries={deliveries} />
       )}

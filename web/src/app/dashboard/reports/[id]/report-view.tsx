@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { vulnHref } from "@/components/vuln/links";
+import { AGENT_STATUS_LABEL, agentStatusTone, StatusBadge } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
 import { type ReportEmailModel, type SectionId } from "@/emails/report-content";
 import { imageHref, platformLabel, shortImageId } from "@/lib/image-key";
@@ -131,7 +132,7 @@ function HostActionItem({ a, tz }: { a: ReportHostAction; tz: string }) {
           {a.requires_pro && (
             <Badge
               variant="outline"
-              className="border-violet-600/40 bg-violet-500/10 font-medium text-violet-800 dark:text-violet-200"
+              className="border-accent-pro/40 bg-accent-pro/10 text-accent-pro-fg whitespace-nowrap"
             >
               Ubuntu Pro
             </Badge>
@@ -276,12 +277,7 @@ function SectionItems({ id, s }: { id: SectionId; s: ReportSnapshot }) {
               key={a.agent_id}
               title={`Agent ${a.name} not reporting`}
               badges={
-                <Badge
-                  variant="outline"
-                  className="border-amber-600/40 bg-amber-400/15 text-amber-900 dark:text-amber-200"
-                >
-                  Stale
-                </Badge>
+                <StatusBadge tone={agentStatusTone("stale")} label={AGENT_STATUS_LABEL.stale} />
               }
             >
               <div className="text-sm">

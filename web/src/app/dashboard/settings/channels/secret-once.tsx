@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { channelType } from "@/lib/notifiers";
 
-// A generated secret, displayed exactly once (after create or rotate).
+// A generated secret, displayed exactly once (after create or rotate). A
+// warning, not an error: nothing went wrong.
 export function SecretOnce({ type, secrets }: { type: string; secrets: Record<string, string> }) {
   const spec = channelType(type);
   return (
     <div className="flex flex-col gap-4">
-      <Alert variant="destructive">
+      <Alert className="border-warning/40 bg-warning/10 text-warning-fg [&>svg]:text-warning-fg">
         <AlertTriangle className="h-4 w-4" />
         <AlertTitle>Copy this now</AlertTitle>
         <AlertDescription>

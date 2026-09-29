@@ -90,8 +90,8 @@ for the reasoning.
 | `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting and reports), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
 | `users` | Next.js (signup) |
 | `enrollment_tokens` | Next.js (dashboard "Add host") |
-| `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Notification settings: channels) |
-| `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Settings → Notification settings: reports); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes or a disabled schedule is enabled, so the worker recomputes it |
+| `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Channels: channels) |
+| `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Reports: schedules); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes or a disabled schedule is enabled, so the worker recomputes it |
 | `reports`, `report_schedules.next_run_at` / `last_run_at` | Go (worker: `report_due`; `alert_prune` deletes reports after a year), including "Send now": like "Send test", Next.js only inserts the River job and the worker builds, stores and delivers the report |
 
 Both sides **read** any table directly from Postgres. There is no caching
@@ -280,7 +280,7 @@ alerts queue:
   ./internal/notify/notifiers -update` writes
   `web/src/lib/notifier-types.json` (a golden test fails when it is stale);
   the channel dialog renders any type from it, with a per-type override map
-  in `web/src/app/dashboard/settings/notifications/channel-forms.tsx` for
+  in `web/src/app/dashboard/settings/channels/channel-forms.tsx` for
   forms that need more.
 - **Secrets**: fields declared secret live in `notification_channels.secrets`,
   which dashboard queries never select; generated ones (the webhook
@@ -482,7 +482,7 @@ Reports describe **state** (everything open when they run), not events,
 so they are separate from alert rules. Migration 0017.
 
 ```
-Next.js (Settings → Notification settings):
+Next.js (Reports):
   report_schedules + report_schedule_channels (next_run_at NULL on insert
   and whenever the timing changes or the schedule is enabled)
   "Send now" -> River job report_send_now (plain SQL + pg_notify, like
@@ -574,9 +574,9 @@ alerts queue (server/internal/jobs/reports.go):
 - **Channels**: [WEBHOOKS.md](WEBHOOKS.md#report-notifications),
   "ntfy channel" and "Email (SMTP) channel" above. Only report emails
   are HTML; alert emails stay plain text rendered in Go.
-- **Dashboard**: schedules under Settings → Notification settings (with
+- **Dashboard**: schedules and recent reports at `/dashboard/reports` (with
   "Send now"), past reports per schedule at
-  `/dashboard/settings/notifications/reports/<schedule id>`, and one
+  `/dashboard/reports/schedules/<schedule id>`, and one
   report at `/dashboard/reports/<report id>` (the link in emails and
   ntfy). Deliveries appear in the delivery log.
 - **Retention**: `alert_prune` deletes reports generated more than a year

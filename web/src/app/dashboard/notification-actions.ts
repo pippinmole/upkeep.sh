@@ -22,8 +22,9 @@ import {
 } from "@/lib/report-schedules";
 import { enqueueAlertDelivery, enqueueReportSendNow } from "@/lib/river";
 
-// Alert rules (/dashboard/alerts), notification channels and report
-// schedules (/dashboard/settings/notifications): notification_channels,
+// Alert rules (/dashboard/alerts), notification channels
+// (/dashboard/settings/channels) and report schedules (/dashboard/reports):
+// notification_channels,
 // alert_rules, alert_rule_channels, report_schedules (except next_run_at /
 // last_run_at) and report_schedule_channels are Next.js-owned tables
 // (docs/ARCHITECTURE.md "Who owns what"). Every action re-checks the session and scopes every
@@ -57,11 +58,12 @@ function generateSecret(): string {
   return `whsec_${randomBytes(32).toString("base64url")}`;
 }
 
-// Rules list their channels and tests land in the delivery log, so both
-// areas are refreshed after any change.
+// Rules and schedules list their channels, and tests land in the delivery
+// log, so every area is refreshed after any change.
 function refresh() {
   revalidatePath("/dashboard/alerts", "layout");
   revalidatePath("/dashboard/settings", "layout");
+  revalidatePath("/dashboard/reports", "layout");
 }
 
 // ---- Channels ----
@@ -436,12 +438,7 @@ export async function deleteRule(id: string): Promise<ActionResult> {
 
 // ---- Report schedules ----
 
-// Past reports and the report pages hang off a schedule, so both are
-// refreshed with it.
-function refreshReports() {
-  refresh();
-  revalidatePath("/dashboard/reports", "layout");
-}
+const refreshReports = refresh;
 
 async function validateScheduleFor(
   userId: string,
