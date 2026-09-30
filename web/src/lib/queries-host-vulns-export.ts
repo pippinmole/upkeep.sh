@@ -7,8 +7,8 @@ import { isUuid } from "./queries-inventory";
 // LIMIT/OFFSET, plus the CVE and advisory fields a spreadsheet wants.
 //
 // Tenancy as in queries-vulns.ts: the read starts from
-// `hosts h WHERE h.id = $2 AND h.user_id = $1`, so another user's host
-// yields no rows. cves and advisories are public feed data, reached only
+// `hosts h WHERE h.id = $2 AND h.workspace_id = $1`, so a host outside the
+// workspace yields no rows. cves and advisories are public feed data, reached only
 // through this host's findings.
 
 export type ExportFindingRow = {
@@ -80,7 +80,7 @@ const num = (v: string | null): number | null => (v === null ? null : Number(v))
 const iso = (d: Date | null): string | null => d?.toISOString() ?? null;
 
 export async function getHostFindingsForExport(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   f: HostVulnFilters,
 ): Promise<ExportFindingRow[]> {
@@ -114,7 +114,7 @@ export async function getHostFindingsForExport(
        FROM advisories a
        WHERE a.id = ANY(f.advisory_ids)
      ) a ON true
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
        AND f.kind = 'vulnerable_package' AND f.status = $3
        AND ($4::text IS NULL
             OR strpos(lower(f.vuln_key), lower($4)) > 0
@@ -127,7 +127,7 @@ export async function getHostFindingsForExport(
             OR ($7 = 'pro' AND f.requires_pro)
             OR ($7 = 'none' AND f.fixed_version IS NULL))
      ORDER BY ${orderBy}`,
-    [userId, hostId, f.status, f.q, f.severity, f.kev, f.fix],
+    [workspaceId, hostId, f.status, f.q, f.severity, f.kev, f.fix],
   );
   return rows.map((r) => ({
     vulnKey: r.vuln_key,
