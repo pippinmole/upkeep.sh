@@ -8,7 +8,10 @@ import { AGENT_STATUS_SQL } from "./queries";
 // The sidebar's "needs action" badges and the Swarm switch, in one round
 // trip (the dashboard layout reads it on each server render).
 // - vulnsUrgent: distinct vulnerabilities with an open finding that is in
-//   KEV or critical (findings.severity, as Go assessed it) on an active host.
+//   KEV or critical (findings.severity, as Go assessed it) on an active host,
+//   in host packages only: one badge can't show two kinds, and host package
+//   and image counts are never summed (DOMAIN_MODEL.md §3.6). Urgent images
+//   have their own Overview "Needs attention" item.
 // - staleHosts: active hosts whose agents, the revoked ones aside, are none
 //   of them online: the agent status rule of the Agents and Hosts pages.
 // - staleAgents: agents that went quiet or never reported, not revoked.

@@ -5,6 +5,7 @@ import { dataTableColumnHelper } from "@/components/data-table/features";
 import { EcosystemIcon } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
+import { isAssessedDistro } from "@/lib/assessed";
 import { IMAGE_PACKAGE_STATUS_LABEL } from "@/lib/image-tables";
 import type { ImagePackageRow } from "@/lib/queries-image-packages";
 
@@ -19,6 +20,8 @@ function notAssessedTitle(r: ImagePackageRow): string {
   if (r.distro && r.releaseSupported === false)
     return `${r.distro} ${r.release} is out of support: its advisories aren't imported`;
   if (r.distro && r.release === "") return "Distro package without a release: can't be matched";
+  if (r.distro && isAssessedDistro(r.distro) && r.releaseSupported === null)
+    return `${r.distro} ${r.release} isn't a release the matcher knows: its advisories aren't imported`;
   return `The matcher doesn't cover ${r.ecosystem}${r.distro ? ` (${r.distro})` : ""} packages yet`;
 }
 

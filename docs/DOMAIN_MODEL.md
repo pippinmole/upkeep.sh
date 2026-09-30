@@ -350,6 +350,101 @@ all CVE-keyed), 12,940 affected rows: 3.21 3,096 · 3.22 3,229 · 3.23
 3,396 · 3.24 3,219, over ~270-280 source packages per branch; 10 s,
 19 MB heap.
 
+**As built (P2a, language ecosystems).** `feeds.OSVEcosystems` also
+lists the language directories: `npm`, `PyPI`, `Go`. A language
+directory maps to a package ecosystem, not a distro (`osv.Languages`:
+OSV `npm` → `software_versions.ecosystem` `npm`, `PyPI` → `pypi`, `Go`
+→ `golang`; `osv.DistroFor` is `''`), and `osv/language.go` normalizes
+its records:
+
+- **Rows**: `distro = ''`, `release` = the software ecosystem (`npm`,
+  `pypi`, `golang`), `source_package` = the package name as
+  `software_versions` stores it (§4.5: npm `@scope/name`; PyPI PEP
+  503-normalised, which OSV's PyPI names already are; Go the module
+  path, and `stdlib` for the standard library, which Syft and docker
+  scout report under that name), so one (distro, release, source) key never
+  mixes two ecosystems' packages of the same name. The matcher maps a
+  language package (interned with distro and release `''`) to that key
+  (`matcher.AdvisoryScope`), and the `advisory_changes` drain joins
+  `('', ecosystem, name)` keys to `software_versions` by ecosystem.
+- **Ranges**: `SEMVER` and `ECOSYSTEM` ranges (npm uses `SEMVER`, 54
+  entries `ECOSYSTEM`; PyPI `ECOSYSTEM`, 1,567 entries with an extra
+  `GIT` range), `introduced` / `fixed` / `last_affected`; `GIT` ranges
+  (commits) are skipped. An entry with no usable range falls back to its
+  `versions` list, one exact row per version (`introduced` =
+  `last_affected` = the version; 129 rows in npm, 180 in PyPI), and
+  keeps that list in `raw`. Records list one package per branch
+  routinely (minimatch: eight ranges), which the matcher's language rule
+  handles (§2.5).
+- **Keys**: `vuln_key` is the record's CVE alias when it has exactly one;
+  a record citing several is keyed by its own id and matched per CVE (as
+  a DSA is); a record without a CVE is keyed by its GHSA id, its own or
+  its lowest GHSA alias (a `GO-`/`PYSEC-` record and the GHSA it aliases
+  then key one finding), else its own id. npm: 6,054 CVE-keyed, 1,404
+  GHSA-keyed; PyPI: 13,168 CVE-, 414 GHSA-, 360 PYSEC-keyed. PyPI has a
+  GHSA *and* a PYSEC record for 5,657 of its 6,320 CVEs, both keyed by
+  the CVE: one finding citing both ids. Go: 8,516 CVE-, 789 GHSA-, 70
+  GO-keyed (309 GO records without a CVE key by the GHSA they alias).
+- **Severity**: the GHSA's reviewed severity (record-level
+  `database_specific.severity`, lowercased: `critical` / `high` /
+  `moderate` / `low`) is the rows' `distro_severity`, so it ranks like a
+  distro priority (`severity.ParsePriority`: `moderate` = medium); KEV and
+  EPSS still escalate CVE-keyed ones, and CVSS stays the tiebreaker. Its
+  `CVSS_V3` vector goes to `cves` under the `vuln_key`: authoritative for
+  a GHSA-keyed record (a `cves` row under the GHSA id; `cves` holds the
+  enrichment of every `vuln_key`, KEV/EPSS just never match those), and
+  only filling in a CVE no distro per-CVE record has scored
+  (`Advisory.CVSSIfMissing`), so distro scores win and two GHSAs don't
+  flip-flop. A multi-CVE record's single score isn't stored. PYSEC and
+  GO records carry no reviewed severity (and GO records no CVSS), so a
+  key only they cover ranks "unknown" with KEV/EPSS/CVSS, as an Alpine
+  one does. `CVSS_V4`-only records (1,210 npm, 1,129 PyPI) give `cves`
+  no score.
+- **Shared records**: one GHSA can list packages of several ecosystems
+  and then sits in each ecosystem's `all.zip` under the same id (46
+  npm/PyPI, 10 npm/Go, 16 PyPI/Go on 2026-09-29). Every language feed
+  therefore stores the entries of *every* imported language ecosystem, so
+  both feeds write identical content (the second sees an unchanged hash);
+  the owner (`advisories.source`) is whichever wrote it last. The set of
+  imported languages is in each language feed's fingerprint
+  (`osv.FeedFingerprint`): adding one reloads the others. A record that
+  leaves one ecosystem's zip but not the other's is deleted by its owner
+  and restored by the other feed's next full sync (weekly) at the latest.
+- **Malicious packages** (`MAL-*`, OpenSSF): not imported for now. The
+  full sync skips them by file name unread, the incremental one before
+  fetching or counting them (`OSVStats.malicious`); they would otherwise
+  force a full import almost every hour. Of npm's 229,533 records,
+  222,028 are `MAL-`; of PyPI's 25,757, 11,787.
+- **Several ranges from one version** (migration 0021): a record may
+  list a package more than once with the same `introduced` (Go:
+  `github.com/CosmWasm/wasmvm/v2` three times from `0`, fixed 2.0.6,
+  2.1.5, 2.2.2). Keeping only the first, as for a distro's duplicate
+  release names, would miss versions the others cover, so
+  `advisory_affected.seq` numbers them and joins the primary key
+  (15 rows on 2026-09-29); identical repeats are still dropped (34 in
+  Go, 22 in PyPI, 5 in npm). Distro rows keep `seq = 0`.
+- **Go specifics**: SEMVER ranges drop the `v` (`1.2.3`) and use
+  `-0` for "any pre-release" (`introduced: 1.24.0-0`), the standard
+  library is the module `stdlib` versioned by Go release, and GO records
+  alias the GHSA for the same issue (a GHSA exists for most GO records
+  in the same zip). Matching is per module, like `govulncheck -mode
+  binary` without symbol analysis: the records' `ecosystem_specific.imports`
+  (the affected packages and symbols) are not read, so a module that
+  contains a vulnerable package the binary doesn't use still matches.
+
+Live first syncs (2026-09-29, on a copy of dev data; records = zip
+entries including `MAL-`):
+
+| Feed | all.zip | Records | Imported (withdrawn) | Rows / packages | Time | Heap / RSS |
+|------|---------|---------|----------------------|-----------------|------|------------|
+| npm  | 207 MB  | 229,533 | 7,504 (355)          | 9,749 / 3,593   | 55 s (~50 s download) | 119 / 143 MB |
+| PyPI | 33 MB   | 25,757  | 13,947 (543)         | 22,166 / 1,652  | 11 s (~5 s download)  | 43 / 60 MB   |
+| Go   | 12 MB   | 9,394   | 9,375 (149)          | 15,759 / 1,610  | 12 s (~9 s download)  | 47 / 92 MB   |
+
+An immediate incremental run takes 0.2 s. Adding a language reloads the
+others (fingerprint): npm then rewrote 3 of 7,507 records in 57 s,
+mostly the download.
+
 ### 2.4 Advisory schema (replaces `vulnerabilities`)
 
 ```sql
@@ -426,7 +521,9 @@ this way here for readability.)
 **As built (migration 0005)**, differences from the sketch above:
 
 - `advisory_affected` gained `channel` (`standard` | `ubuntu-pro`, part
-  of the primary key; Q9), `last_affected` (OSV's rare inclusive upper
+  of the primary key; Q9), `seq` (migration 0021, also in the key:
+  several ranges of one language package from the same `introduced`,
+  §2.3), `last_affected` (OSV's rare inclusive upper
   bound, used instead of `fixed`) and `ecosystem` (as published);
   `introduced` is `NOT NULL DEFAULT ''`.
 - `advisories` gained `cve_ids` (every CVE the record cites: own id,
@@ -439,8 +536,9 @@ this way here for readability.)
   drained by the `advisory_rematch` job (§2.6).
 - **`advisories.vuln_key` rule**: the record's own CVE (a `CVE-` id, or
   the CVE a `DEBIAN-CVE-`/`UBUNTU-CVE-`/`ALPINE-CVE-` record wraps); else the single CVE
-  a DSA/DLA/USN cites; else the advisory id (a notice citing several
-  CVEs). The matcher then keys *matches* by CVE wherever possible: a
+  a DSA/DLA/USN cites; else, for a record without a CVE that is or
+  aliases a GHSA, that GHSA id (language records, §2.3); else the
+  advisory id (a notice citing several CVEs). The matcher then keys *matches* by CVE wherever possible: a
   multi-CVE notice is expanded to each CVE it cites (§2.5 "As built").
 
 **Deduplication across sources.** Debian publishes `DSA-5532-1` *and*
@@ -569,22 +667,71 @@ _hg _p`, `~hash`, `-rN`; a leading-zero component compares as a
 string), tested with apk-tools' own `version.data`. An invalid version
 counts as a bad version and is skipped, never ordered by guess (13
 distinct values in the whole Alpine feed, e.g. `1999-12-14`). Adding an
-ecosystem (npm, PyPI, Go: task G) is one comparator plus its feed.
+ecosystem is one comparator plus its feed. Language ecosystems:
+
+- `npm` → `server/internal/npmversion`: node-semver's `compare` in loose
+  mode (three numbers, optional leading `v`/`=`, prerelease identifiers
+  numeric < alphanumeric, a prerelease below its release, build ignored,
+  numbers capped at `MAX_SAFE_INTEGER`), in-tree because node-semver's
+  syntax differs from `golang.org/x/mod/semver`'s (`1.2` is invalid for
+  npm); tested with node-semver's comparison and equality fixtures.
+- `pypi` → `server/internal/pep440`: PEP 440 as pypa/packaging's
+  `Version` (epochs, release with trailing zeros ignored, `a`/`b`/`rc`
+  and their spellings, `.post`/`-N`, `.dev`, local versions ordered
+  segment-wise), in-tree (one regex, one ordering); tested with
+  packaging's own ordering, normalisation and invalid-version vectors,
+  and checked equal to packaging 26.3 on all 40,482 valid versions in
+  the PyPI feed. Legacy (non-PEP 440) versions are invalid, as in
+  packaging ≥ 22: 2,051 distinct feed versions, nearly all in `versions`
+  lists (`0.1.0.dev-120828c`), are bad versions, skipped.
+- `golang` → `server/internal/goversion`: `golang.org/x/mod/semver`, the
+  go command's own ordering (BSD-3-Clause, no dependencies, already in
+  the module graph through Syft), after canonicalising: a missing `v` is
+  added (OSV ranges and docker scout SBOMs drop it), a `go` prefix
+  dropped (`go1.22.3` for `stdlib`), Go release candidates and betas
+  (`go1.21rc2`) become OSV's `v1.21.0-rc.2`. Pseudo-versions order as
+  pre-releases and `+incompatible` as build metadata, as in the go
+  command; tested with x/mod's own semver table.
+- Invalid range versions in the three feeds (bad versions, skipped): 16
+  npm (`1.77`), 44 PyPI (`7.2.0-12.1`), 21 Go (`19.03.9`).
+- **Range semantics.** A language record lists one range per maintained
+  branch (`[0, 3.1.3)`, `[9.0.0, 9.0.6)`, ...), so the distro rule "any
+  row saying fixed wins" would call minimatch 9.0.4 fixed because it is
+  ≥ 3.1.3. For language ecosystems (the comparator is wrapped in
+  `osvRanges`) rows combine as the OSV schema defines them: affected when
+  any row of any record citing the key contains the version; the fix is
+  the lowest `fixed` among the rows that contain it. Several records for
+  one CVE and package (a GHSA and a PYSEC, a GHSA and a GO record) are
+  deduplicated by the key and their ranges united, as osv-scanner does;
+  every record's id lands in `advisory_ids`.
+- `matcher.Assessed`: a language ecosystem is listed with distro `''`, so
+  its packages are assessed whatever the (empty) release.
 
 - `matcher.Resolve` matches any ecosystem with a comparator by
   (source, source version) as interned (apk: the origin from the purl's
   `upstream` qualifier, else the binary name, `source_inferred`); the
   kernel mapping and Ubuntu Pro channels stay deb-only.
-- `matcher.Assessed(ecosystem, distro, release)` is the single answer to
-  "is this package matched at all" (for "not assessed" counts): `deb` on
-  debian/ubuntu and `apk` on alpine, with a release. Whether that
-  release is supported (end of life) is data: join `distro_releases`.
+- `matcher.Assessed(ecosystem, distro, release, supported)` is the
+  single answer to "is this package matched at all" (for "not assessed"
+  counts): `deb` on debian/ubuntu and `apk` on alpine, with a release
+  that `distro_releases` lists as supported; the language ecosystems
+  (`npm`, `pypi`, `golang`) with distro `''`, release ignored. Advisories are imported
+  only for supported releases, so a release out of support (Debian 10
+  buster) or one not in `distro_releases` matches nothing and its
+  packages are "not assessed", never "no vulnerabilities"
+  (`matcher.ReleaseStatus`: supported / out_of_support / unknown).
+  Migration 0020 lists common end-of-life Debian, Ubuntu and Alpine
+  releases (`supported = false`, with their EOL date) so the dashboard
+  can say "out of support since ..." rather than "not recognised".
 - The store joins `advisory_affected` on (distro, release,
   source_package) exactly as for deb: an apk package in an Alpine 3.22
   image is (`alpine`, `3.22`, origin).
 - `matcher.Version` 2: apk versions interned before this were stamped
   "evaluated, nothing to match" under 1; the bump re-evaluates them.
-  deb results are unchanged.
+  deb results are unchanged. 3: `Assessed` needs a supported release;
+  matches are unchanged, the bump re-scores image lists. 4: npm
+  packages are matched. 5: PyPI packages are matched. 6: Go modules and
+  the standard library are matched.
 - Host findings (`findings.Build`) still pick the lowest installed
   version with debversion; hosts only send deb today.
 
@@ -761,13 +908,28 @@ queues `reconcile_host` for hosts having such an image
 - *Scores*: `image_sbom_scores` per list (so identical for every user
   seeing it): worst bucket, counts per bucket, top `severity_key`, KEV
   count, fixable count, max CVSS, package count and `not_assessed_count`
-  (packages outside `matcher.Assessed(ecosystem, distro, release)`, the
-  single Go list of assessed ecosystems). Computed in Go
+  (packages outside `matcher.Assessed`, the single Go list of assessed
+  ecosystems, including every distro package of a release out of support
+  or unknown). Computed in Go
   (`findings.ScoreOf`, the finding grouping) because buckets come from
   `severity.Assess`; never written while versions are unevaluated.
   `image_score_sweep` (worker start + matcher cadence) scores lists whose
   score is missing, older than the list, or from an older
-  `matcher.Version` (coverage changes bump it).
+  `matcher.Version` (coverage changes bump it), or that count
+  vulnerabilities but have no `image_sbom_vulns` rows (lists scored
+  before migration 0019: the backfill).
+- *Rows* (`image_sbom_vulns`, migration 0019): the groups a score
+  counts, one per (list, source package, vuln_key), written by
+  `ScoreImageSBOM` in the same transaction as the score and replaced as
+  a whole: representative row (lowest installed version by the
+  ecosystem comparator: installed / fixed version, fix channel and
+  advisory, distro severity, ecosystem), binaries and their
+  `software_versions` ids, advisory ids, the assessed bucket / rank /
+  `severity_key` and the KEV / EPSS / CVSS it was assessed with. So the
+  ranking rules have one copy, in Go: the dashboard lists these rows,
+  they add up to `image_sbom_scores`, and a row's key equals its
+  `vulnerable_image` findings'. Current only while the score is
+  (`computed_at >= image_sbom_state.updated_at`); readers check that.
 - *Read model*: `image_scores(user)` per `container_images` key: list
   status (`ok` / `unavailable` / `error` with reason / `none` = never
   attempted), source, and the effective list's score, with `scored`
@@ -975,6 +1137,30 @@ above the table lists `host_kernel_packages` grouped by kernel release
 explains that findings cover every installed kernel while the running
 kernel is unknown.
 
+**With container images (P2a, as built).** The tab also lists the
+host's `vulnerable_image` findings (images a current container on the
+host uses, §2.6), one row per finding, in a server-mode DataTable
+(`getHostVulnList`, `web/src/lib/queries-vuln-list.ts`; URL state
+`hostVulnsTable()` in `web/src/lib/vuln-tables.ts`): `?q` (CVE, package,
+binary, image ref or container name), facets `kind` = `package` |
+`image` (none = both), `severity`, `kev=1`, `fix` = `available` | `pro`
+| `none`, sort `severity` | `vuln` | `seen` (first seen when open,
+resolved at when resolved; the resolved default). A **Where** column
+says where the finding is: a host package (source package, binaries,
+installed version) or an image (first ref, else the short id; platform;
+container names; the package and version inside the image) linking to
+the image page's Vulnerabilities tab filtered to the CVE
+(`imageHref(..., {platform, tab: "vulnerabilities", q, host})`, the shape
+of `store.ImageFindingURL` plus the platform). The fix column for an
+image reads "Rebuild or re-pull image; fixed in <version>". Counts are
+per kind and never summed: one line per kind above the table (open or
+resolved count, severity badges and KEV, each narrowing to that kind),
+two pills on the tab (host packages, and container images with an
+icon). The host header's severity badge and the Overview tab's
+Vulnerabilities card stay host-package counts (the card links
+`?kind=package` and adds a separate container-images line); its "Most
+urgent" ranks both kinds. The `?v=` sheet lists both kinds.
+
 ### 3.6 Fleet-wide views
 
 **`/dashboard/packages`**. Search box first (`?q=openssl`), no giant
@@ -1065,8 +1251,42 @@ package changes across fleet".
   ranking) and badges where each is: "Host package" (packages, hosts)
   and/or "Image" (the image or image count, packages, hosts). The CVE
   link goes to the CVE page when a host package is affected, else to
-  the single image's Vulnerabilities tab filtered to the CVE (the CVE
-  page lists host findings only).
+  the single image's Vulnerabilities tab filtered to the CVE (several
+  images: the CVE page). "View all" opens the fleet list with no kind
+  filter; the host package cards, bars and the KEV "Needs attention"
+  item link with `kind=package`, the Container images section's
+  findings, KEV and bars with `kind=image`, so the list matches the
+  number clicked.
+- Fleet list with container images (P2a): `/dashboard/vulnerabilities`
+  lists `vulnerable_package` and `vulnerable_image` findings in one
+  server-mode DataTable (`getFleetVulnList`,
+  `web/src/lib/queries-vuln-list.ts`; URL state `FLEET_VULNS_TABLE`).
+  Rows: one per `vuln_key` for host packages (grouped across hosts, as
+  before) and one per (`vuln_key`, image key) for images, since each
+  image is its own fix. Facets `kind` (`package` | `image`, none =
+  both), `severity`, `kev=1`, `fix`; sort `severity` | `vuln` | `hosts` |
+  `first_seen`; `?q` also matches image refs and container names.
+  **Where**: host package source packages, or the image (first ref,
+  platform, containers) linking to the image page's Vulnerabilities tab
+  filtered to the CVE. Fix: host rows as before ("Upgrade available" /
+  Pro / no fix), image rows "Rebuild or re-pull image; fixed in
+  <package> <version>". `status=resolved` is per row: a CVE fixed in
+  host packages but still in an image is resolved in one row and open
+  in the other. Above the table, one card per kind (distinct CVEs,
+  hosts, images, KEV findings), never summed; each links to that kind.
+- CVE page with container images: "Host packages on hosts" (as before)
+  and **Container images**: one row per image key with a
+  `vulnerable_image` finding for the CVE on the user's hosts (image
+  linking to its Vulnerabilities tab filtered to the CVE, platform,
+  package + installed version, severity/KEV, hosts with their
+  containers, fix, since; resolved images badged), client-mode
+  DataTable. The header says where separately ("In host packages on N
+  of your hosts", "In M container images on K hosts"); the severity
+  badge is the worst of both kinds.
+- Sidebar badge (`queries-nav.ts` `vulnsUrgent`): distinct KEV or
+  critical CVEs in host packages only. A single number can't show both
+  kinds and they are never summed; urgent images have their own "Needs
+  attention" item on the Overview.
 - Severity colours live in one component
   (`web/src/components/vuln/badges.tsx`).
 
@@ -1102,29 +1322,35 @@ through `image_sbom_effective(user)`, never by list id.
   effective list, server-driven DataTable (`?q` name/source/path, facets
   `?ecosystem=` and `?status=vulnerable,not-assessed,pending,no-known`,
   `?sort=status|name|ecosystem`, paging). Not assessed = outside
-  `matcher.Assessed` (mirrored in `web/src/lib/assessed.ts`) or a distro
-  release with `distro_releases.supported` false: never "no
+  `matcher.Assessed` (mirrored in `web/src/lib/assessed.ts`, which
+  takes the release's `distro_releases.supported` too): never "no
   vulnerabilities".
-- *Vulnerabilities tab* (`queries-image-vulns.ts`):
-  `software_vulnerabilities` through the list, one row per (source
-  package, vuln_key) like `findings.BuildImage` (kernel binaries
-  skipped), so images no container uses work too; per row the user's
-  `vulnerable_image` findings (host, open since / resolved). Facets
-  severity, KEV, fix; sort severity (default), vuln, package, EPSS, CVSS.
-- *Severity per row*: Go stores buckets on findings and only totals per
-  list, so the web assesses matches with a SQL mirror of
-  `severity.Assess` (`web/src/lib/severity-sql.ts`); rows add up to
-  `image_sbom_scores`, and keys equal `findings.severity_key` where
-  findings exist (checked on real data). The representative row of a
-  group is the lowest match version in text order (Go uses the
-  ecosystem comparator; equal in practice).
+- *Vulnerabilities tab* (`queries-image-vulns.ts`): the effective
+  list's `image_sbom_vulns` rows (§2.6 "Image findings and scores"), one
+  per (source package, vuln_key) as `ScoreImageSBOM` grouped and
+  assessed them (kernel binaries skipped), so images no container uses
+  work too; per row the user's `vulnerable_image` findings (host, open
+  since / resolved). Facets severity, KEV, fix; sort severity (default),
+  vuln, package, EPSS, CVSS. Read only while the list's score is
+  current; until then the tab says matching is in progress.
+- *Severity per row*: the bucket and `severity_key` Go wrote; the web
+  never re-derives the ranking rules (the former SQL mirror of
+  `severity.Assess` is gone). Rows add up to `image_sbom_scores` and
+  keys equal `findings.severity_key` (checked on real data 2026-09-29:
+  1021 rows over 6 lists, 290 open findings). A Packages tab row's worst
+  severity is the worst of the rows whose `software_ids` hold it.
 - *States instead of empty tables* (`list-state.tsx`): not inspected on
   any host (no platform), no package list yet, local image (no repo
   digest) needs the agent, `unavailable` with its reason verbatim
   ("private or local image, needs the agent", "registry has no SBOM
   attestation for this image", ...), error with the retry time, release
-  not assessed (distro not imported, release out of support or unknown),
-  matching in progress (list ok, score not current).
+  not assessed (release out of support with its EOL date, release not
+  recognised, or distro not imported), matching in progress (list ok,
+  score not current). The same "release out of support" state (never the
+  green "no known vulnerabilities") is what score cells, the image
+  header and the Overview's container images section show
+  (`imageScoreState` kind `release_not_assessed`; the Overview counts
+  such images apart from scored ones).
 
 **Score columns** (`components/image/score-cell.tsx`, `ImageScoreCell`):
 worst bucket with its count, KEV count, total and max CVSS, or the state
@@ -1532,6 +1758,21 @@ a plain set, replaced as a whole when re-generated, not ranges.
   disabled; also too large, mismatch, unreadable) and no timer; `error`
   with `next_attempt_at` (30 min × 2^attempts, capped at 24 h, never
   before a registry's Retry-After).
+- **Server lists from pulling the image (`image_scan` worker,
+  `internal/imagescan`, source `server-syft`).** For the no-attestation
+  work list: `image_sbom` records "registry has no SBOM attestation"
+  as a hand-over (`attempts` unchanged, no timer) and queues
+  `image_scan`, which pulls the platform's layers by digest, extracts
+  them and runs Syft (tool `syft`, Syft's version, `generated_at` = scan
+  time). Syft's packages go through the same purl rules (`distro=`,
+  `upstream=`, epoch in the deb version) so they intern like attestation
+  and host packages; `paths` as above (the package database for distro
+  packages); packages Syft reports without a purl (e.g. Windows
+  launcher binaries in Python packages) are not stored. Scan failures
+  on the server row: `unavailable` over a size cap, unsupported layers
+  or the memory limit; `error` with the same backoff on timeout or
+  crash (the retry re-checks the attestation first). Neither source
+  ever replaces an `ok` list.
 
 ### 4.6 Target schema sketch (identity and topology)
 

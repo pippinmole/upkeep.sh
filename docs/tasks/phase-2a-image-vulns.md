@@ -93,8 +93,8 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       Image finding notifications link to the page (`store.ImageFindingURL`).
       Follow-ups: the host Vulnerabilities tab and fleet vulnerability
       pages still list only `vulnerable_package`; the web mirrors
-      `severity.Assess` in SQL (`web/src/lib/severity-sql.ts`) and
-      `matcher.Assessed` (`web/src/lib/assessed.ts`).)
+      `matcher.Assessed` (`web/src/lib/assessed.ts`). Its SQL mirror of
+      `severity.Assess` is gone, item below.)
 - [x] Overview page (`/dashboard`) folds in container images, kept apart
       from host packages (never one summed total: an image is fixed by
       rebuilding or re-pulling, a host package by upgrading the host).
@@ -111,18 +111,80 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       `web/src/lib/queries-overview-images.ts`,
       `web/src/components/overview/`.) Follow-up: the "View all" link and
       the CVE page are still host-package only (item below).
-- [ ] One copy of the ranking rules: have `ScoreImageSBOM` persist the
+- [x] One copy of the ranking rules: have `ScoreImageSBOM` persist the
       per-(source, vuln_key) rows it already assesses, and switch the
       image Vulnerabilities tab to read them instead of the SQL mirror
       of `severity.Assess` (checked equal on real data 2026-09-28: 502
       findings and both image totals). Do before the Phase 2a stack
-      merges.
-- [ ] Image findings on the host Vulnerabilities tab and the fleet
+      merges. (Done 2026-09-29: `image_sbom_vulns`, migration 0019,
+      written with the score in `store.ScoreImageSBOM`
+      (`imagescore_vulns.go`); the image Vulnerabilities tab and the
+      Packages tab's worst severity read it, `web/src/lib/severity-sql.ts`
+      deleted; `StaleImageScores` re-scores lists with vulnerabilities
+      but no rows, the backfill. On a copy of dev data the rows equal
+      the old SQL's output exactly (1021 rows, 6 lists, keys, installed
+      versions), per-list totals equal `image_sbom_scores`, and all 290
+      open image findings' `severity_key`s match. DOMAIN_MODEL.md §2.6,
+      §3.8.)
+- [ ] Drop the web mirror of `matcher.Assessed`
+      (`web/src/lib/assessed.ts`): persist a per-package "assessed" flag
+      (or the not-assessed reason) with the list so the Packages tab and
+      list states read Go's answer.
+- [x] Image findings on the host Vulnerabilities tab and the fleet
       vulnerability pages (they list only `vulnerable_package` today).
-- [ ] Server-side Syft for public images without an SBOM attestation:
+      (Done 2026-09-29, DOMAIN_MODEL.md §3.5, §3.6;
+      `web/src/lib/queries-vuln-list.ts`, `web/src/lib/vuln-tables.ts`,
+      `web/src/components/vuln/where.tsx`. Host tab and fleet list are
+      server-mode DataTables over both kinds with a Where column (host
+      package, or image ref + platform + containers linking to the image
+      page's Vulnerabilities tab filtered to the CVE) and a Kind facet
+      (`?kind=package|image`, none = both); fleet rows are per `vuln_key`
+      for host packages and per (`vuln_key`, image key) for images. Fix
+      for images: "Rebuild or re-pull image; fixed in X". Counts per
+      kind, never summed (cards above the fleet list, lines and two tab
+      pills on the host). The CVE page has "Host packages on hosts" and
+      "Container images" (image, platform, package, hosts + containers,
+      fix). Overview "View all" is unfiltered; host package cards link
+      `kind=package`, image numbers `kind=image`; multi-image "Most
+      urgent" rows now open the CVE page. Sidebar badge stays host
+      packages only. Checked on a copy of dev data: per host and fleet,
+      open findings per kind from SQL equal the query results.)
+- [x] Server-side Syft for public images without an SBOM attestation:
       pull by digest (the image's platform only) and run Syft as a Go
       library. Bound CPU, memory, disk and concurrency in the worker;
-      delete pulled layers after cataloguing.
+      delete pulled layers after cataloguing. (Done 2026-09-29, no
+      migration; ARCHITECTURE.md "Server-side Syft", DOMAIN_MODEL.md
+      §4.5. `image_sbom` hands a no-attestation key over to a new
+      `image_scan` job (own queue, `SW_IMAGE_SCAN_WORKERS`, default 1)
+      without counting an attempt; the sweep also queues the existing
+      work-list rows. `internal/imagescan`: our registry client resolves
+      the platform manifest (same image-id check) and streams each layer
+      by digest through netguard to a temp file (digest + size verified),
+      layers are applied into one rootfs through an `os.Root` (no escape
+      via names or symlinks, whiteouts + opaque dirs, devices skipped,
+      decompressed bytes capped while streaming), then the worker binary
+      re-executes itself (`worker syft-catalog`) with GOMAXPROCS /
+      GOMEMLIMIT, killed at the deadline, RSS watchdog + Pdeathsig on
+      Linux; `sbom.FromEntries` feeds the same purl.Map ->
+      WriteImageSBOM -> match/score path with source `server-syft`.
+      Bounds: `SW_IMAGE_SCAN_MAX_COMPRESSED_BYTES` 2 GiB,
+      `…_MAX_UNCOMPRESSED_BYTES` 8 GiB, `SW_IMAGE_SCAN_TIMEOUT` 20 min,
+      `SW_IMAGE_SCAN_CPUS` 1, `SW_IMAGE_SCAN_MEMORY_BYTES` 2 GiB,
+      `SW_IMAGE_SCAN_DIR`; `SW_IMAGE_SCAN_ENABLED` and
+      `SW_IMAGE_FETCH_ENABLED=false` turn it off. Live on the dev data:
+      the 5 no-attestation arm64 images became ok server-syft lists
+      (pgadmin4 9.9: 203 packages, 9.18: 196, migrate v4.20.1: 122,
+      pgadmin4-docker-extension ×2: 26), scored; `debian:buster`
+      amd64 and arm64: 91 packages, identical to the syft v1.52.0 CLI;
+      pgadmin4 9.18: 196 purls + 14 purl-less binaries = the CLI's 210.
+      Worker binary (linux/arm64, stripped) 13.5 MB -> 77.6 MB.)
+- [ ] Server-side Syft follow-ups: run the RSS-watchdog / Pdeathsig path
+      in a Linux test (the unit tests run on macOS, where only
+      GOMEMLIMIT and the timeout apply); an opaque whiteout doesn't
+      empty a lower layer's copy of a directory the same layer merged
+      into earlier in its tar (rare ordering); a lock so two worker
+      processes can't share `SW_IMAGE_SCAN_DIR` (the start sweep would
+      delete the other's scans).
 - [x] Alpine: OSV `Alpine` ecosystem in `feeds.OSVEcosystems`, apk
       version comparator, `distro_releases` rows. Many official images
       ship `-alpine` variants, so this comes before language packages.
@@ -134,13 +196,66 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       as EOL. Live: 3,480 advisories, ~3,100-3,400 affected rows per
       branch. Alpine's feed has **fixed** CVEs only: secdb doesn't track
       unfixed ones, so an Alpine package is never "affected, no fix".)
-- [ ] End-of-life base images (e.g. `debian:buster`): show "release out
+- [x] End-of-life base images (e.g. `debian:buster`): show "release out
       of support, not assessed" rather than hiding them or claiming
-      clean.
-- [ ] Language ecosystems, one at a time, each with its OSV feed and
-      comparator: likely npm, PyPI, Go, then crates.io / Maven. Until an
-      ecosystem is added its packages are listed but marked "not
-      assessed".
+      clean. (Done 2026-09-29, migration 0020, `matcher.Version` 3;
+      DOMAIN_MODEL.md §2.5 "As built", §2.6, §3.8. `matcher.Assessed`
+      takes the release's `distro_releases.supported`: a release out of
+      support or not listed counts every distro package as not
+      assessed, so the image is never clean. 0020 lists Debian 8-10,
+      Ubuntu 14.04/16.04/18.04 and the EOL interim releases, Alpine
+      3.14-3.18, unsupported with EOL dates. Dashboard: "Release out of
+      support" + release + EOL date in score cells, image header and
+      note, Packages tab titles, and a count on the Overview. Real data:
+      `node:18-buster-slim` (attestation, 318 packages) and
+      `debian:bullseye-slim` went from 199 / 0 not assessed (bullseye
+      scored clean) to 318 / 96.)
+- [ ] Host packages on an end-of-life release have the same gap: a host
+      on Debian 10 / 11 gets no findings (no advisories imported) and
+      looks clean. Show the host's release support on the host page
+      and the Overview.
+- [ ] Re-score image lists when a release's `distro_releases.supported`
+      flips (today only a `matcher.Version` bump or a list rewrite
+      re-scores; a data migration that ends a release's support should
+      bump it or clear the affected `image_sbom_scores`).
+- [x] Language ecosystems, one at a time, each with its OSV feed and
+      comparator: npm, PyPI, Go. Until an ecosystem is added its
+      packages are listed but marked "not assessed". (Done 2026-09-29,
+      migration 0021, `matcher.Version` 4-6; DOMAIN_MODEL.md §2.3 "As
+      built (P2a, language ecosystems)", §2.4, §2.5. `osv/language.go`:
+      OSV `npm`, `PyPI`, `Go` feeds, rows under ('', ecosystem, package
+      name) (`matcher.AdvisoryScope`), MAL- records skipped, vuln_key =
+      the single CVE alias else the GHSA id, GHSA severity as the ranking
+      priority and its CVSS in `cves`, multi-ecosystem GHSAs shared by
+      the feeds. The matcher combines language ranges with OSV semantics
+      (any range containing the version), so backport branches and a
+      GHSA + PYSEC/GO pair for one CVE give one correct finding.
+      Comparators: `npmversion` (node-semver fixtures), `pep440` (pypa/
+      packaging vectors; equal to packaging 26.3 on the feed's 40,482
+      versions), `goversion` (golang.org/x/mod/semver + its table; `v`,
+      `go1.x`, pseudo-versions, `+incompatible`). Live on dev data: 7,504
+      npm, 13,947 PyPI, 9,375 Go advisories; first syncs 55 s / 11 s /
+      12 s, ≤ 143 MB RSS. Not-assessed counts: node images 189 → 1 and
+      318 → 120 (the rest is Debian 10), Go-binary images 4 → 0 (two
+      lists) and 5 → 1; `image_sbom_vulns` gained 48 npm and 138 Go rows
+      (Go stdlib 1.24.6: 45 CVEs), open image findings 290 → 503 (29
+      npm, 184 Go); spot-checked
+      against the OSV records (minimatch 9.0.4 in [9.0.0, 9.0.6), tar
+      6.2.1 < 7.5.3, stdlib 1.24.6 in [0, 1.24.9), mercurial 6.3.2 above
+      every fix).)
+- [ ] crates.io and Maven advisories (OSV `crates.io`, `Maven`): Cargo
+      is SemVer (npmversion's ordering fits), Maven needs its own
+      ComparableVersion ordering.
+- [ ] Malicious package detection (OSV `MAL-` records, OpenSSF): a
+      package flagged as malware (every version) rather than a
+      vulnerable range; needs its own finding kind and wording. Skipped
+      by every language sync today.
+- [ ] Go findings are per module: read the Go records'
+      `ecosystem_specific.imports` (packages/symbols) to drop modules a
+      binary contains but doesn't call (as `govulncheck -mode binary`).
+- [ ] The CVE page's "fixed in" list reads only distro rows
+      (`advisory_affected` ⋈ `distro_releases`); show language packages'
+      fixed versions there too.
 - [ ] Agent: package lists for images the server can't pull (no repo
       digest = built locally, or a private registry). The push response
       carries "need a package list for these image IDs"; the agent runs
@@ -162,7 +277,37 @@ first (no agent upgrade needed), then more ecosystems, then the agent.
       `create_host_path: false`, and extend `agent/test/host-mount/run.sh`
       to check that neither directory carries a reachable socket
       (containerd keeps its sockets in `/run`, but check).
-- [ ] Verification: compare our results with `docker scout cves` /
+- [x] Verification: compare our results with `docker scout cves` /
       Trivy / Grype on a fixed set of images (`postgres:17`,
       `nginx:1.27`, an Alpine variant, an EOL `debian:buster` image)
       and explain every difference.
+      (Done 2026-09-30:
+      [Image vulnerability verification](../decisions/image-vuln-verification.md).
+      linux/arm64, pinned digests, plus `node:22-bookworm-slim` for
+      npm; Trivy 0.74.0 and Grype 0.119.0, `docker scout cves` needs a
+      login so it wasn't run. Package lists equal Syft's and Trivy's;
+      vulnerability sets and fix states agree up to advisory-data
+      differences; Go and npm sets identical. Fixed on the way
+      (`internal/sbom/spdx.go`): Scout's apk origin entries were listed
+      as installed packages (postgres:17-alpine 61 -> 45), and nested Go
+      module paths written as a purl subpath lost their last segment.
+      Follow-ups below.)
+- [ ] Decide the severity of issues whose source gives none (Debian
+      "not yet assigned", most Debian CVEs; Go standard library): today
+      "unknown" (CVSS only breaks ties), where Trivy/Grype use NVD CVSS
+      (nginx:1.27: 85 of our 299 unknown are high/critical in Trivy).
+      See the verification note for options.
+- [ ] Third-party deb packages with a Debian name (nginx.org's `nginx`
+      in `nginx:1.27`) are matched against Debian's advisories: false
+      positives, including KEV-critical CVE-2023-44487. Tell origin by
+      dpkg Maintainer / apt origin, or by a version outside the
+      release's archive versions.
+- [ ] Debian tracker states OSV doesn't export (`<no-dsa>`,
+      `<ignored>`, `<postponed>`, undetermined, TEMP ids): all show as
+      "no fix yet"; consider the tracker's JSON as a second source.
+- [ ] A language package present at several versions (npm `pacote`
+      19.0.2 and 20.0.1 in `node:22`) shows one installed version per
+      `image_sbom_vulns` row; list every affected version.
+- [ ] Lists parsed before an SBOM parser fix keep the old parse (ok
+      lists are never refetched): add a parser version that re-fetches
+      attestation lists, as `matcher.Version` re-scores.

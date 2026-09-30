@@ -45,6 +45,10 @@ export function advisoryUrl(id: string): string | null {
   m = /^UBUNTU-(CVE-\d{4}-\d+)$/.exec(id);
   if (m) return `https://ubuntu.com/security/${m[1]}`;
   if (/^CVE-\d{4}-\d+$/.test(id)) return `https://www.cve.org/CVERecord?id=${id}`;
+  // Language advisories (and vuln_keys without a CVE): GitHub, PyPA, Go.
+  if (/^(GHSA(-[23456789cfghjmpqrvwx]{4}){3}|PYSEC-\d{4}-\d+|GO-\d{4}-\d+)$/.test(id)) {
+    return `https://osv.dev/vulnerability/${id}`;
+  }
   return null;
 }
 

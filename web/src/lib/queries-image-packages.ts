@@ -3,7 +3,7 @@ import { pool } from "./db";
 import type { ImageKey } from "./image-key";
 import type { ImagePackageSort, ImagePackageStatus } from "./image-tables";
 import { isSeverity, type Severity } from "./severity";
-import { BUCKET_NAMES_SQL, severityLateral } from "./severity-sql";
+import { SCORED_LIST_SQL } from "./queries-image-vulns";
 
 // The image detail page's Packages tab: every package of the image's
 // effective list (image_sbom_effective(user), migration 0014), vulnerable
@@ -12,11 +12,13 @@ import { BUCKET_NAMES_SQL, severityLateral } from "./severity-sql";
 //
 // A package's status, in order: vulnerable (has matches), pending (the
 // matcher hasn't evaluated the version yet), not assessed (ecosystem /
-// distro the matcher doesn't cover, matcher.Assessed mirrored in
-// assessed.ts, or a release out of support: distro_releases.supported),
-// else no known vulnerabilities. Worst severity per package is over its
-// own matches (severity-sql.ts); the Vulnerabilities tab groups by source
-// package as findings do.
+// distro the matcher doesn't cover, or a release out of support / not in
+// distro_releases: matcher.Assessed mirrored in assessed.ts),
+// else no known vulnerabilities. Match counts are the package's own
+// software_vulnerabilities rows; its worst severity is the worst of the
+// Vulnerabilities tab rows (image_sbom_vulns, Go-assessed per source
+// package and vuln_key) it belongs to, so none while the list's score
+// is not current (or for a kernel binary, which scores skip).
 
 export type ImagePackageRow = {
   softwareId: string;
@@ -54,8 +56,7 @@ pk AS (
   SELECT sv.id, sv.ecosystem, sv.distro, sv.release, sv.name, sv.version, sv.arch,
          sv.source_name, sv.source_version, sv.matcher_version, sv.max_fixed_version,
          isw.paths, dr.supported AS release_supported,
-         ${assessedSql("sv.ecosystem", "sv.distro", "sv.release")}
-           AND (sv.distro = '' OR coalesce(dr.supported, false)) AS assessed
+         ${assessedSql("sv.ecosystem", "sv.distro", "sv.release", "dr.supported")} AS assessed
   FROM image_sbom_effective($1) e
   JOIN image_software isw ON isw.sbom_id = e.sbom_id
   JOIN software_versions sv ON sv.id = isw.software_id
@@ -63,32 +64,32 @@ pk AS (
   WHERE e.image_id = $2 AND e.os = $3 AND e.arch = $4 AND e.variant = $5
 ),
 v AS (
-  SELECT sw.software_id, count(*) AS vulns, max(sev.bucket) AS worst_rank,
-         max(sev.severity_key) AS top_key,
+  SELECT sw.software_id, count(*) AS vulns,
          count(*) FILTER (WHERE c.is_kev) AS kev,
          count(*) FILTER (WHERE sw.fix_channel = 'standard') AS fixable,
          count(*) FILTER (WHERE sw.fixed_version IS NULL) AS unfixed
   FROM pk
   JOIN software_vulnerabilities sw ON sw.software_id = pk.id
   LEFT JOIN cves c ON c.id = sw.vuln_key AND sw.vuln_key LIKE 'CVE-%'
-  ${severityLateral("sev", {
-    distroSeverity: "sw.distro_severity",
-    fixChannel: "sw.fix_channel",
-    kev: "c.is_kev",
-    epss: "c.epss_score",
-    cvss: "c.cvss_v3_score",
-  })}
   GROUP BY sw.software_id
 ),
+w AS (
+  SELECT s.id AS software_id, max(iv.severity_key) AS top_key,
+         (array_agg(iv.severity ORDER BY iv.severity_rank DESC))[1] AS worst
+  FROM (${SCORED_LIST_SQL}) l
+  JOIN image_sbom_vulns iv ON iv.sbom_id = l.sbom_id
+  CROSS JOIN LATERAL unnest(iv.software_ids) s(id)
+  GROUP BY s.id
+),
 r AS (
-  SELECT pk.*, coalesce(v.vulns, 0) AS vulns, v.worst_rank, coalesce(v.top_key, 0) AS top_key,
+  SELECT pk.*, coalesce(v.vulns, 0) AS vulns, w.worst, coalesce(w.top_key, 0) AS top_key,
          coalesce(v.kev, 0) AS kev, coalesce(v.fixable, 0) AS fixable,
          coalesce(v.unfixed, 0) AS unfixed,
          CASE WHEN coalesce(v.vulns, 0) > 0 THEN 'vulnerable'
               WHEN pk.matcher_version IS NULL AND pk.assessed THEN 'pending'
               WHEN NOT pk.assessed THEN 'not-assessed'
               ELSE 'no-known' END AS status
-  FROM pk LEFT JOIN v ON v.software_id = pk.id
+  FROM pk LEFT JOIN v ON v.software_id = pk.id LEFT JOIN w ON w.software_id = pk.id
 )`;
 
 export async function getImagePackages(
@@ -125,7 +126,7 @@ export async function getImagePackages(
     total: string;
   }>(
     `WITH ${PACKAGES_CTE}
-     SELECT r.*, ${BUCKET_NAMES_SQL}[r.worst_rank] AS worst, count(*) OVER () AS total
+     SELECT r.*, count(*) OVER () AS total
      FROM r
      WHERE ($6::text IS NULL
             OR strpos(lower(r.name), lower($6)) > 0

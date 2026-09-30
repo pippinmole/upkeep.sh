@@ -3,11 +3,15 @@ import { cache } from "react";
 import { pool } from "./db";
 import { isUuid } from "./queries-inventory";
 import { emptySeverityCounts, isSeverity, type Severity, type SeverityCounts } from "./severity";
+import type { ImageWhere, VulnKind } from "./vuln-tables";
 
 // Vulnerability reads (DOMAIN_MODEL.md §3.3, §3.5, §3.6). Sources, per the
 // P1b backend (migration 0007, ARCHITECTURE.md "Vulnerability pipeline"):
 //   findings (kind 'vulnerable_package')  per-host open/resolved state, with
 //                                          severity/fix/KEV/EPSS snapshotted
+//   findings (kind 'vulnerable_image')    the same for packages in images a
+//                                          container on the host uses (P2a,
+//                                          §2.6); counted apart, never summed
 //   host_package_vuln_status (view)       per (host, binary) open summary
 //   host_kernel_packages (view)           installed kernels, is_running
 //   software_vulnerabilities              positive matches per interned version
@@ -97,21 +101,39 @@ function foldSummary(rows: SummaryRow[]): VulnSummary {
   return s;
 }
 
-// Host header + tabs share this per request (React cache).
-export const getHostVulnSummary = cache(async function getHostVulnSummary(
+async function hostSummary(
   workspaceId: string,
   hostId: string,
+  kind: string,
 ): Promise<VulnSummary> {
   if (!isUuid(hostId)) return foldSummary([]);
   const { rows } = await pool.query<SummaryRow>(
     `SELECT ${SUMMARY_COLUMNS}
      FROM hosts h
-     JOIN findings f ON f.host_id = h.id AND f.kind = 'vulnerable_package'
+     JOIN findings f ON f.host_id = h.id AND f.kind = $3
      WHERE h.id = $2 AND h.workspace_id = $1
      GROUP BY f.severity`,
-    [workspaceId, hostId],
+    [workspaceId, hostId, kind],
   );
   return foldSummary(rows);
+}
+
+// Host package findings (vulnerable_package). Host header + tabs share
+// this per request (React cache).
+export const getHostVulnSummary = cache(async function getHostVulnSummary(
+  workspaceId: string,
+  hostId: string,
+): Promise<VulnSummary> {
+  return hostSummary(workspaceId, hostId, "vulnerable_package");
+});
+
+// Container image findings (vulnerable_image) on the host: shown next to
+// the host package summary, never added to it.
+export const getHostImageVulnSummary = cache(async function getHostImageVulnSummary(
+  workspaceId: string,
+  hostId: string,
+): Promise<VulnSummary> {
+  return hostSummary(workspaceId, hostId, "vulnerable_image");
 });
 
 export type OverviewStats = {
@@ -185,6 +207,10 @@ export async function getOverviewStats(workspaceId: string): Promise<OverviewSta
 // ---------------------------------------------------------------------------
 
 export type FindingRow = {
+  kind: VulnKind;
+  // The image key, refs and containers of a vulnerable_image finding; null
+  // for a host package one.
+  image: ImageWhere | null;
   vulnKey: string;
   sourcePackage: string | null;
   packages: string[];
@@ -209,7 +235,14 @@ export type FindingRow = {
   description: string | null; // cves.description, truncated
 };
 
-type FindingDbRow = {
+export type FindingDbRow = {
+  kind: string;
+  image_id: string | null;
+  image_os: string | null;
+  image_arch: string | null;
+  image_variant: string | null;
+  image_refs: string[];
+  container_names: string[];
   vuln_key: string;
   source_package: string | null;
   packages: string[];
@@ -234,15 +267,28 @@ type FindingDbRow = {
   description: string | null;
 };
 
-const FINDING_COLUMNS = `
-  f.vuln_key, f.source_package, f.packages, f.installed_version,
+export const FINDING_COLUMNS = `
+  f.kind, f.image_id, f.image_os, f.image_arch, f.image_variant, f.image_refs,
+  f.container_names, f.vuln_key, f.source_package, f.packages, f.installed_version,
   f.fixed_version, f.fix_channel, f.requires_pro, f.severity, f.is_kev,
   f.epss_score, f.epss_percentile, f.cvss_v3_score, f.distro_severity,
   f.advisory_ids, f.fix_advisory_id, f.first_seen_at, f.resolved_at,
   f.reopened_at, f.reopen_count, f.running_kernel_unknown, f.kernel_release`;
 
-function mapFinding(r: FindingDbRow): FindingRow {
+export function mapFinding(r: FindingDbRow): FindingRow {
+  const image = r.kind === "vulnerable_image" && r.image_id !== null;
   return {
+    kind: image ? "image" : "package",
+    image: image
+      ? {
+          imageId: r.image_id!,
+          os: r.image_os ?? "",
+          arch: r.image_arch ?? "",
+          variant: r.image_variant ?? "",
+          refs: r.image_refs,
+          containers: r.container_names,
+        }
+      : null,
     vulnKey: r.vuln_key,
     sourcePackage: r.source_package,
     packages: r.packages,
@@ -266,68 +312,6 @@ function mapFinding(r: FindingDbRow): FindingRow {
     kernelRelease: r.kernel_release,
     description: r.description,
   };
-}
-
-export type FixFilter = "available" | "pro" | "none";
-
-export type HostFindingFilters = {
-  status: "open" | "resolved";
-  q: string | null; // vuln key, source or binary package substring
-  severity: Severity | null;
-  kev: boolean;
-  fix: FixFilter | null;
-  sort: "severity" | "recent";
-  page: number;
-  pageSize: number;
-};
-
-export async function getHostFindings(
-  workspaceId: string,
-  hostId: string,
-  f: HostFindingFilters,
-): Promise<{ rows: FindingRow[]; total: number }> {
-  if (!isUuid(hostId)) return { rows: [], total: 0 };
-  // Static ORDER BY variants; the open + severity form walks
-  // findings_host_open_rank_idx.
-  const orderBy =
-    f.status === "resolved"
-      ? "f.resolved_at DESC, f.vuln_key"
-      : f.sort === "recent"
-        ? "f.first_seen_at DESC, f.severity_key DESC, f.vuln_key"
-        : "f.severity_key DESC, f.vuln_key";
-  const { rows } = await pool.query<FindingDbRow & { total: string }>(
-    `SELECT ${FINDING_COLUMNS}, left(c.description, 240) AS description,
-            count(*) OVER () AS total
-     FROM hosts h
-     JOIN findings f ON f.host_id = h.id
-     LEFT JOIN cves c ON c.id = f.vuln_key
-     WHERE h.id = $2 AND h.workspace_id = $1
-       AND f.kind = 'vulnerable_package' AND f.status = $3
-       AND ($4::text IS NULL
-            OR strpos(lower(f.vuln_key), lower($4)) > 0
-            OR strpos(lower(coalesce(f.source_package, '')), lower($4)) > 0
-            OR EXISTS (SELECT 1 FROM unnest(f.packages) p WHERE strpos(lower(p), lower($4)) > 0))
-       AND ($5::text IS NULL OR f.severity = $5)
-       AND (NOT $6::boolean OR f.is_kev)
-       AND ($7::text IS NULL
-            OR ($7 = 'available' AND f.fix_channel = 'standard')
-            OR ($7 = 'pro' AND f.requires_pro)
-            OR ($7 = 'none' AND f.fixed_version IS NULL))
-     ORDER BY ${orderBy}
-     LIMIT $8 OFFSET $9`,
-    [
-      workspaceId,
-      hostId,
-      f.status,
-      f.q,
-      f.severity,
-      f.kev,
-      f.fix,
-      f.pageSize,
-      (f.page - 1) * f.pageSize,
-    ],
-  );
-  return { rows: rows.map(mapFinding), total: rows[0] ? Number(rows[0].total) : 0 };
 }
 
 export type CveDetail = {
@@ -427,13 +411,16 @@ function mapAdvisory(r: AdvisoryDbRow): AdvisoryDetail {
 }
 
 export type HostFindingDetail = {
-  findings: FindingRow[]; // one per source package (open first)
+  // One per source package, host packages first, then per image; open
+  // first.
+  findings: FindingRow[];
   cve: CveDetail | null;
   advisories: AdvisoryDetail[];
 };
 
-// Sheet on the host Vulnerabilities tab (?v=<vuln_key>). Null when this
-// host (owned by workspaceId) has no finding for vulnKey.
+// Sheet on the host Vulnerabilities tab (?v=<vuln_key>): host package and
+// container image findings. Null when this host (owned by workspaceId) has no
+// finding for vulnKey.
 export async function getHostFindingDetail(
   workspaceId: string,
   hostId: string,
@@ -445,8 +432,9 @@ export async function getHostFindingDetail(
      FROM hosts h
      JOIN findings f ON f.host_id = h.id
      WHERE h.id = $2 AND h.workspace_id = $1
-       AND f.kind = 'vulnerable_package' AND f.vuln_key = $3
-     ORDER BY f.status, f.source_package`,
+       AND f.kind IN ('vulnerable_package', 'vulnerable_image') AND f.vuln_key = $3
+     ORDER BY f.kind = 'vulnerable_image', f.status, f.image_refs[1], f.image_id,
+              f.source_package`,
     [workspaceId, hostId, vulnKey],
   );
   if (rows.length === 0) return null;
@@ -710,130 +698,6 @@ export async function getChangeEffects(
 // Fleet vulnerabilities
 // ---------------------------------------------------------------------------
 
-export type FleetVulnRow = {
-  vulnKey: string;
-  severity: string | null;
-  isKev: boolean;
-  epssScore: number | null;
-  cvssV3Score: number | null;
-  affectedHosts: number; // hosts with an open finding
-  previousHosts: number; // hosts with a resolved finding only
-  packages: string[]; // source packages
-  anyFix: boolean; // a standard-archive fix exists for some affected host
-  proOnly: boolean; // some affected host's only fix is Ubuntu Pro
-  noFix: boolean; // some affected host has no fix at all
-  firstSeenAt: string;
-  description: string | null;
-};
-
-export type FleetVulnFilters = {
-  status: "open" | "resolved";
-  q: string | null;
-  severity: Severity | null;
-  kev: boolean;
-  fix: FixFilter | null;
-  sort: "severity" | "hosts" | "recent";
-  page: number;
-  pageSize: number;
-};
-
-export async function getFleetVulns(
-  workspaceId: string,
-  f: FleetVulnFilters,
-): Promise<{ rows: FleetVulnRow[]; total: number }> {
-  const orderBy =
-    f.sort === "hosts"
-      ? "g.affected_hosts DESC, g.top_key DESC, g.vuln_key"
-      : f.sort === "recent"
-        ? "g.first_seen_at DESC, g.top_key DESC, g.vuln_key"
-        : "g.top_key DESC, g.affected_hosts DESC, g.vuln_key";
-  // One row per vuln_key over this user's findings. "open" lists vulns
-  // affecting at least one host now; "resolved" lists vulns that affected
-  // hosts before and none now. Severity/fix columns come from the open
-  // rows when there are any, otherwise from the resolved ones.
-  const { rows } = await pool.query<{
-    vuln_key: string;
-    severity: string | null;
-    is_kev: boolean;
-    epss_score: string | null;
-    cvss_v3_score: string | null;
-    affected_hosts: string;
-    previous_hosts: string;
-    packages: string[];
-    any_fix: boolean;
-    pro_only: boolean;
-    no_fix: boolean;
-    first_seen_at: Date;
-    description: string | null;
-    total: string;
-  }>(
-    `WITH uf AS (
-       SELECT f.*
-       FROM hosts h
-       JOIN findings f ON f.host_id = h.id
-       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package'
-     ),
-     g AS (
-       SELECT uf.vuln_key,
-              count(DISTINCT uf.host_id) FILTER (WHERE uf.status = 'open') AS affected_hosts,
-              count(DISTINCT uf.host_id) FILTER (WHERE uf.status = 'resolved') AS previous_hosts,
-              max(uf.severity_key) FILTER (WHERE uf.status = $2) AS top_key,
-              (array_agg(uf.severity ORDER BY uf.severity_key DESC)
-                 FILTER (WHERE uf.status = $2))[1] AS severity,
-              bool_or(uf.is_kev) AS is_kev,
-              max(uf.epss_score) AS epss_score,
-              max(uf.cvss_v3_score) AS cvss_v3_score,
-              array_agg(DISTINCT uf.source_package) FILTER (WHERE uf.status = $2) AS packages,
-              coalesce(bool_or(uf.fix_channel = 'standard') FILTER (WHERE uf.status = $2), false) AS any_fix,
-              coalesce(bool_or(uf.requires_pro) FILTER (WHERE uf.status = $2), false) AS pro_only,
-              coalesce(bool_or(uf.fixed_version IS NULL) FILTER (WHERE uf.status = $2), false) AS no_fix,
-              min(uf.first_seen_at) AS first_seen_at,
-              bool_or($3::text IS NULL
-                      OR strpos(lower(uf.vuln_key), lower($3)) > 0
-                      OR strpos(lower(coalesce(uf.source_package, '')), lower($3)) > 0) AS q_match
-       FROM uf
-       GROUP BY uf.vuln_key
-     )
-     SELECT g.vuln_key, g.severity, g.is_kev, g.epss_score, g.cvss_v3_score,
-            g.affected_hosts, g.previous_hosts, g.packages, g.any_fix,
-            g.pro_only, g.no_fix, g.first_seen_at,
-            left(c.description, 200) AS description,
-            count(*) OVER () AS total
-     FROM g
-     LEFT JOIN cves c ON c.id = g.vuln_key
-     WHERE (CASE WHEN $2 = 'open' THEN g.affected_hosts > 0
-                 ELSE g.affected_hosts = 0 AND g.previous_hosts > 0 END)
-       AND g.q_match
-       AND ($4::text IS NULL OR g.severity = $4)
-       AND (NOT $5::boolean OR g.is_kev)
-       AND ($6::text IS NULL
-            OR ($6 = 'available' AND g.any_fix)
-            OR ($6 = 'pro' AND g.pro_only)
-            OR ($6 = 'none' AND g.no_fix))
-     ORDER BY ${orderBy}
-     LIMIT $7 OFFSET $8`,
-    [workspaceId, f.status, f.q, f.severity, f.kev, f.fix, f.pageSize, (f.page - 1) * f.pageSize],
-  );
-  return {
-    rows: rows.map((r) => ({
-      vulnKey: r.vuln_key,
-      severity: r.severity,
-      isKev: r.is_kev,
-      epssScore: num(r.epss_score),
-      cvssV3Score: num(r.cvss_v3_score),
-      affectedHosts: Number(r.affected_hosts),
-      previousHosts: Number(r.previous_hosts),
-      packages: (r.packages ?? []).filter((p): p is string => p !== null),
-      anyFix: r.any_fix,
-      proOnly: r.pro_only,
-      noFix: r.no_fix,
-      firstSeenAt: r.first_seen_at.toISOString(),
-      description: r.description,
-    })),
-    total: rows[0] ? Number(rows[0].total) : 0,
-  };
-}
-
 export type VulnHostRow = FindingRow & {
   hostId: string;
   hostname: string;
@@ -865,14 +729,43 @@ export type ReleaseFixRow = {
   advisoryIds: string[];
 };
 
+// One image key with a vulnerable_image finding for the CVE on the
+// user's hosts: the CVE page's "Container images" section. Open when any
+// host's finding is open; severity and packages from the open findings
+// (else the resolved ones).
+export type VulnImageRow = {
+  image: ImageWhere; // refs and containers across the hosts
+  open: boolean;
+  severity: string | null;
+  isKev: boolean;
+  packages: {
+    sourcePackage: string | null;
+    installedVersion: string | null;
+    fixedVersion: string | null;
+    fixChannel: string | null;
+  }[];
+  hosts: {
+    hostId: string;
+    hostname: string;
+    label: string | null;
+    containers: string[];
+    open: boolean;
+  }[];
+  firstSeenAt: string;
+  resolvedAt: string | null; // latest, when no finding is open
+};
+
 export type FleetVulnDetail = {
   cve: CveDetail | null;
   advisories: AdvisoryDetail[];
   releaseFixes: ReleaseFixRow[];
   releaseFixesTruncated: boolean;
   versions: AffectedVersionRow[];
+  // Host package findings (vulnerable_package).
   affected: VulnHostRow[];
   previous: VulnHostRow[];
+  // Container image findings (vulnerable_image), per image key, open first.
+  images: VulnImageRow[];
 };
 
 const RELEASE_FIX_LIMIT = 200;
@@ -904,7 +797,8 @@ export async function getFleetVulnDetail(
               h.id AS host_id, h.hostname, h.label, h.os_id
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package' AND f.vuln_key = $2
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.vuln_key = $2
+         AND f.kind IN ('vulnerable_package', 'vulnerable_image')
        ORDER BY f.severity_key DESC, h.hostname, h.id, f.source_package`,
       [workspaceId, vulnKey],
     ),
@@ -964,6 +858,7 @@ export async function getFleetVulnDetail(
       )
     : { rows: [] };
 
+  const pkgRows = fnd.rows.filter((r) => r.kind === "vulnerable_package");
   const hostRow = (r: (typeof fnd.rows)[number]): VulnHostRow => ({
     ...mapFinding(r),
     hostId: r.host_id,
@@ -997,7 +892,67 @@ export async function getFleetVulnDetail(
       isKernel: r.is_kernel,
       hosts: Number(r.hosts),
     })),
-    affected: fnd.rows.filter((r) => r.status === "open").map(hostRow),
-    previous: fnd.rows.filter((r) => r.status === "resolved").map(hostRow),
+    affected: pkgRows.filter((r) => r.status === "open").map(hostRow),
+    previous: pkgRows.filter((r) => r.status === "resolved").map(hostRow),
+    images: groupImages(fnd.rows.filter((r) => r.kind === "vulnerable_image").map(hostRow)),
   };
+}
+
+// Folds per-host image findings (worst first) into one row per image key.
+function groupImages(rows: VulnHostRow[]): VulnImageRow[] {
+  const groups = new Map<string, VulnHostRow[]>();
+  for (const r of rows) {
+    if (!r.image) continue;
+    const id = `${r.image.imageId}|${r.image.os}|${r.image.arch}|${r.image.variant}`;
+    groups.set(id, [...(groups.get(id) ?? []), r]);
+  }
+  const out: VulnImageRow[] = [];
+  for (const all of groups.values()) {
+    const open = all.filter((r) => !r.resolvedAt);
+    const shown = open.length > 0 ? open : all; // worst first, as queried
+    const im = all[0].image!;
+    const row: VulnImageRow = {
+      image: { ...im, refs: [], containers: [] },
+      open: open.length > 0,
+      severity: shown[0].severity,
+      isKev: all.some((r) => r.isKev),
+      packages: [],
+      hosts: [],
+      firstSeenAt: all.reduce(
+        (m, r) => (r.firstSeenAt < m ? r.firstSeenAt : m),
+        all[0].firstSeenAt,
+      ),
+      resolvedAt: null,
+    };
+    for (const r of all) {
+      for (const ref of r.image?.refs ?? []) {
+        if (!row.image.refs.includes(ref)) row.image.refs.push(ref);
+      }
+      if (!row.open && r.resolvedAt && (!row.resolvedAt || r.resolvedAt > row.resolvedAt)) {
+        row.resolvedAt = r.resolvedAt;
+      }
+      let h = row.hosts.find((x) => x.hostId === r.hostId);
+      if (!h) {
+        h = { hostId: r.hostId, hostname: r.hostname, label: r.label, containers: [], open: false };
+        row.hosts.push(h);
+      }
+      if (!r.resolvedAt) h.open = true;
+      for (const c of r.image?.containers ?? []) {
+        if (!h.containers.includes(c)) h.containers.push(c);
+        if (!row.image.containers.includes(c)) row.image.containers.push(c);
+      }
+    }
+    for (const r of shown) {
+      if (row.packages.some((x) => x.sourcePackage === r.sourcePackage)) continue;
+      row.packages.push({
+        sourcePackage: r.sourcePackage,
+        installedVersion: r.installedVersion,
+        fixedVersion: r.fixedVersion,
+        fixChannel: r.fixChannel,
+      });
+    }
+    row.hosts.sort((a, b) => Number(b.open) - Number(a.open));
+    out.push(row);
+  }
+  return out.sort((a, b) => Number(b.open) - Number(a.open));
 }

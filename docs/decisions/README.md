@@ -13,6 +13,7 @@ roughly by when they were made.
 - [Port exposure: host-side analysis, not an external scanner (MVP)](port-exposure.md) — classify exposure from host facts (listeners, ufw, Docker ports); external scanner deferred to Phase 2+.
 - [Docker collection: Engine API from the agent, opt-in socket mount](docker-collection.md) — Docker Engine API via the official Go client over an opt-in socket mount; fixed read-only call list; local agents only.
 - [Container image vulnerabilities: our own SBOM + matcher, not Docker Scout](container-image-vulnerabilities.md) — image package inventory (registry SBOM, Syft) matched by our own pipeline, not Docker Scout.
+- [Image vulnerability results checked against Trivy and Grype](image-vuln-verification.md) — five pinned images: package lists equal Syft/Trivy, vulnerability sets agree up to advisory data; severity and third-party packages are the open questions.
 - [Scheduled reports: a separate feature, about state rather than events](scheduled-reports.md) — weekly/monthly estate reports about state, separate from alert rules, stored as snapshots and sent to existing channels.
 - [Report email HTML: React Email, rendered by Next.js](report-email-html.md) — report emails are React Email HTML rendered by an internal Next.js endpoint and sent by the Go worker.
 - [Next.js deploys as a Docker standalone image, not on Vercel](nextjs-docker-standalone.md) — the web app ships as a standalone Docker image for self-hosting, not on Vercel.

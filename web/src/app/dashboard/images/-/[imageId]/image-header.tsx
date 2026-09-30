@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ContainerStateBadge, HostLink, shortId } from "@/components/docker-fleet/badges";
 import { repoHref } from "@/components/docker-fleet/links";
 import { RegistryLogo } from "@/components/brand";
+import { ReleaseNotAssessedBadge } from "@/components/image/release-badge";
 import { scoreTitle } from "@/components/image/score-cell";
 import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +62,7 @@ function ScoreSummary({ overview }: { overview: ImageOverview }) {
   const s = overview.score;
   const st = imageScoreState(s, { inspected: true, hasRepoDigest: overview.digests.length > 0 });
   if (!s || st.kind !== "vulnerable") {
+    if (st.kind === "release_not_assessed") return <ReleaseNotAssessedBadge st={st} />;
     if (st.kind === "no_known") {
       return (
         <div className="flex flex-wrap items-center gap-2">

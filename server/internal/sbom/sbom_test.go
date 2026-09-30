@@ -109,8 +109,48 @@ func TestParseSPDXAlpine(t *testing.T) {
 	if _, ok := pk["apk:alpine-baselayout"]; !ok {
 		t.Error("alpine-baselayout (a binary and an origin) dropped")
 	}
+	// openssl is only the origin of libssl3 and libcrypto3: every file it
+	// CONTAINS is one of theirs.
+	if _, ok := pk["apk:openssl"]; ok {
+		t.Error("source-only origin openssl listed")
+	}
+	for _, bin := range []string{"apk:libssl3", "apk:libcrypto3"} {
+		if got := pk[bin].PURL.Qualifier("upstream"); got != "openssl@3.5.8-r0" {
+			t.Errorf("%s origin = %q", bin, got)
+		}
+	}
 	if got := pk["apk:musl"].Paths; !slices.Equal(got, []string{"/lib/apk/db/installed"}) {
 		t.Errorf("musl paths = %v", got)
+	}
+}
+
+// Docker Scout splits a nested Go module path into a purl subpath
+// (postgres:17-alpine's gosu, 2026-09-29); a real package subpath stays.
+func TestParseSPDXGoModuleSubpath(t *testing.T) {
+	doc := `{
+	 "spdxVersion": "SPDX-2.3",
+	 "creationInfo": {"creators": ["Tool: docker-scout-1.18.1"], "created": "2026-09-17T21:31:48Z"},
+	 "packages": [
+	  {"SPDXID": "a", "name": "github.com/moby/sys/user", "versionInfo": "0.1.0",
+	   "externalRefs": [{"referenceType": "purl", "referenceLocator": "pkg:golang/github.com/moby/sys@0.1.0#user"}]},
+	  {"SPDXID": "b", "name": "google.golang.org/genproto", "versionInfo": "0.0.1",
+	   "externalRefs": [{"referenceType": "purl", "referenceLocator": "pkg:golang/google.golang.org/genproto@0.0.1#googleapis/api"}]}
+	 ]
+	}`
+	d, err := Parse(FormatSPDX, []byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pk := byName(d)
+	if u, ok := pk["golang:user"]; !ok || u.PURL.Namespace != "github.com/moby/sys" || u.PURL.Subpath != "" {
+		t.Errorf("moby/sys/user = %+v", pk)
+	}
+	if u := pk["golang:genproto"].PURL; u.Namespace != "google.golang.org" || u.Subpath != "googleapis/api" {
+		t.Errorf("genproto = %+v", u)
+	}
+	m, err := purl.Map(pk["golang:user"].PURL, d.OS, nil)
+	if err != nil || m.Item.Name != "github.com/moby/sys/user" {
+		t.Errorf("mapped = %+v, %v", m, err)
 	}
 }
 

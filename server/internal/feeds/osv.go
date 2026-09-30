@@ -21,8 +21,9 @@ import (
 // OSVEcosystems are the OSV bucket directories this product imports. Each
 // is a top-level directory (all.zip + modified_id.csv); the per-release
 // ones ("Debian:12", "Alpine:v3.20") went stale in 2024-10 and are not
-// read. Every directory maps to one distro (osv.DistroFor).
-var OSVEcosystems = []string{"Debian", "Ubuntu", "Alpine"}
+// read. Every distro directory maps to one distro (osv.DistroFor); a
+// language directory ("npm") to one package ecosystem (osv.Languages).
+var OSVEcosystems = []string{"Debian", "Ubuntu", "Alpine", "npm", "PyPI", "Go"}
 
 // OSVStats summarizes one OSV sync (also stored in feed_sync_state.stats).
 type OSVStats struct {
@@ -32,6 +33,7 @@ type OSVStats struct {
 	Records       int     `json:"records"`        // records read (zip entries / changed ids)
 	Relevant      int     `json:"relevant"`       // touching a supported release
 	Skipped       int     `json:"skipped"`        // already applied (incremental)
+	Malicious     int     `json:"malicious"`      // MAL-* records, not imported (osv.IsMalicious)
 	BadRecords    int     `json:"bad_records"`    // failed to parse/normalize; logged and skipped
 	Written       int     `json:"written"`        // advisories inserted/updated
 	Unchanged     int     `json:"unchanged"`      // same content hash
@@ -78,7 +80,7 @@ func (s *Syncer) SyncOSV(ctx context.Context, dir string, forceFull bool) (stats
 		return stats, err
 	}
 	rels := osv.NewReleases(releases)
-	fingerprint := rels.Fingerprint(osv.DistroFor(dir))
+	fingerprint := osv.FeedFingerprint(dir, rels)
 
 	reason := ""
 	switch {
@@ -120,13 +122,24 @@ func (s *Syncer) osvIncremental(ctx context.Context, dir, feed string, st store.
 		stats.Mode, stats.Cursor = "not-modified", st.Cursor
 		return stats, false, s.Store.FeedSucceeded(ctx, feed, store.FeedSuccess{Stats: stats})
 	}
-	stats.Records = len(entries)
-	if len(entries) > s.Cfg.IncrementalMaxChanges {
-		return stats, true, nil
-	}
 	cursor := st.Cursor
 	if len(entries) > 0 {
 		cursor = entries[0].Modified.Format(time.RFC3339Nano) // newest first
+	}
+	// Malicious-package records (most of npm's changes) are never
+	// imported: don't fetch them, and don't let them force a full import.
+	kept := entries[:0]
+	for _, e := range entries {
+		if osv.IsMalicious(e.ID) {
+			stats.Malicious++
+			continue
+		}
+		kept = append(kept, e)
+	}
+	entries = kept
+	stats.Records = len(entries)
+	if len(entries) > s.Cfg.IncrementalMaxChanges {
+		return stats, true, nil
 	}
 
 	// Skip records whose stored modified_at already equals the listed one
@@ -248,6 +261,13 @@ func (s *Syncer) osvFull(ctx context.Context, dir, feed string, rels osv.Release
 		for range max(1, s.Cfg.Workers) {
 			g.Go(func() error {
 				for f := range files {
+					if osv.IsMalicious(f.Name) { // "MAL-2024-1234.json": skip unread
+						mu.Lock()
+						records++
+						stats.Malicious++
+						mu.Unlock()
+						continue
+					}
 					b, err := readZipFile(f)
 					if err != nil {
 						return fmt.Errorf("read %s: %w", f.Name, err)

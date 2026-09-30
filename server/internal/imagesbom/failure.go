@@ -17,6 +17,9 @@ type failure struct {
 	retryAt time.Time // error only: not before (a registry's Retry-After)
 	err     error
 	rank    int // worst() picks the lowest
+	// handover: not a failure of this attempt but the hand-over to the
+	// server-side scan (store.ImageSBOMFailure.Handover).
+	handover bool
 }
 
 // Reasons besides the store.SBOMReason* ones. Shown to users as is.

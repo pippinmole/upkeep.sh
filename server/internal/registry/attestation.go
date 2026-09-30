@@ -43,45 +43,10 @@ type SBOM struct {
 // then the OCI referrers of the platform manifest. SPDX is preferred over
 // CycloneDX within each. KindNoAttestation when neither has an SBOM.
 func (c *Client) FetchSBOM(ctx context.Context, ref Ref, p Platform, imageID string) (*SBOM, error) {
-	b, err := c.getManifest(ctx, ref, ref.Digest)
+	top, manifestDigest, _, err := c.resolve(ctx, ref, p, imageID, false)
 	if err != nil {
 		return nil, err
 	}
-	top, err := parseManifest(ref.Host, b)
-	if err != nil {
-		return nil, err
-	}
-
-	var (
-		manifestDigest = ref.Digest
-		single         *Manifest // the platform manifest, once fetched
-	)
-	if top.IsIndex() {
-		d, ok := platformDescriptor(top, p)
-		if !ok {
-			return nil, newErr(KindMismatch, ref.Host, "platform %s not in %s", p, ref)
-		}
-		manifestDigest = d.Digest
-	} else {
-		single = &top
-	}
-	if imageID != ref.Digest && imageID != manifestDigest {
-		if single == nil {
-			b, err := c.getManifest(ctx, ref, manifestDigest)
-			if err != nil {
-				return nil, err
-			}
-			m, err := parseManifest(ref.Host, b)
-			if err != nil {
-				return nil, err
-			}
-			single = &m
-		}
-		if single.Config.Digest != imageID {
-			return nil, newErr(KindMismatch, ref.Host, "image %s is not %s (%s)", imageID, ref, p)
-		}
-	}
-
 	if top.IsIndex() {
 		if att, ok := attestationFor(top, manifestDigest); ok {
 			s, err := c.fromAttestationManifest(ctx, ref, att, manifestDigest)

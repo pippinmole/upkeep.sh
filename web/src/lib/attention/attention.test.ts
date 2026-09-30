@@ -120,7 +120,9 @@ describe("providers", () => {
     expect(items[0].title).toBe("Known-exploited vulnerabilities on 2 hosts");
     expect(items[0].subject).toBe("3 with a fix available");
     expect(items[1].subject).toBe("On 1 host");
-    expect(items[1].href).toBe("/dashboard/vulnerabilities?severity=critical&fix=available");
+    expect(items[1].href).toBe(
+      "/dashboard/vulnerabilities?kind=package&severity=critical&fix=available",
+    );
   });
 
   test("collectors: exposed sockets and failing collectors are separate items", () => {

@@ -40,6 +40,22 @@
 // re-open it); otherwise any "affected" row makes the channel affected,
 // with the lowest fixed version among its affected rows as the fix.
 //
+// # Language ecosystems (npm, PyPI, Go)
+//
+// Language advisories (GHSA-, PYSEC-, GO- records from OSV) are none of
+// the above: they are keyed like notices (their CVE aliases, else their
+// GHSA or own id; osv.vulnKey), and several of them may describe one CVE
+// for one package (a GHSA and a PYSEC, a GHSA and a GO record). Their
+// rows are ranges of an upstream package's releases, and one record
+// routinely lists several (one per maintained branch: [0, 1.2.3),
+// [2.0.0, 2.0.5)), so "v >= fixed" of one range says nothing about the
+// others and "any fixed row wins" would hide 2.0.1 above. For these
+// ecosystems (the comparator is wrapped in osvRanges) rows combine as the
+// OSV schema defines: the version is affected when any row's range
+// contains it, across every record citing the key; the fix is the
+// lowest fixed version among the rows that contain it. Records that
+// disagree therefore both count (the union), as osv-scanner does.
+//
 // # Channels (Ubuntu Pro / ESM, DOMAIN_MODEL.md Q9)
 //
 // Rows are either 'standard' (the release's archive) or 'ubuntu-pro'
@@ -73,7 +89,16 @@ import (
 //	   since migration 0014 and evaluated as "not matched" under 1) are
 //	   now matched with apkversion. deb results are unchanged; their
 //	   re-evaluation only restamps matcher_version.
-const Version = 2
+//	3  Assessed needs a supported release (distro_releases.supported):
+//	   packages of an end-of-life or unknown release are "not assessed".
+//	   Matches are unchanged (only supported releases' advisories are
+//	   imported); the bump re-scores image lists (image_sbom_scores
+//	   .not_assessed_count), and version re-evaluation only restamps.
+//	4  npm packages are matched (npmversion, OSV range semantics; see
+//	   "Language ecosystems"), evaluated as "not matched" before.
+//	5  PyPI packages are matched (pep440).
+//	6  Go modules and the Go standard library are matched (goversion).
+const Version = 6
 
 // Channels, as in advisory_affected.channel.
 const (
@@ -139,6 +164,7 @@ const (
 // v is valid (c.Validate), so a comparison error means a bad row.
 func Evaluate(v string, c Comparator, rows []Row) ([]Match, Stats) {
 	var st Stats
+	_, anyRange := c.(osvRanges)
 	type group struct {
 		perCVE, notice []int // indexes into rows
 		refs           map[string]bool
@@ -177,8 +203,8 @@ func Evaluate(v string, c Comparator, rows []Row) ([]Match, Stats) {
 				std = append(std, i)
 			}
 		}
-		sv, bad1 := channelVerdict(v, c, rows, std)
-		pv, bad2 := channelVerdict(v, c, rows, pro)
+		sv, bad1 := channelVerdict(v, c, rows, std, anyRange)
+		pv, bad2 := channelVerdict(v, c, rows, pro, anyRange)
 		st.BadVersions += bad1 + bad2
 		m, ok := combine(sv, pv)
 		if !ok {
@@ -204,7 +230,7 @@ type verdict struct {
 	severity *string
 }
 
-func channelVerdict(v string, c Comparator, rows []Row, idx []int) (verdict, int) {
+func channelVerdict(v string, c Comparator, rows []Row, idx []int, anyRange bool) (verdict, int) {
 	var (
 		out      verdict
 		bad      int
@@ -222,7 +248,8 @@ func channelVerdict(v string, c Comparator, rows []Row, idx []int) (verdict, int
 		out.present = true
 		switch s {
 		case fixedApplied:
-			anyFixed = true
+			// Under OSV range semantics v is only outside this range.
+			anyFixed = anyFixed || !anyRange
 		case affected:
 			out.affected = true
 			// rowState compared r.Fixed successfully, so both parse.

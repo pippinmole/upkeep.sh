@@ -2,7 +2,9 @@
 // Pure (no DB), so it can be unit tested with fixtures.
 
 import { type CsvCell, toCsv } from "./csv";
+import { platformLabel } from "./image-key";
 import type { ExportFindingRow } from "./queries-host-vulns-export";
+import type { VulnKind } from "./vuln-tables";
 
 const list = (xs: string[]): string => xs.join("; ");
 
@@ -13,6 +15,8 @@ function fixStatus(r: Pick<ExportFindingRow, "fixedVersion" | "fixChannel" | "re
   if (r.requiresPro || r.fixChannel === "ubuntu-pro") return "ubuntu-pro";
   return r.fixChannel ?? "available";
 }
+
+const KIND: Record<VulnKind, string> = { package: "host package", image: "container image" };
 
 const COLUMNS: [header: string, cell: (r: ExportFindingRow) => CsvCell][] = [
   ["Vulnerability ID", (r) => r.vulnKey],
@@ -28,6 +32,13 @@ const COLUMNS: [header: string, cell: (r: ExportFindingRow) => CsvCell][] = [
   ["Known exploited (KEV)", (r) => (r.isKev ? "yes" : "no")],
   ["KEV added", (r) => r.kevAddedAt],
   ["KEV due date", (r) => r.kevDueDate],
+  // Where: a host package, or a package inside one of the host's images
+  // (empty image columns on host package rows).
+  ["Kind", (r) => KIND[r.kind]],
+  ["Image", (r) => list(r.imageRefs)],
+  ["Image ID", (r) => r.image?.imageId ?? null],
+  ["Platform", (r) => (r.image ? platformLabel(r.image) : null)],
+  ["Containers", (r) => list(r.containers)],
   ["Source package", (r) => r.sourcePackage],
   ["Binary packages", (r) => list(r.packages)],
   ["Installed version", (r) => r.installedVersion],

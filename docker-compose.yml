@@ -63,6 +63,12 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
       SW_FEED_SYNC_ENABLED: ${SW_FEED_SYNC_ENABLED:-true}
+      # Container images: registry SBOM attestations, else pull + Syft on
+      # the server (docs/ARCHITECTURE.md "Server-side Syft"). A scan holds
+      # up to SW_IMAGE_SCAN_MAX_UNCOMPRESSED_BYTES (8 GiB) of disk in /tmp
+      # and SW_IMAGE_SCAN_MEMORY_BYTES (2 GiB) of memory while it runs.
+      SW_IMAGE_FETCH_ENABLED: ${SW_IMAGE_FETCH_ENABLED:-true}
+      SW_IMAGE_SCAN_ENABLED: ${SW_IMAGE_SCAN_ENABLED:-true}
       # Dashboard links in alert and report notifications.
       SW_DASHBOARD_URL: ${PUBLIC_WEB_URL:-}
       # Report emails: the worker POSTs each report to web's internal render

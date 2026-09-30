@@ -50,7 +50,10 @@ export type ImageOverviewStats = {
   // data at all (the section collapses to one line).
   hasDocker: boolean;
   images: number; // inspected image keys
-  scored: number; // keys with a current score
+  scored: number; // keys with a current score whose packages are assessed
+  // Scored keys whose base OS release isn't assessed (out of support, not
+  // recognised, or a distro we don't import): neither vulnerable nor clean.
+  releaseNotAssessed: number;
   vulnerable: number; // scored keys with at least one known vulnerability
   needsAgent: number; // private registry or local image: only the agent can list it
   noSbom: number; // unavailable for another reason (e.g. no SBOM attestation)
@@ -128,6 +131,7 @@ export async function getImageOverviewStats(
   ]);
 
   let scored = 0;
+  let releaseNotAssessed = 0;
   let vulnerable = 0;
   let needsAgent = 0;
   let noSbom = 0;
@@ -137,8 +141,11 @@ export async function getImageOverviewStats(
   for (const r of keys.rows) {
     const score = mapImageScore(r);
     const st = imageScoreState(score, { inspected: true, hasRepoDigest: r.has_digest });
-    if (score?.scored) scored++;
+    if (score?.scored && st.kind !== "release_not_assessed") scored++;
     switch (st.kind) {
+      case "release_not_assessed":
+        releaseNotAssessed++;
+        break;
       case "vulnerable":
         vulnerable++;
         if (r.in_use && score) candidates.push({ row: r, score });
@@ -184,6 +191,7 @@ export async function getImageOverviewStats(
     hasDocker: docker.rows[0]?.has === true,
     images: keys.rows.length,
     scored,
+    releaseNotAssessed,
     vulnerable,
     needsAgent,
     noSbom,

@@ -1,6 +1,7 @@
 // Package imagesbom obtains the server's package list for one container
 // image key (image_id, os, arch, variant) from its registry's SBOM
-// attestation and stores it
+// attestation, else by pulling and scanning the image (server-side Syft,
+// internal/imagescan, scan.go), and stores it
 // (docs/tasks/phase-2a-image-vulns.md "Worker: image_sbom",
 // docs/decisions/container-image-vulnerabilities.md). The image_sbom River
 // job (internal/jobs) runs it; `worker image-sbom` runs it in the
@@ -9,6 +10,10 @@
 //	image key ── repo digests (host_images, any host) ──> registry.FetchSBOM
 //	  ── sbom.Parse ──> purl.Map (image OS, distro_releases) ──> store.WriteImageSBOM
 //	                                                             (source attestation, owner NULL)
+//
+// Without an attestation, Run hands the key over to the scan (Outcome.Scan;
+// jobs enqueues image_scan, whose Fetcher.Scan pulls the image and runs
+// Syft, storing the list with source server-syft through the same path).
 //
 // A failure is recorded on image_sbom_state (store.RecordImageSBOMFailure)
 // as unavailable (no timed retry: something else has to change) or error
@@ -23,6 +28,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pippinmole/upkeep.sh/server/internal/imagescan"
 	"github.com/pippinmole/upkeep.sh/server/internal/purl"
 	"github.com/pippinmole/upkeep.sh/server/internal/registry"
 	"github.com/pippinmole/upkeep.sh/server/internal/sbom"
@@ -43,6 +49,10 @@ type Config struct {
 	Enabled bool
 	// Registry is the shared registry client (required when Enabled).
 	Registry *registry.Client
+	// Scanner pulls and scans images without an attestation (nil =
+	// server-side scanning off, SW_IMAGE_SCAN_ENABLED=false: such images
+	// stay unavailable with store.SBOMReasonNoAttestation).
+	Scanner *imagescan.Scanner
 	// RetryBase / RetryMax: backoff for status error (0 = defaults).
 	RetryBase, RetryMax time.Duration
 	// Now is the clock (nil = time.Now).
@@ -69,11 +79,14 @@ type Outcome struct {
 	Digests []string
 	// Set when ok.
 	Ref                   string // the repo digest the SBOM came from
-	Via                   string // registry.ViaAttestationManifest | ViaReferrers
+	Via                   string // registry.ViaAttestationManifest | ViaReferrers | ViaPull
 	ToolName, ToolVersion string
 	Packages, Unmapped    int
 	OS                    purl.OSRelease
 	Release               string
+	// Scan: no attestation, and the key was handed over to the
+	// server-side scan (Run only); the caller enqueues it.
+	Scan bool
 	// Set for error: when the sweep retries.
 	NextAttemptAt *time.Time
 	// Err is the underlying error of a failed attempt (logged, not stored).
@@ -130,33 +143,33 @@ func (f *Fetcher) Run(ctx context.Context, key store.ImageKey) (Outcome, error) 
 			continue
 		}
 		out.Ref, out.Via = d, s.Via
-		ok, fl, err := f.store(ctx, &out, s)
+		doc, err := sbom.Parse(s.Format, s.Document)
 		if err != nil {
+			fails = append(fails, failure{status: store.SBOMStatusUnavailable, rank: 3,
+				reason: "registry SBOM could not be read", err: err})
+			continue
+		}
+		if err := f.store(ctx, &out, doc, store.SBOMSourceAttestation); err != nil {
 			return out, err
 		}
-		if ok {
-			out.Status = store.SBOMStatusOK
-			return out, nil
-		}
-		fails = append(fails, fl)
+		out.Status = store.SBOMStatusOK
+		return out, nil
 	}
-	return f.fail(ctx, out, st, worst(fails))
+	fl := worst(fails)
+	if fl.reason == store.SBOMReasonNoAttestation && f.Cfg.Scanner != nil {
+		fl.handover, out.Scan = true, true
+	}
+	return f.fail(ctx, out, st, fl)
 }
 
-// store parses, maps and writes one fetched SBOM. ok false with a failure
-// when the document can't be read.
-func (f *Fetcher) store(ctx context.Context, out *Outcome, s *registry.SBOM) (bool, failure, error) {
-	doc, err := sbom.Parse(s.Format, s.Document)
-	if err != nil {
-		return false, failure{status: store.SBOMStatusUnavailable, rank: 3,
-			reason: "registry SBOM could not be read", err: err}, nil
-	}
+// store maps and writes one package list.
+func (f *Fetcher) store(ctx context.Context, out *Outcome, doc *sbom.Document, source string) error {
 	ix, err := f.Store.DistroReleaseIndex(ctx)
 	if err != nil {
-		return false, failure{}, err
+		return err
 	}
 	in := store.ImageSBOMInput{
-		Key: out.Key, Source: store.SBOMSourceAttestation,
+		Key: out.Key, Source: source,
 		ToolName: doc.ToolName, ToolVersion: doc.ToolVersion, GeneratedAt: doc.Created,
 		OS: doc.OS, AfterWrite: f.AfterWrite,
 	}
@@ -174,11 +187,11 @@ func (f *Fetcher) store(ctx context.Context, out *Outcome, s *registry.SBOM) (bo
 	out.Unmapped += doc.Skipped
 	res, err := f.Store.WriteImageSBOM(ctx, in)
 	if err != nil {
-		return false, failure{}, fmt.Errorf("write image sbom: %w", err)
+		return fmt.Errorf("write image sbom: %w", err)
 	}
 	out.ToolName, out.ToolVersion, out.OS, out.Release, out.Packages =
 		doc.ToolName, doc.ToolVersion, doc.OS, in.Release, res.Packages
-	return true, failure{}, nil
+	return nil
 }
 
 // fail records fl on the server row and fills the outcome.
@@ -197,6 +210,7 @@ func (f *Fetcher) fail(ctx context.Context, out Outcome, st *store.ImageSBOMStat
 	}
 	_, err := f.Store.RecordImageSBOMFailure(ctx, store.ImageSBOMFailure{
 		Key: out.Key, Status: out.Status, Reason: out.Reason, NextAttemptAt: out.NextAttemptAt,
+		Handover: fl.handover,
 	})
 	return out, err
 }

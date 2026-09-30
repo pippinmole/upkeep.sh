@@ -89,7 +89,11 @@ export const vulnColumns = col.columns([
           <SeverityBadge severity={r.severity} />
           {r.distroSeverity && (
             <span className="text-muted-foreground text-xs whitespace-nowrap">
-              distro: {r.distroSeverity}
+              {/* Language ecosystems store the GHSA's reviewed severity here. */}
+              {r.ecosystem === "npm" || r.ecosystem === "pypi" || r.ecosystem === "golang"
+                ? "advisory"
+                : "distro"}
+              : {r.distroSeverity}
             </span>
           )}
         </div>

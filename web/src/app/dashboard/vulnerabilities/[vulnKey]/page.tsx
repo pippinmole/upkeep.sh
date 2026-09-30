@@ -19,8 +19,10 @@ import { AdvisoryLinks } from "@/components/vuln/links";
 import { requireViewer } from "@/lib/viewer";
 import { osName } from "@/lib/os";
 import { getFleetVulnDetail, type VulnHostRow } from "@/lib/queries-vulns";
-import { isVulnKey } from "@/lib/severity";
+import { isSeverity, isVulnKey, SEVERITIES } from "@/lib/severity";
 import { formatDate, formatDateTime } from "@/lib/time";
+
+import { VulnImagesTable } from "./images-table";
 
 type Params = Promise<{ vulnKey: string }>;
 
@@ -126,9 +128,22 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
   const d = await getFleetVulnDetail(workspaceId, vulnKey);
   if (!d) notFound();
 
+  // Host packages and container images are counted apart, never summed
+  // (DOMAIN_MODEL.md §3.6): upgrade the host vs rebuild / re-pull the image.
   const affectedHosts = new Set(d.affected.map((r) => r.hostId)).size;
   const previousHosts = new Set(d.previous.map((r) => r.hostId)).size;
-  const top = d.affected[0] ?? d.previous[0];
+  const openImages = d.images.filter((i) => i.open);
+  const imageHosts = new Set(
+    openImages.flatMap((i) => i.hosts.filter((h) => h.open).map((h) => h.hostId)),
+  ).size;
+  // Worst open finding of either kind (same severity_key ranking), else the
+  // worst resolved one.
+  const top =
+    worst(d.affected[0], openImages[0]) ??
+    worst(
+      d.previous[0],
+      d.images.find((i) => !i.open),
+    );
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
@@ -148,9 +163,14 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
           <>
             <span>
               {affectedHosts > 0
-                ? `Affects ${affectedHosts} of your hosts now`
-                : "Not affecting any of your hosts now"}
-              {previousHosts > 0 && ` · previously affected ${previousHosts}`}
+                ? `In host packages on ${affectedHosts} of your hosts`
+                : "Not in any host package now"}
+              {previousHosts > 0 && ` (previously ${previousHosts})`}
+            </span>
+            <span>
+              {openImages.length > 0
+                ? `In ${openImages.length} container ${openImages.length === 1 ? "image" : "images"} on ${imageHosts} ${imageHosts === 1 ? "host" : "hosts"}`
+                : "Not in any container image in use"}
             </span>
             <AdvisoryLinks ids={[vulnKey]} className="inline-flex text-sm" />
           </>
@@ -163,13 +183,28 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
       </section>
 
       <section className="flex flex-col gap-2">
-        <SectionHeading>Affected hosts</SectionHeading>
+        <SectionHeading description="Packages installed on the host: fixed by upgrading the package on the host.">
+          Host packages on hosts
+        </SectionHeading>
         {d.affected.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            None of your hosts has an open finding for {vulnKey}.
+            None of your hosts has an open host package finding for {vulnKey}.
           </p>
         ) : (
           <HostsTable rows={d.affected} resolved={false} />
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <SectionHeading description="Packages inside images your containers run: fixed by rebuilding or re-pulling the image, not by upgrading the host.">
+          Container images
+        </SectionHeading>
+        {d.images.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No image a container on your hosts runs has a finding for {vulnKey}.
+          </p>
+        ) : (
+          <VulnImagesTable rows={d.images} vulnKey={vulnKey} />
         )}
       </section>
 
@@ -226,8 +261,8 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
 
       {d.previous.length > 0 && (
         <section className="flex flex-col gap-2">
-          <SectionHeading description="Hosts whose finding was resolved, usually by upgrading the package.">
-            Previously affected
+          <SectionHeading description="Hosts whose host package finding was resolved, usually by upgrading the package.">
+            Previously affected hosts
           </SectionHeading>
           <HostsTable rows={d.previous} resolved />
         </section>
@@ -289,4 +324,15 @@ export default async function FleetVulnerabilityPage({ params }: { params: Param
       </section>
     </main>
   );
+}
+
+// The more urgent of a host package finding and an image row (SEVERITIES
+// is worst first), for the header badge.
+function worst(
+  a: { severity: string | null; isKev: boolean } | undefined,
+  b: { severity: string | null; isKev: boolean } | undefined,
+) {
+  if (!a || !b) return a ?? b;
+  const rank = (s: string | null) => SEVERITIES.indexOf(isSeverity(s) ? s : "unknown");
+  return rank(b.severity) < rank(a.severity) ? b : a;
 }

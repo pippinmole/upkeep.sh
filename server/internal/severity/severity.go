@@ -100,7 +100,8 @@ const (
 // ParsePriority maps a Debian urgency (unimportant, low, medium, high,
 // critical, "not yet assigned"; tracker-style "low**" uncertainty markers
 // are ignored) or Ubuntu priority (negligible, low, medium, high, critical,
-// untriaged) to a Priority. Matching is case-insensitive and treats
+// untriaged) or GitHub advisory severity (low, moderate, high, critical)
+// to a Priority. Matching is case-insensitive and treats
 // spaces, underscores and hyphens alike. Anything unrecognised, including
 // "", "unknown" and "end-of-life", is PriorityUnknown.
 func ParsePriority(s string) Priority {
@@ -112,7 +113,7 @@ func ParsePriority(s string) Priority {
 		return PriorityNegligible
 	case "low":
 		return PriorityLow
-	case "medium":
+	case "medium", "moderate": // "moderate": GitHub advisory severity
 		return PriorityMedium
 	case "high":
 		return PriorityHigh

@@ -63,7 +63,12 @@ type Score struct {
 
 // ScoreOf scores an image list's matches (see BuildImage).
 func ScoreOf(rows []HostMatch, cves map[string]CVE) Score {
-	ds := BuildImage(Image{}, rows, cves)
+	return ScoreGroups(BuildImage(Image{}, rows, cves))
+}
+
+// ScoreGroups scores the groups BuildImage returned for a list: the
+// store keeps both, the groups row by row and their Score as totals.
+func ScoreGroups(ds []Desired) Score {
 	sc := Score{Vulns: len(ds), ByBucket: map[severity.Bucket]int{}}
 	for _, d := range ds {
 		sc.ByBucket[d.Severity.Bucket]++

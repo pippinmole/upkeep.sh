@@ -1,5 +1,6 @@
 "use client";
 
+import { Container } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -8,21 +9,35 @@ import { cn } from "@/lib/utils";
 // Link tabs (not Radix Tabs): each tab is its own route, so the URL, back
 // button and server rendering all work. Ordered by task: triage first,
 // inventory next, history last. Counts are only those the layout already
-// has (null = not known, no pill).
+// has (null = not known, no pill). Vulnerabilities has two pills, host
+// package and container image findings, never summed (DOMAIN_MODEL.md §3.5).
 export function HostTabs({
   hostId,
   openVulns,
+  openImageVulns,
   packages,
 }: {
   hostId: string;
   openVulns: number;
+  openImageVulns: number;
   packages: number | null;
 }) {
   const pathname = usePathname();
   const base = `/dashboard/hosts/${hostId}`;
-  const tabs: { href: string; label: string; exact?: boolean; count?: number | null }[] = [
+  const tabs: {
+    href: string;
+    label: string;
+    exact?: boolean;
+    count?: number | null;
+    imageCount?: number;
+  }[] = [
     { href: base, label: "Overview", exact: true },
-    { href: `${base}/vulnerabilities`, label: "Vulnerabilities", count: openVulns },
+    {
+      href: `${base}/vulnerabilities`,
+      label: "Vulnerabilities",
+      count: openVulns,
+      imageCount: openImageVulns,
+    },
     { href: `${base}/packages`, label: "Packages", count: packages },
     { href: `${base}/listeners`, label: "Listeners" },
     { href: `${base}/services`, label: "Services" },
@@ -61,8 +76,20 @@ export function HostTabs({
             >
               {t.label}
               {t.count != null && t.count > 0 && (
-                <span className="bg-muted text-muted-foreground rounded px-1.5 text-xs tabular-nums">
+                <span
+                  className="bg-muted text-muted-foreground rounded px-1.5 text-xs tabular-nums"
+                  title={t.imageCount !== undefined ? "Open in host packages" : undefined}
+                >
                   {t.count.toLocaleString("en-GB")}
+                </span>
+              )}
+              {t.imageCount !== undefined && t.imageCount > 0 && (
+                <span
+                  className="bg-muted text-muted-foreground inline-flex items-center gap-0.5 rounded px-1.5 text-xs tabular-nums"
+                  title="Open in container images"
+                >
+                  <Container className="size-3" aria-label="Container images" />
+                  {t.imageCount.toLocaleString("en-GB")}
                 </span>
               )}
             </Link>
