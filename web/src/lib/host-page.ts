@@ -47,6 +47,7 @@ const COLLECTOR_LABELS: Record<string, string> = {
   docker_images: "Docker images",
   docker_networks: "Docker networks",
   swarm_services: "Swarm services",
+  host_mount: "Agent host mount",
 };
 
 export function collectorLabel(name: string): string {
