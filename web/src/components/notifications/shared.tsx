@@ -83,8 +83,12 @@ export function ConfirmDialog({
   );
 }
 
-export function FieldError({ msg }: { msg?: string }) {
-  return msg ? <p className="text-destructive text-xs">{msg}</p> : null;
+export function FieldError({ msg, id }: { msg?: string; id?: string }) {
+  return msg ? (
+    <p id={id} className="text-destructive text-xs">
+      {msg}
+    </p>
+  ) : null;
 }
 
 export const toggle = (list: string[], v: string) =>

@@ -94,6 +94,9 @@ export function PageHeader({
   );
 }
 
+// A section's h2, with an optional description under it. Actions sit on
+// the title's row, right-aligned at every width, so a long description
+// never pushes them onto a line of their own.
 export function SectionHeading({
   children,
   description,
@@ -105,13 +108,18 @@ export function SectionHeading({
   actions?: ReactNode;
   className?: string;
 }) {
+  const title = <h2 className="text-base font-semibold">{children}</h2>;
   return (
-    <div className={cn("flex flex-wrap items-end justify-between gap-x-4 gap-y-2", className)}>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <h2 className="text-base font-semibold">{children}</h2>
-        {description && <div className="text-muted-foreground text-sm">{description}</div>}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
+      {actions ? (
+        <div className="flex min-h-9 items-center justify-between gap-4">
+          <div className="min-w-0">{title}</div>
+          <div className="flex shrink-0 items-center gap-2">{actions}</div>
+        </div>
+      ) : (
+        title
+      )}
+      {description && <div className="text-muted-foreground text-sm">{description}</div>}
     </div>
   );
 }

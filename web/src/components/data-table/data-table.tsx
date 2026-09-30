@@ -52,6 +52,8 @@ export interface DataTableProps<TData extends object> {
   // Heterogeneous children: rendered in a full-width row under an expanded row.
   renderSubRows?: (row: Row<DataTableFeatures, TData>) => ReactNode;
   getRowCanExpand?: (row: Row<DataTableFeatures, TData>) => boolean;
+  // Extra classes for a row, e.g. dimming a disabled item.
+  getRowClassName?: (row: TData) => string | undefined;
   globalFilterFn?: FilterFn<DataTableFeatures, TData>;
   searchPlaceholder?: string;
   facets?: DataTableFacet[];
@@ -187,7 +189,10 @@ export function DataTable<TData extends object>(props: DataTableProps<TData>) {
             ) : (
               rows.map((row) => (
                 <Fragment key={row.id}>
-                  <TableRow data-state={row.getIsExpanded() ? "expanded" : undefined}>
+                  <TableRow
+                    data-state={row.getIsExpanded() ? "expanded" : undefined}
+                    className={props.getRowClassName?.(row.original)}
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className={cell.column.columnDef.meta?.className}>
                         <table.FlexRender cell={cell} />

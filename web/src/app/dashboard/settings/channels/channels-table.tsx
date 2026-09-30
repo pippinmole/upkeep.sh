@@ -143,7 +143,7 @@ function ChannelActionsControl({ channel }: { channel: ChannelRow }) {
             {channel.enabled ? "Disable" : "Enable"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive" onSelect={() => setDeleting(true)}>
+          <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>

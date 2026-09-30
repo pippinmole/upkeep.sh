@@ -70,7 +70,14 @@ export function ActionDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={change}>
-      <AlertDialogContent>
+      <AlertDialogContent
+        // With a typed confirmation, start in its field rather than on Cancel.
+        onOpenAutoFocus={(e) => {
+          if (confirmText === undefined) return;
+          e.preventDefault();
+          document.getElementById("action-confirm")?.focus();
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription asChild>
