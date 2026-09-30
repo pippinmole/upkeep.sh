@@ -98,8 +98,9 @@ for the reasoning.
 | `findings` (kind `vulnerable_package`) | Go (worker: findings reconciliation, re-rank) |
 | `alert_events`, `alert_dedup`, `alert_digest_items`, `agent_health`, `alert_rules.last_digest_at` | Go (worker: findings reconcile / agent health write events; alerting jobs the rest) |
 | `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting and reports), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
-| `users` | Next.js (signup) |
-| `enrollment_tokens` | Next.js (dashboard "Add host") |
+| `users` | Next.js (bootstrap sign-up, Settings → Members; Better Auth) |
+| `workspaces` | migrations only (one row per install) |
+| `enrollment_tokens` | Next.js (dashboard "Add host", admins only) |
 | `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Channels: channels) |
 | `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Reports: schedules); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes or a disabled schedule is enabled, so the worker recomputes it |
 | `reports`, `report_schedules.next_run_at` / `last_run_at` | Go (worker: `report_due`; `alert_prune` deletes reports after a year), including "Send now": like "Send test", Next.js only inserts the River job and the worker builds, stores and delivers the report |
@@ -117,8 +118,10 @@ reasoning trail on this.
 
 See `migrations/` for the authoritative schema. Summary:
 
-- `users` → `agents` and `hosts` (one user owns many of each; no
-  orgs/teams yet, see [decisions/single-user-tenancy.md](decisions/single-user-tenancy.md)).
+- `workspaces` → `agents`, `hosts`, channels, rules, schedules (every
+  tenant table has `workspace_id`). An install has one workspace that
+  every user sees; `users.role` (admin | member) gates writes. See
+  [MEMBERS.md](MEMBERS.md).
 - **Agent ≠ host** (migration 0008, DOMAIN_MODEL.md §4): an `agents` row is
   one deployed collector with its own credential (`agent_credentials`,
   1:1, only a secret hash is stored; `agents.revoked_at` refuses it). A
@@ -126,7 +129,7 @@ See `migrations/` for the authoritative schema. Summary:
   `host_id`. `agent_hosts` assigns hosts to agents with a mode (`local`
   only today; `ssh`/`winrm` reserved), at most one `local` per agent.
   `host_identities` maps stable machine identifiers (`machine_id`) to a
-  host, unique per user. Enrollment creates only the agent; ingest creates
+  host, unique per workspace. Enrollment creates only the agent; ingest creates
   or re-attaches the host on the first push (`store.resolveHost`).
   `hosts` also carries the current OS summary (`os_family`, `os_id`,
   `os_version`, `os_codename`, `kernel`) from the newest snapshot, and
@@ -205,7 +208,7 @@ findings queue:
 ## Container image SBOMs
 
 [tasks/phase-2a-image-vulns.md](tasks/phase-2a-image-vulns.md), [decisions/container-image-vulnerabilities.md](decisions/container-image-vulnerabilities.md). The
-server's own package list per image key (fleet-wide, `owner_user_id`
+server's own package list per image key (fleet-wide, `owner_workspace_id`
 NULL) comes from the image's registry SBOM attestation.
 
 ```
