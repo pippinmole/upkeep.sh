@@ -68,19 +68,28 @@ it must never be set in production.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "id": "798d123e-aef2-4b58-888b-b42c3e9e0496",
   "delivery_id": "4b579242-c8a0-4aa3-b735-edb445302c81",
   "kind": "alert",
   "created_at": "2026-09-27T12:34:13Z",
   "rule": { "id": "0b6f…", "name": "Critical and KEV" },
-  "summary": "New finding CVE-2024-6387 in openssh on web-1 (critical, KEV)",
+  "summary": "KEV CVE-2024-6387 in openssh on web-1",
   "events": [
     {
       "id": 1042,
-      "type": "finding.opened",
+      "type": "alert.firing",
       "occurred_at": "2026-09-27T12:34:12Z",
       "url": "https://upkeep.example.com/dashboard/hosts/5c1e…/vulnerabilities?v=CVE-2024-6387",
+      "alert": {
+        "id": "c2d9…",
+        "property": "vulnerability",
+        "subject": "pkg:openssh:CVE-2024-6387",
+        "title": "KEV CVE-2024-6387 in openssh",
+        "state": "firing",
+        "fired_at": "2026-09-27T12:34:12Z",
+        "details": { "…": "the finding object, as below" }
+      },
       "host": { "id": "5c1e…", "hostname": "web-1", "label": null },
       "finding": {
         "id": "a8f2…",
@@ -105,24 +114,37 @@ it must never be set in production.
 
 | Field | Notes |
 |---|---|
-| `version` | Payload version, currently `1`. Additive changes (new fields, new event types, new objects on events) don't bump it; ignore what you don't know. |
-| `kind` | `alert`: matches of one rule from one evaluation pass (usually one event, more when a host reports many changes at once). `digest`: a rule's matches over its digest interval. `test`: "Send test"; `rule` is `null` and `events` is empty. `report`: a scheduled estate report ([below](#report-notifications)); `rule` is `null`, `events` is empty and `report` is set. |
+| `version` | Payload version, currently `2` (version 1 had `finding.*` / `agent.*` event types, replaced by alert rules in migration 0024). Additive changes (new fields, new properties, new objects on events) don't bump it; ignore what you don't know. |
+| `kind` | `alert`: transitions of one rule's alerts from one evaluation pass (usually one event, more when a host reports many changes at once or a new rule matches many things). `digest`: a rule's transitions over its digest interval. `test`: "Send test"; `rule` is `null` and `events` is empty. `report`: a scheduled estate report ([below](#report-notifications)); `rule` is `null`, `events` is empty and `report` is set. |
 | `summary` | One human-readable line. |
 | `events` | At most 200 per notification (larger batches are split into several). |
 | `events[].url` | Present only when the worker has `SW_DASHBOARD_URL` set. |
 
-Event types and the objects they carry:
+Events are transitions of alert instances ([ALERTING.md](ALERTING.md)): an
+alert rule's condition started or stopped matching on a host. Each alert
+fires once, and a resolution is sent only if the rule has "also notify
+when an alert resolves" on and the condition cleared (editing, disabling
+or deleting a rule, archiving a host or taking it out of the rule's scope
+resolve alerts silently).
 
 | `type` | Objects | Notes |
 |---|---|---|
-| `finding.opened` | `host`, `finding` | a vulnerable package (host or container image) finding appeared |
-| `finding.reopened` | `host`, `finding` | a resolved finding matched again |
-| `finding.resolved` | `host`, `finding` | upgraded, removed, advisory withdrawn, kernel no longer running, or (images) no container uses the image any more; `finding.status` is `resolved` |
-| `agent.stale` | `agent` | silent for more than `max(3 × push interval, 120 s)` (the dashboard's "stale") |
-| `agent.recovered` | `agent` | a stale agent pushed again |
+| `alert.firing` | `alert`, `host`, and `finding` for `vulnerability` rules | the condition started matching |
+| `alert.resolved` | same | the condition stopped matching; `alert.resolved_at` is set. `finding` is the finding as it last matched |
 
-`agent` is `{ "id", "name", "last_seen_at", "hosts": [{ "id", "hostname", "label" }] }`.
-Future event families (e.g. port exposure) add their own object.
+`alert` is `{ "id", "property", "subject", "title", "state", "fired_at",
+"resolved_at", "details" }`. `id` is stable across the firing and resolved
+events of one alert (a new alert, with a new id, fires if the condition
+matches again later). `property` is the rule's catalogue key
+(`listening_port`, `package_installed`, `os`, `reboot_required`,
+`vulnerability`, `host_not_seen`, `collector_failed`; more may be added).
+`subject` is what the alert is about on its host (`tcp/22`, a package
+name, a finding key, a collector name; empty for host-level properties).
+`details` is property-specific, e.g. `{ "transport": "tcp", "port": 22,
+"addresses": ["0.0.0.0", "::"], "processes": ["sshd"] }` for a listening
+port or `{ "collector": "deb_packages", "error": "…" }` for a failed
+collector. Links (`url`) for non-vulnerability alerts point at the host's
+alerts in the dashboard.
 
 `finding.kind` is `vulnerable_package` (a package installed on the host)
 or `vulnerable_image` (a package in a container image that a container on
@@ -130,7 +152,7 @@ the host uses; one finding per host, image, source package and CVE).
 Image findings add `image_id` (the image's content id), `image_refs` (its
 repo tags on the host, or repo digests when untagged) and `containers`
 (names of the containers using it), and their `url` points at the host's
-Images tab. Alert rules can be limited to either kind.
+Images tab. Vulnerability rules can be limited to either kind.
 
 `finding.severity` is the dashboard's bucket (`critical`, `high`, `medium`,
 `unknown`, `low`, `negligible`); `fix_channel` is `standard`, `ubuntu-pro`
@@ -153,7 +175,7 @@ and signature as an alert, with `kind: "report"` and the stored report in
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "id": "3e0c9a4b-…",
   "delivery_id": "8d2f7c61-…",
   "kind": "report",

@@ -96,12 +96,12 @@ for the reasoning.
 | `image_sbom_state` (owner NULL), `image_software` of those lists | Go (worker: `image_sbom`) |
 | `river_*` | Go (River job queue; API inserts, worker runs) |
 | `findings` (kind `vulnerable_package`) | Go (worker: findings reconciliation, re-rank) |
-| `alert_events`, `alert_dedup`, `alert_digest_items`, `agent_health`, `alert_rules.last_digest_at` | Go (worker: findings reconcile / agent health write events; alerting jobs the rest) |
+| `alert_instances`, `alert_events`, `alert_digest_items`, `alert_rules.last_digest_at` | Go (worker: `alert_rules_evaluate` writes instances and events; alerting jobs the rest) |
 | `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting and reports), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
 | `users` | Next.js (bootstrap sign-up, Settings → Members; Better Auth) |
 | `workspaces` | migrations only (one row per install) |
 | `enrollment_tokens` | Next.js (dashboard "Add host", admins only) |
-| `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Alerts: rules; Settings → Channels: channels) |
+| `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Settings → Alert rules; Settings → Channels; admins only). Migration 0024's `workspaces` trigger seeds each workspace's default rules |
 | `report_schedules` (except `next_run_at` / `last_run_at`), `report_schedule_channels` | Next.js (Reports: schedules); Next.js inserts a schedule with `next_run_at` NULL and resets it to NULL when the timing changes or a disabled schedule is enabled, so the worker recomputes it |
 | `reports`, `report_schedules.next_run_at` / `last_run_at` | Go (worker: `report_due`; `alert_prune` deletes reports after a year), including "Send now": like "Send test", Next.js only inserts the River job and the worker builds, stores and delivers the report |
 
@@ -247,19 +247,22 @@ image_sbom: registry.FetchSBOM ─> sbom.Parse ─> purl.Map ─> WriteImageSBOM
 
 ## Alerting
 
-Migration 0009. Rules decide *what* to send, channels *where*; channel
-types are plugins behind one interface.
+Migrations 0009 and 0024 ([ALERTING.md](ALERTING.md) is the full design).
+Rules decide *what* is alert-worthy, channels *where* it goes; channel types
+are plugins behind one interface.
 
 ```
-findings reconcile tx ──> alert_events (outbox) + alert_evaluate (InsertTx)
-agent_health (1m)     ──> alert_events on online <-> stale changes
-                           (only written when the user has an enabled rule for the type)
+ingest (snapshot tx) ─────────────┐
+reconcile_host (findings changed) ├─> alert_rules_evaluate {host}   (InsertTx)
+dashboard rule change ────────────┘   alert_rules_evaluate {} every 1m (all hosts)
 
 alerts queue:
-  alert_evaluate  (per trigger + every 1m) advisory-locked; for each pending
-                  event x enabled rule of its user: alerting.Match (types,
-                  min severity, KEV-only, finding kinds, host scope) -> dedup on
-                  (rule, type|subject) within the rule's window ->
+  alert_rules_evaluate  advisory-locked; per rule: property evaluator (one SQL
+                  query over the rule's hosts) -> alerting.Diff against its
+                  firing alert_instances -> fire / refresh / resolve (with a
+                  reason); transitions that notify -> alert_events + alert_evaluate
+  alert_evaluate  (per trigger + every 1m) each pending event through its
+                  rule (still enabled, has a channel, sends that type):
                     immediate: one notification per rule per pass
                     digest:    alert_digest_items
                   notification -> one notification_deliveries row per rule
@@ -268,21 +271,20 @@ alerts queue:
   alert_deliver   Notifier.Send through the channel type's registry entry;
                   each attempt logged; retryable errors back off (30s .. 6h,
                   8 attempts), notify.Permanent errors fail at once
-  alert_prune     (1h) events 30d, delivery log 90d, reports 1y (see Reports)
+  alert_prune     (1h) events 30d, delivery log and resolved alerts 90d,
+                  reports 1y (see Reports)
 ```
 
-- **Finding kinds** (migration 0015): `alert_rules.finding_kinds` selects
-  which findings a rule's `finding.*` events cover, `vulnerable_package`
-  (host packages) and/or `vulnerable_image` (packages of an image a
-  container on the host uses). Never empty; existing and new rules default
-  to both. An explicit list rather than NULL = all, so a kind added later
-  is opt-in for existing rules (its migration decides). Agent events
-  ignore it. Evaluation reads the kind from the event payload
-  (`finding.kind`); events without one aren't filtered. Image findings
-  use the same `finding.*` events, lifecycle and severity/KEV filters.
-- **Never slows ingest**: ingest doesn't touch alerting; the reconcile
-  transaction only adds an `INSERT … SELECT` into the outbox, and delivery
-  is always a separate job.
+- **Conditions** are a typed property + operator + value (+ options), stored
+  as JSON; the catalogue is Go (`internal/alerting/catalog.go`), exported to
+  the dashboard as `web/src/lib/alert-properties.json` (golden test), and
+  validated identically on both sides (shared vectors).
+- **Stateful**: one firing `alert_instances` row per (rule, host, subject);
+  a notification only on a transition, never per snapshot. Unknown data
+  (a failed collector) never resolves an alert.
+- **Never slows ingest**: ingest only inserts the host's
+  `alert_rules_evaluate` job in its transaction; evaluation and delivery are
+  separate jobs.
 - **Notifier interface** (`server/internal/notify`): a channel type
   declares a `Spec` (type key, label, fields; which are secret, which the
   server generates), `Validate(config)` and `Send(ctx, config,

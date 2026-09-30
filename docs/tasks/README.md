@@ -16,7 +16,7 @@ before or while building them.
 | [Phase 1 remainder — package inventory history (P1a)](phase-1a-inventory-history.md) | in progress: 1 open, 8 done |
 | [Phase 1 remainder — vulnerability pipeline (P1b, the core value prop)](phase-1b-vuln-pipeline.md) | in progress: 2 open, 11 done |
 | [Phase 1 remainder — packages & vulnerabilities UI (P1c)](phase-1c-packages-ui.md) | in progress: 7 open, 11 done |
-| [Phase 1 remainder — alerting](phase-1-alerting.md) | in progress: 3 open, 6 done |
+| [Phase 1 remainder — alerting](phase-1-alerting.md) | in progress: 8 open, 7 done |
 | [Phase 1.5 — agent/host split + Linux collector breadth](phase-1-5-agent-host-split.md) | in progress: 7 open, 9 done |
 | [Phase 1.6 — Docker inventory + host-side port exposure](phase-1-6-docker-exposure.md) | in progress: 5 open, 7 done |
 | [Phase 1.7 — scheduled estate reports](phase-1-7-reports.md) | done: 10 done |
