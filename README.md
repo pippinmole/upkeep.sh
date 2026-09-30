@@ -34,11 +34,14 @@ agent/       Go, single static binary. Read-only, outbound-only host
              reboot state). No inbound ports, no remote command execution.
 server/      Go. Agent enrollment + snapshot ingest today; vulnerability
              matching, exposure analysis, and alert dispatch land here.
+             server/migrations/ holds the SQL migrations (golang-migrate
+             format), the schema contract shared with web/; they are
+             embedded in the server image and applied by its /migrate.
 web/         Next.js (App Router) + Bun + Better Auth. Marketing, auth,
              dashboard. Reads Postgres directly (see
              docs/decisions/direct-postgres-reads.md).
-migrations/  SQL migrations (golang-migrate format) — the actual schema
-             contract shared by server/ and web/.
+deploy/      docker-compose.yml + .env.example for running the published
+             images on your own box.
 docs/        Architecture, protocol spec, decision log, task tracker.
 ```
 
@@ -68,7 +71,27 @@ To test against a real host, deploy `agent/docker-compose.example.yml` on
 a VPS with `SW_SERVER_URL` pointed at your dev API (tunneled or public)
 and an enrollment token from the dashboard's "Add host" button.
 
-## Production deployment (Dokploy on your own box)
+## Deploy (published images)
+
+To run the platform on your own box without a source checkout, copy
+[`deploy/docker-compose.yml`](deploy/docker-compose.yml) and
+[`deploy/.env.example`](deploy/.env.example) there:
+
+```sh
+cp .env.example .env   # fill in the five required values; each says how to generate it
+docker compose up -d
+```
+
+It pulls `ghcr.io/pippinmole/upkeep-server` and `upkeep-web` (tag
+`UPKEEP_VERSION`, default the current release) plus Postgres. A one-shot
+`migrate` service (the server image's `/migrate`) applies the database
+migrations before `api` and `worker` start, so there is no migrations
+folder to mount. `web` and `api` are published on ports 3000 and 8080
+(`UPKEEP_WEB_PORT`, `UPKEEP_API_PORT`); put a TLS reverse proxy in front
+of them at `PUBLIC_WEB_URL` and `PUBLIC_API_URL`. To upgrade, change
+`UPKEEP_VERSION` and run `docker compose up -d` again.
+
+## Production deployment from source (Dokploy on your own box)
 
 ```sh
 cp .env.example .env   # then fill in real values, see below
@@ -76,7 +99,8 @@ docker compose up --build -d
 ```
 
 `docker-compose.yml` is the production stack (Postgres + migrate + api +
-web), meant to run once on your own box via Dokploy. Required vars (see
+worker + web), built from this checkout (`migrate` runs the built server
+image's `/migrate`), meant to run once on your own box via Dokploy. Required vars (see
 `.env.example`): `POSTGRES_PASSWORD`, `PUBLIC_API_URL`, `PUBLIC_WEB_URL`,
 `BETTER_AUTH_SECRET` (generate with `openssl rand -base64 32`; an older
 `.env` with `AUTH_SECRET` still works), and

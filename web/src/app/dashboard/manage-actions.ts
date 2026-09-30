@@ -8,7 +8,7 @@ import { getRemoteTarget, type RemoteTarget } from "@/lib/queries-remote";
 import { ForbiddenError, requireAdmin, type Viewer } from "@/lib/viewer";
 
 // Agent and host management (DOMAIN_MODEL.md §4.3 "Management"). Every
-// mutation is one call to a mgmt_* SQL function (migrations/0011), which
+// mutation is one call to a mgmt_* SQL function (server/migrations/0011), which
 // scopes every row it touches by the workspace's id (only admins get here); the Go
 // integration tests call the same functions, cross-tenant cases included.
 // Arguments are bound parameters; the function name is from the fixed

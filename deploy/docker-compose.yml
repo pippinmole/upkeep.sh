@@ -1,0 +1,98 @@
+# Self-hosted upkeep.sh from the published images: copy this file and
+# .env.example (as .env) to a box, fill in .env, then
+#
+#   docker compose up -d
+#
+# No source checkout needed: the SQL migrations ship inside the server
+# image and the `migrate` service applies them before api and worker
+# start. To upgrade, set UPKEEP_VERSION and run `docker compose up -d`
+# again. The repo-root docker-compose.yml builds the same stack from
+# source instead. Put a TLS-terminating reverse proxy in front of the two
+# published ports (PUBLIC_WEB_URL -> web, PUBLIC_API_URL -> api).
+name: upkeep-sh
+
+x-database-url: &database-url "postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable"
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-swuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:-security_whatnot}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-swuser}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Applies the migrations embedded in the server image and exits; a
+  # no-op when the schema is already current. api and worker refuse to
+  # start against a schema that is behind.
+  migrate:
+    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.1}
+    entrypoint: ["/migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: *database-url
+
+  api:
+    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.1}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *database-url
+      SW_LISTEN_ADDR: ":8080"
+    ports:
+      - "${UPKEEP_API_PORT:-8080}:8080"
+
+  # Background jobs on River: OSV advisory sync, CISA KEV + FIRST EPSS,
+  # matching, alerts and reports. Same image as api; no ports. Needs ~1 GB
+  # of free disk in /tmp during a full Ubuntu sync, and up to 8 GiB of
+  # disk and 2 GiB of memory while it scans a container image.
+  worker:
+    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.1}
+    entrypoint: ["/worker"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *database-url
+      SW_FEED_SYNC_ENABLED: ${SW_FEED_SYNC_ENABLED:-true}
+      SW_IMAGE_FETCH_ENABLED: ${SW_IMAGE_FETCH_ENABLED:-true}
+      SW_IMAGE_SCAN_ENABLED: ${SW_IMAGE_SCAN_ENABLED:-true}
+      # Dashboard links in alert and report notifications.
+      SW_DASHBOARD_URL: ${PUBLIC_WEB_URL:?}
+      # Report emails: the worker POSTs each report to web's internal
+      # render route over the compose network, never the public URL.
+      SW_WEB_INTERNAL_URL: http://web:3000
+      SW_INTERNAL_RENDER_SECRET: ${SW_INTERNAL_RENDER_SECRET:?}
+
+  web:
+    image: ghcr.io/pippinmole/upkeep-web:${UPKEEP_VERSION:-0.1.1}
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      DATABASE_URL: *database-url
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?}
+      BETTER_AUTH_URL: ${PUBLIC_WEB_URL:?}
+      # Other origins serving the dashboard, comma-separated.
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-}
+      SW_WEB_INTERNAL_URL: http://web:3000
+      SW_INTERNAL_RENDER_SECRET: ${SW_INTERNAL_RENDER_SECRET:?}
+    ports:
+      - "${UPKEEP_WEB_PORT:-3000}:3000"
+
+volumes:
+  pgdata:

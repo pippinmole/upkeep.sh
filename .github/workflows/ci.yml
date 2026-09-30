@@ -83,13 +83,14 @@ jobs:
         run: go build ./...
       - name: go vet
         run: go vet ./...
-      # The integration tests expect a fully migrated database; apply the
-      # migrations with the same golang-migrate as docker-compose.dev.yml.
+      # The integration tests expect a fully migrated database; apply
+      # server/migrations with the golang-migrate CLI (the server image's
+      # /migrate embeds the same files).
       - name: Apply migrations
         working-directory: .
         run: |
           docker run --rm --network host \
-            -v "$PWD/migrations:/migrations:ro" \
+            -v "$PWD/server/migrations:/migrations:ro" \
             migrate/migrate:v4.20.1 \
             -path /migrations -database "$SW_TEST_DATABASE_URL" up
       - name: go test (with Postgres)

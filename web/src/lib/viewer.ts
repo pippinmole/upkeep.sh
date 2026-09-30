@@ -7,7 +7,7 @@ import { ADMIN_ONLY_MESSAGE, isRole, type Role } from "./roles";
 
 // Who is looking, and at which workspace (docs/MEMBERS.md).
 //
-// An install has one workspace (migrations/0023_members): every signed-in
+// An install has one workspace (server/migrations/0023_members): every signed-in
 // user reads the same hosts, agents, channels, rules and reports, and every
 // query is scoped by viewer.workspaceId. Writes additionally need the admin
 // role: every mutating server action and route handler calls requireAdmin()

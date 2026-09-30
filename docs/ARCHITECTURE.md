@@ -65,7 +65,7 @@
 
 - **`web/`** — Next.js (App Router) on Bun. Marketing page, Better Auth
   username + password auth (self-hosted library, database sessions,
-  bcrypt, own `users` table; migrations/0018_better_auth), and the
+  bcrypt, own `users` table; server/migrations/0018_better_auth), and the
   dashboard. Deployed as a standalone Docker image (`output: "standalone"`
   in `next.config.ts`) since this is self-hosted via Dokploy, not Vercel.
   Also serves one internal route to the worker: report emails are
@@ -74,9 +74,14 @@
   public domain. It is the only runtime call from the worker to `web`
   (see "Web ↔ worker render dependency").
 
-- **`migrations/`** — SQL migrations (golang-migrate `.up.sql`/`.down.sql`
+- **`server/migrations/`** — SQL migrations (golang-migrate `.up.sql`/`.down.sql`
   pairs). This is the actual contract between `server/` and `web/`, since
-  both read/write the same Postgres schema directly.
+  both read/write the same Postgres schema directly. They are embedded in
+  the server image, whose `/migrate` binary applies them (reads
+  `DATABASE_URL`, runs every pending up migration, exits 0 when there is
+  nothing to do); compose runs it as a one-shot `migrate` service before
+  `api` and `worker`, which refuse to start against a schema that is
+  behind.
 
 ## Who owns what (avoiding split-brain writes)
 
@@ -117,7 +122,7 @@ reasoning trail on this.
 
 ## Data model
 
-See `migrations/` for the authoritative schema. Summary:
+See `server/migrations/` for the authoritative schema. Summary:
 
 - `workspaces` → `agents`, `hosts`, channels, rules, schedules (every
   tenant table has `workspace_id`). An install has one workspace that
@@ -730,7 +735,12 @@ versioning policy.
   `SW_INTERNAL_RENDER_SECRET` (required) and reach each other at
   `SW_WEB_INTERNAL_URL` (default `http://web:3000`, the compose service)
   for report emails; the worker's `SW_DASHBOARD_URL` comes from
-  `PUBLIC_WEB_URL`.
+  `PUBLIC_WEB_URL`. It builds the images from source.
+- **Production from published images**: `deploy/docker-compose.yml` +
+  `deploy/.env.example`, the same services on
+  `ghcr.io/pippinmole/upkeep-server` / `upkeep-web` at `UPKEEP_VERSION`,
+  with `web` and `api` published on host ports for a reverse proxy. No
+  checkout: migrations run from the server image's `/migrate`.
 - **Monitored hosts**: `agent/docker-compose.example.yml`, deployed once
   per host you want monitored, pointed at the platform's public API URL
   with a one-time enrollment token from the dashboard.

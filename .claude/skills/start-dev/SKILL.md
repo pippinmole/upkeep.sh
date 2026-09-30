@@ -7,7 +7,7 @@ description: Starts the security-whatnot local dev environment (Postgres + API i
 
 Two independent jobs, use either or both depending on what's asked:
 
-1. **Start the dev stack** — Postgres, migrations, and the Go API in Docker; the Next.js dev server natively on the host.
+1. **Start the dev stack** — Postgres, migrations (the server image's `/migrate`, applying `server/migrations/`), and the Go API in Docker; the Next.js dev server natively on the host.
 2. **Run a real test agent** against that stack, cross-platform (Windows via WSL2, macOS via Docker).
 
 Both are backed by scripts in `scripts/` — read them before running if you want the exact commands, but the summaries below are enough to drive them correctly. Run all scripts from Bash (Git Bash on Windows, the normal shell on macOS) from anywhere in the repo — they resolve the repo root themselves via `git rev-parse --show-toplevel`.

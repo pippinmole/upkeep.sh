@@ -150,7 +150,7 @@ func TestConditionVectors(t *testing.T) {
 
 // The default rules seeded by migration 0024 must be valid conditions.
 func TestDefaultRulesValidate(t *testing.T) {
-	sql, err := os.ReadFile("../../../migrations/0024_alert_rules.up.sql")
+	sql, err := os.ReadFile("../../migrations/0024_alert_rules.up.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

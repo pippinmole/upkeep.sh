@@ -15,6 +15,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/ingest"
 	"github.com/pippinmole/upkeep.sh/server/internal/jobs"
 	"github.com/pippinmole/upkeep.sh/server/internal/store"
+	"github.com/pippinmole/upkeep.sh/server/migrations"
 )
 
 // version is the build version, set at build time with
@@ -55,6 +56,16 @@ func main() {
 		log.Fatalf("connect to postgres: %v", err)
 	}
 	defer db.Close()
+
+	// The schema is migrated by cmd/migrate (/migrate, a one-shot compose
+	// service), never here: refuse to run against an older or dirty schema.
+	schema, err := migrations.CheckSchema(ctx, db.Pool)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if schema.Ahead() {
+		log.Printf("WARNING: database schema is at version %d, newer than this build's %d; running anyway", schema.Version, schema.Latest)
+	}
 
 	// Insert-only River client: ingest enqueues matcher/findings jobs in the
 	// snapshot transaction; cmd/worker runs them.

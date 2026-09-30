@@ -20,15 +20,19 @@ services:
       timeout: 5s
       retries: 10
 
+  # Applies the SQL migrations (server/migrations, embedded in the server
+  # image) and exits; a no-op when the schema is already current. api and
+  # worker start only after it succeeds, and refuse to start against a
+  # schema that is behind.
   migrate:
-    image: migrate/migrate:v4.20.1
+    build:
+      context: ./server
+    entrypoint: ["/migrate"]
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ./migrations:/migrations
-    entrypoint: ["migrate", "-path", "/migrations", "-database",
-      "postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable", "up"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-swuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-security_whatnot}?sslmode=disable
     restart: "no"
 
   api:

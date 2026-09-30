@@ -1626,7 +1626,7 @@ Trade-off accepted: a fact moves between jsonb and a column when it becomes
 important. That costs one migration and a backfill from `facts`, which is
 cheaper than designing all three OSes' schemas up front.
 
-**As implemented (`migrations/0010_host_facts.up.sql`, P1.5).**
+**As implemented (`server/migrations/0010_host_facts.up.sql`, P1.5).**
 `host_services`, `host_listeners` and `host_users` are validity-range
 tables like `host_software`, but not interned: each row carries its
 values plus `row_key` (natural key: `systemd/ssh.service`,
@@ -1651,7 +1651,7 @@ validated against `hostfacts.LinuxFacts`; `snapshots.uptime_seconds` and
 open ranges (Services / Listeners / Users host tabs) and the newest
 snapshot's facts (Overview), all scoped by `hosts.user_id`.
 
-**Docker (`migrations/0013_docker.up.sql`, P1.6).** Same range pattern,
+**Docker (`server/migrations/0013_docker.up.sql`, P1.6).** Same range pattern,
 with two optional column groups in `hostfacts.Table`: *detail* columns
 (filled by an inspect; hashed through `detail_hash`) and *live* columns
 (stored on the range, updated in place, never in `row_hash`).
@@ -1689,7 +1689,7 @@ Current rows are `removed_at IS NULL`. Why Docker data is missing comes
 from the newest snapshot's `collector_status` (`docker_*` reasons,
 PROTOCOL.md "Docker sections"); stored rows are left as last known.
 
-**Container image packages (`migrations/0014_image_software.up.sql`,
+**Container image packages (`server/migrations/0014_image_software.up.sql`,
 P2a).** An image's package list is interned into `software_versions`
 like a host's (same `internVersions`), so the matcher,
 `software_vulnerabilities` and every re-match trigger cover images
@@ -1877,7 +1877,7 @@ Existing rows can be migrated with **no agent-side change**:
 Old agents keep pushing. The new agent's v2 payload adds `host.identity`,
 which fills `host_identities` on the next push.
 
-**As implemented (`migrations/0008_agent_host_split.up.sql`).** Steps
+**As implemented (`server/migrations/0008_agent_host_split.up.sql`).** Steps
 1–4 as above, for every `hosts` row (not only those with a credential),
 with `agents.created_at`/`last_seen_at` copied from the host and
 `agent_hosts.last_collected_at` = the host's newest snapshot

@@ -4,7 +4,8 @@ Releases publish three images to GitHub Container Registry, all from the
 same tagged commit:
 
 - `ghcr.io/pippinmole/upkeep-agent`
-- `ghcr.io/pippinmole/upkeep-server` (the `api` and `worker` binaries)
+- `ghcr.io/pippinmole/upkeep-server` (the `api`, `worker` and `migrate`
+  binaries; `migrate` embeds `server/migrations/`)
 - `ghcr.io/pippinmole/upkeep-web`
 
 Why this is strict: with the Docker socket mounted, the agent is root on
@@ -35,6 +36,10 @@ The pipeline is [`.github/workflows/release.yml`](../.github/workflows/release.y
   and `agent/docker-compose.example.yml`. `scripts/check-version-pins.sh`
   checks and bumps both, and the release refuses a stable tag that
   doesn't match them.
+- `deploy/docker-compose.yml` defaults `UPKEEP_VERSION` (the server and
+  web tag) to the current release too. The script doesn't cover it, so
+  bump its four `:-X.Y.Z` defaults and the `deploy/.env.example`
+  comment by hand in the same PR.
 
 Self-hosters who mirror the agent image into their own registry set
 `SW_AGENT_IMAGE` on the web container (`web/.env.example`); it's read at

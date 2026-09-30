@@ -17,15 +17,17 @@ services:
       timeout: 3s
       retries: 10
 
+  # Applies server/migrations (embedded in the server image, so --build
+  # picks up new ones) and exits. Same image as api, different entrypoint.
   migrate:
-    image: migrate/migrate:v4.20.1
+    build:
+      context: ./server
+    entrypoint: ["/migrate"]
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ./migrations:/migrations
-    entrypoint: ["migrate", "-path", "/migrations", "-database",
-      "postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable", "up"]
+    environment:
+      DATABASE_URL: postgres://swuser:swpass@postgres:5432/security_whatnot?sslmode=disable
     restart: "no"
 
   api:
