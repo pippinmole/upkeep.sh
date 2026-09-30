@@ -28,7 +28,10 @@ export async function getOnboardingState(workspaceId: string): Promise<Onboardin
               OR EXISTS (SELECT 1 FROM hosts h JOIN host_containers c ON c.host_id = h.id
                          WHERE h.workspace_id = $1) AS docker,
             EXISTS (SELECT 1 FROM notification_channels c WHERE c.workspace_id = $1) AS channel,
-            EXISTS (SELECT 1 FROM alert_rules r WHERE r.workspace_id = $1) AS rule,
+            -- Every workspace starts with a default rule (migration 0024), so
+            -- the step is sending one somewhere.
+            EXISTS (SELECT 1 FROM alert_rules r JOIN alert_rule_channels rc ON rc.rule_id = r.id
+                    WHERE r.workspace_id = $1) AS rule,
             EXISTS (SELECT 1 FROM report_schedules r WHERE r.workspace_id = $1) AS report`,
     [workspaceId],
   );

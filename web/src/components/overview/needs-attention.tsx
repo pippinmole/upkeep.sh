@@ -1,5 +1,6 @@
 import {
   BellOff,
+  BellRing,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -104,6 +105,17 @@ export function attentionItems(
       detail: names(reboot.map((h) => h.name)),
       count: reboot.length,
       href: hostsHref(reboot, "/dashboard/hosts"),
+    });
+  }
+  if (signals.firingAlerts > 0) {
+    items.push({
+      key: "alerts",
+      tone: "warning",
+      icon: BellRing,
+      title: signals.firingAlerts === 1 ? "Alert firing" : "Alerts firing",
+      detail: "From your alert rules",
+      count: signals.firingAlerts,
+      href: "/dashboard/alerts",
     });
   }
   if (signals.failedDeliveries > 0) {

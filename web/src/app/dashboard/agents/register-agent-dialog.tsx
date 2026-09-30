@@ -217,7 +217,7 @@ function EnrollmentProgress({ token, issuedAt }: { token: string; issuedAt: stri
             <Link href={`/dashboard/hosts/${status.hostId}`}>Open host</Link>
           </Button>
           <Button asChild size="sm" variant="outline">
-            <Link href="/dashboard/alerts">Next: set up alerts</Link>
+            <Link href="/dashboard/settings/alert-rules">Next: set up alerts</Link>
           </Button>
         </div>
       </div>

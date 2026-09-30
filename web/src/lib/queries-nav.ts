@@ -12,7 +12,7 @@ import { AGENT_STATUS_SQL } from "./queries";
 // - staleHosts: active hosts whose agents, the revoked ones aside, are none
 //   of them online: the agent status rule of the Agents and Hosts pages.
 // - staleAgents: agents that went quiet or never reported, not revoked.
-// - failedDeliveries: deliveries that gave up, in the last 7 days.
+// - firingAlerts: alert instances firing now on active hosts.
 // - hasSwarm: as queries-docker-fleet.ts hasSwarm.
 export const getNavCounts = cache(async function getNavCounts(
   workspaceId: string,
@@ -21,7 +21,7 @@ export const getNavCounts = cache(async function getNavCounts(
     vulns_urgent: string;
     stale_hosts: string;
     stale_agents: string;
-    failed_deliveries: string;
+    firing_alerts: string;
     has_swarm: boolean;
   }>(
     `WITH agent_status AS (
@@ -44,9 +44,8 @@ export const getNavCounts = cache(async function getNavCounts(
         WHERE h.workspace_id = $1 AND h.archived_at IS NULL
           AND ha.any_active AND NOT ha.any_online) AS stale_hosts,
        (SELECT count(*) FROM agent_status WHERE status IN ('stale', 'never')) AS stale_agents,
-       (SELECT count(*) FROM notification_deliveries d
-        WHERE d.workspace_id = $1 AND d.status = 'failed'
-          AND d.created_at > now() - interval '7 days') AS failed_deliveries,
+       (SELECT count(*) FROM alert_instances ai JOIN hosts h ON h.id = ai.host_id
+        WHERE ai.workspace_id = $1 AND ai.state = 'firing' AND h.archived_at IS NULL) AS firing_alerts,
        EXISTS (SELECT 1 FROM swarm_clusters sc WHERE sc.workspace_id = $1)
          OR EXISTS (SELECT 1 FROM hosts h JOIN host_docker hd ON hd.host_id = h.id
                     WHERE h.workspace_id = $1 AND h.archived_at IS NULL
@@ -58,7 +57,7 @@ export const getNavCounts = cache(async function getNavCounts(
     vulnsUrgent: Number(r?.vulns_urgent ?? 0),
     staleHosts: Number(r?.stale_hosts ?? 0),
     staleAgents: Number(r?.stale_agents ?? 0),
-    failedDeliveries: Number(r?.failed_deliveries ?? 0),
+    firingAlerts: Number(r?.firing_alerts ?? 0),
     hasSwarm: r?.has_swarm ?? false,
   };
 });

@@ -82,8 +82,8 @@ export const navConfig: NavConfigGroup[] = [
         title: "Alerts",
         url: "/dashboard/alerts",
         icon: BellRing,
-        keywords: ["rules", "notifications", "delivery log"],
-        badge: { key: "failedDeliveries", tone: "critical" },
+        keywords: ["firing", "notifications", "delivery log"],
+        badge: { key: "firingAlerts", tone: "warning" },
       },
       {
         title: "Reports",

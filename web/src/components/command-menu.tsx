@@ -51,7 +51,12 @@ const ACTIONS = [
     keywords: ["enroll", "agent", "install"],
   },
   { title: "Add channel", url: NOTIFICATION_SETTINGS_URL, icon: Send, keywords: ["notifications"] },
-  { title: "New alert rule", url: "/dashboard/alerts", icon: BellPlus, keywords: ["notify"] },
+  {
+    title: "New alert rule",
+    url: "/dashboard/settings/alert-rules",
+    icon: BellPlus,
+    keywords: ["notify"],
+  },
   {
     title: "New report schedule",
     url: "/dashboard/reports",

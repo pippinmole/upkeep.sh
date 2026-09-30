@@ -60,9 +60,10 @@ const STEPS: Step[] = [
   },
   {
     key: "rule",
-    title: "Create an alert rule",
-    description: "Choose which new findings and agent problems notify you.",
-    action: { label: "Create rule", href: "/dashboard/alerts" },
+    title: "Send an alert rule to a channel",
+    description:
+      "Rules watch host state (open ports, packages, vulnerabilities, hosts gone quiet). The default SSH rule is waiting for a channel.",
+    action: { label: "Alert rules", href: "/dashboard/settings/alert-rules" },
   },
   {
     key: "report",
