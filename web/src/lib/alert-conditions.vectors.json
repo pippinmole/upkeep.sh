@@ -1,0 +1,283 @@
+{
+  "$comment": "Alert rule condition validation vectors, run by both validators: server/internal/alerting (TestConditionVectors) and web/src/lib/alert-conditions.test.ts. ok: the input is valid and normalises to `normalized`; otherwise `field` is the part that is invalid.",
+  "vectors": [
+    {
+      "name": "the seeded SSH default",
+      "input": {
+        "property": "listening_port",
+        "operator": "in",
+        "value": [22],
+        "options": { "protocol": "tcp", "bind": "non_loopback" }
+      },
+      "ok": true,
+      "normalized": {
+        "property": "listening_port",
+        "operator": "in",
+        "value": [22],
+        "options": { "bind": "non_loopback", "protocol": "tcp" }
+      }
+    },
+    {
+      "name": "ports are de-duplicated and sorted, options defaulted",
+      "input": { "property": "listening_port", "operator": "not_in", "value": [443, 22, 22, 80.0] },
+      "ok": true,
+      "normalized": {
+        "property": "listening_port",
+        "operator": "not_in",
+        "value": [22, 80, 443],
+        "options": { "bind": "non_loopback", "protocol": "tcp" }
+      }
+    },
+    {
+      "name": "a blank option takes its default",
+      "input": {
+        "property": "listening_port",
+        "operator": "in",
+        "value": [53],
+        "options": { "protocol": "udp", "bind": "" }
+      },
+      "ok": true,
+      "normalized": {
+        "property": "listening_port",
+        "operator": "in",
+        "value": [53],
+        "options": { "bind": "non_loopback", "protocol": "udp" }
+      }
+    },
+    {
+      "name": "port 0",
+      "input": { "property": "listening_port", "operator": "in", "value": [0] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "port above 65535",
+      "input": { "property": "listening_port", "operator": "in", "value": [70000] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "fractional port",
+      "input": { "property": "listening_port", "operator": "in", "value": [22.5] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "port as a string",
+      "input": { "property": "listening_port", "operator": "in", "value": ["22"] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "no ports",
+      "input": { "property": "listening_port", "operator": "in", "value": [] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "missing value",
+      "input": { "property": "listening_port", "operator": "in" },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "too many ports",
+      "input": {
+        "property": "listening_port",
+        "operator": "in",
+        "value": [
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+          26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+          48, 49, 50, 51
+        ]
+      },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "unknown property",
+      "input": { "property": "cpu_load", "operator": "in", "value": [1] },
+      "ok": false,
+      "field": "property"
+    },
+    {
+      "name": "unknown operator",
+      "input": { "property": "listening_port", "operator": "equals", "value": [22] },
+      "ok": false,
+      "field": "operator"
+    },
+    {
+      "name": "unknown option",
+      "input": {
+        "property": "listening_port",
+        "operator": "in",
+        "value": [22],
+        "options": { "iface": "eth0" }
+      },
+      "ok": false,
+      "field": "options.iface"
+    },
+    {
+      "name": "invalid option value",
+      "input": {
+        "property": "listening_port",
+        "operator": "in",
+        "value": [22],
+        "options": { "bind": "public" }
+      },
+      "ok": false,
+      "field": "options.bind"
+    },
+    {
+      "name": "options on a property without any",
+      "input": {
+        "property": "reboot_required",
+        "operator": "is_true",
+        "options": { "bind": "any" }
+      },
+      "ok": false,
+      "field": "options.bind"
+    },
+    {
+      "name": "package names are trimmed, lower-cased, de-duplicated and sorted",
+      "input": {
+        "property": "package_installed",
+        "operator": "installed",
+        "value": ["  Telnetd ", "rsh-server", "telnetd", ""]
+      },
+      "ok": true,
+      "normalized": {
+        "property": "package_installed",
+        "operator": "installed",
+        "value": ["rsh-server", "telnetd"]
+      }
+    },
+    {
+      "name": "package names may contain spaces (Windows programs)",
+      "input": {
+        "property": "package_installed",
+        "operator": "not_installed",
+        "value": ["Google Chrome"]
+      },
+      "ok": true,
+      "normalized": {
+        "property": "package_installed",
+        "operator": "not_installed",
+        "value": ["google chrome"]
+      }
+    },
+    {
+      "name": "package name with a comma",
+      "input": { "property": "package_installed", "operator": "installed", "value": ["a,b"] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "only blank package names",
+      "input": { "property": "package_installed", "operator": "installed", "value": [" ", ""] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "names must be strings",
+      "input": { "property": "package_installed", "operator": "installed", "value": [1] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "OS ids and families are lower-cased",
+      "input": { "property": "os", "operator": "not_in", "value": ["Ubuntu", "windows", "debian"] },
+      "ok": true,
+      "normalized": {
+        "property": "os",
+        "operator": "not_in",
+        "value": ["debian", "ubuntu", "windows"]
+      }
+    },
+    {
+      "name": "OS id with a space",
+      "input": { "property": "os", "operator": "in", "value": ["ubuntu 22.04"] },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "reboot required takes no value (null is fine)",
+      "input": { "property": "reboot_required", "operator": "is_true", "value": null },
+      "ok": true,
+      "normalized": { "property": "reboot_required", "operator": "is_true" }
+    },
+    {
+      "name": "reboot required with a value",
+      "input": { "property": "reboot_required", "operator": "is_true", "value": true },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "vulnerability severity floor, source defaulted",
+      "input": { "property": "vulnerability", "operator": "severity_at_least", "value": "high" },
+      "ok": true,
+      "normalized": {
+        "property": "vulnerability",
+        "operator": "severity_at_least",
+        "value": "high",
+        "options": { "source": "any" }
+      }
+    },
+    {
+      "name": "vulnerability KEV in images",
+      "input": {
+        "property": "vulnerability",
+        "operator": "kev",
+        "options": { "source": "images" }
+      },
+      "ok": true,
+      "normalized": {
+        "property": "vulnerability",
+        "operator": "kev",
+        "options": { "source": "images" }
+      }
+    },
+    {
+      "name": "unknown severity",
+      "input": { "property": "vulnerability", "operator": "severity_at_least", "value": "urgent" },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "host not seen for 30 minutes",
+      "input": { "property": "host_not_seen", "operator": "for_more_than", "value": 30 },
+      "ok": true,
+      "normalized": { "property": "host_not_seen", "operator": "for_more_than", "value": 30 }
+    },
+    {
+      "name": "host not seen below the minimum",
+      "input": { "property": "host_not_seen", "operator": "for_more_than", "value": 4 },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "host not seen as a string",
+      "input": { "property": "host_not_seen", "operator": "for_more_than", "value": "30" },
+      "ok": false,
+      "field": "value"
+    },
+    {
+      "name": "any collector",
+      "input": { "property": "collector_failed", "operator": "any" },
+      "ok": true,
+      "normalized": { "property": "collector_failed", "operator": "any" }
+    },
+    {
+      "name": "named collectors are lower-cased",
+      "input": { "property": "collector_failed", "operator": "in", "value": ["DEB_packages"] },
+      "ok": true,
+      "normalized": { "property": "collector_failed", "operator": "in", "value": ["deb_packages"] }
+    },
+    {
+      "name": "collector name with a dash",
+      "input": { "property": "collector_failed", "operator": "in", "value": ["deb-packages"] },
+      "ok": false,
+      "field": "value"
+    }
+  ]
+}

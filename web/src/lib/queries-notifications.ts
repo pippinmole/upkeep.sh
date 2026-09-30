@@ -57,73 +57,9 @@ export async function getChannels(workspaceId: string): Promise<ChannelRow[]> {
   }));
 }
 
-export type RuleRow = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  eventTypes: string[];
-  minSeverityRank: number;
-  kevOnly: boolean;
-  findingKinds: string[];
-  hostIds: string[] | null;
-  dedupWindowSeconds: number;
-  digest: boolean;
-  digestIntervalSeconds: number;
-  lastDigestAt: string | null;
-  createdAt: string;
-  channels: { id: string; name: string; type: string; enabled: boolean }[];
-};
-
-export async function getRules(workspaceId: string): Promise<RuleRow[]> {
-  const { rows } = await pool.query<{
-    id: string;
-    name: string;
-    enabled: boolean;
-    event_types: string[];
-    min_severity_rank: number;
-    kev_only: boolean;
-    finding_kinds: string[];
-    host_ids: string[] | null;
-    dedup_window_seconds: number;
-    digest: boolean;
-    digest_interval_seconds: number;
-    last_digest_at: Date | null;
-    created_at: Date;
-    channels: RuleRow["channels"];
-  }>(
-    `SELECT r.id, r.name, r.enabled, r.event_types, r.min_severity_rank, r.kev_only, r.finding_kinds,
-            r.host_ids::text[] AS host_ids, r.dedup_window_seconds, r.digest,
-            r.digest_interval_seconds, r.last_digest_at, r.created_at,
-            COALESCE((SELECT json_agg(json_build_object('id', c.id, 'name', c.name, 'type', c.type,
-                                                        'enabled', c.enabled) ORDER BY c.name)
-                      FROM alert_rule_channels rc JOIN notification_channels c ON c.id = rc.channel_id
-                      WHERE rc.rule_id = r.id), '[]') AS channels
-     FROM alert_rules r
-     WHERE r.workspace_id = $1
-     ORDER BY r.name, r.created_at`,
-    [workspaceId],
-  );
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    enabled: r.enabled,
-    eventTypes: r.event_types,
-    minSeverityRank: r.min_severity_rank,
-    kevOnly: r.kev_only,
-    findingKinds: r.finding_kinds,
-    hostIds: r.host_ids,
-    dedupWindowSeconds: r.dedup_window_seconds,
-    digest: r.digest,
-    digestIntervalSeconds: r.digest_interval_seconds,
-    lastDigestAt: r.last_digest_at?.toISOString() ?? null,
-    createdAt: r.created_at.toISOString(),
-    channels: r.channels,
-  }));
-}
-
 export type ScopeHost = { id: string; hostname: string; label: string | null; archived: boolean };
 
-// Archived hosts never alert (store/alerting.go), so the rule dialog only
+// Archived hosts never alert (store/alertrules.go), so the rule dialog only
 // offers them when a rule already has them in scope; they're still listed
 // here so existing rules show their names.
 export async function getScopeHosts(workspaceId: string): Promise<ScopeHost[]> {

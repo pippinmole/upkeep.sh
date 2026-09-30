@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCw } from "lucide-react";
+import { BellRing, RotateCw } from "lucide-react";
 import Link from "next/link";
 
 import { OsLogo } from "@/components/brand";
@@ -9,6 +9,7 @@ import { dataTableColumnHelper } from "@/components/data-table/features";
 import { AGENT_STATUS_LABEL, agentStatusTone, StatusDot } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
+import { hostAlertsHref } from "@/lib/alerts-table";
 import type { HostListRow } from "@/lib/queries";
 import { osLabel } from "@/lib/os";
 import { SEVERITIES } from "@/lib/severity";
@@ -145,6 +146,28 @@ export const hostColumns = col.columns([
         </Link>
       ) : (
         pills
+      );
+    },
+  }),
+  col.accessor("firingAlerts", {
+    id: "alerts",
+    meta: NUMERIC_COLUMN,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Alerts" className={NUMERIC_HEADER} />
+    ),
+    cell: ({ row }) => {
+      const h = row.original;
+      if (h.firingAlerts === 0) return <span className="text-muted-foreground">0</span>;
+      return (
+        <Link
+          href={hostAlertsHref(h.id)}
+          title={`${h.firingAlerts} firing alert${h.firingAlerts === 1 ? "" : "s"}`}
+        >
+          <Badge variant="warning" className="tabular-nums">
+            <BellRing aria-hidden />
+            {h.firingAlerts} firing
+          </Badge>
+        </Link>
       );
     },
   }),

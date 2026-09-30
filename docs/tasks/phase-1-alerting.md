@@ -1,7 +1,8 @@
 # Phase 1 remainder — alerting
 Port exposure moved to host-side analysis in [Phase 1.6](phase-1-6-docker-exposure.md); the
 external scanner is deferred to Phase 2+ ([Port exposure](../decisions/port-exposure.md)).
-- [x] Alert rule evaluation worker + dispatch (migration 0009,
+- [x] Alert rule evaluation worker + dispatch (migration 0009; the event
+      rules were replaced by condition rules in 0024, below;
       `internal/alerting`, `jobs/alerting.go`): rules on finding opened /
       reopened / resolved (min severity, KEV-only, host scope) and agent
       stale / recovered (`agent_health`, the dashboard's stale rule);
@@ -14,8 +15,8 @@ external scanner is deferred to Phase 2+ ([Port exposure](../decisions/port-expo
       time, same-origin redirects; dev escape hatch
       `SW_NOTIFY_ALLOW_PRIVATE_NETWORKS`; a separate SMTP policy for the
       email channel, see below).
-- [x] Dashboard: rules and delivery log with attempts under
-      `/dashboard/alerts`; channels (form rendered from the type's schema,
+- [x] Dashboard: delivery log with attempts under
+      `/dashboard/alerts/log` (rules moved to Settings → Alert rules in 0024); channels (form rendered from the type's schema,
       secret shown once + rotate, "Send test") under
       `/dashboard/settings/notifications`; all on `DataTable`, server
       actions scoped by `user_id`.
@@ -52,5 +53,32 @@ external scanner is deferred to Phase 2+ ([Port exposure](../decisions/port-expo
       left out of agent events' `host_ids` / payload (`store/alerting.go`).
 - [ ] Alerting: per-user rate limit / circuit breaker for a channel that
       keeps failing (today each delivery retries independently for ~11 h).
-- [ ] Exposure events: see [Phase 1.6](phase-1-6-docker-exposure.md) (a new event type + `Event` object,
-      no dispatch changes).
+- [x] Condition rules and stateful alerts (migration 0024,
+      [ALERTING.md](../ALERTING.md)): rules are a typed property + operator
+      + value from a Go catalogue (listening port with protocol and bind
+      address, package installed / not installed, OS, reboot required,
+      vulnerability severity / KEV, host not seen, collector failed), scoped
+      to all or picked hosts, evaluated per host on ingest and findings
+      change and every minute for all hosts into `alert_instances`
+      (firing / resolved history, one firing row per rule, host and
+      subject). Notifies on firing and, optionally, on resolve through the
+      rule's channels; silent resolutions for rule edits and host scope
+      changes. Replaces the 0009 event rules, the dedup window and
+      `agent_health`. Rules under Settings → Alert rules; alerts list
+      (server-driven) under Alerts; firing counts on Hosts, the host page
+      and the sidebar. Every account gets an "SSH listening (port 22)" rule.
+- [ ] Alerting follow-ups ([ALERTING.md § Out of scope](../ALERTING.md#out-of-scope-follow-ups)):
+      host tags as a rule scope (hosts only have a display label today).
+- [ ] Alerting follow-up: flap damping ("firing for at least N minutes")
+      and reminders while an alert keeps firing.
+- [ ] Alerting follow-up: acknowledge / silence / snooze an alert, and
+      maintenance windows.
+- [ ] Alerting follow-up: more properties (service running / stopped,
+      local admin user, container running or publishing a port, public IP
+      changed, EPSS above N, package version comparisons) and per-rule
+      severity for routing and ntfy priority.
+- [ ] Alerting follow-up: alert detail page (details, history of the same
+      key, the notifications sent for it).
+- [ ] Exposure alerts: see [Phase 1.6](phase-1-6-docker-exposure.md) (a new
+      `listening_port` bind option or a new property once host-side exposure
+      classification exists; no dispatch changes).

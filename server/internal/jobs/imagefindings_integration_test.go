@@ -21,15 +21,15 @@ import (
 // The image job chain end to end, on River: a package list written with
 // EnqueueAfterImageSBOM -> match_versions + reconcile_image (waits for the
 // matcher, scores the list) -> reconcile_host for the host running the
-// image -> vulnerable_image finding -> alert_events -> a rule selecting
-// image findings -> notification carrying the image.
+// image -> vulnerable_image finding -> alert_rules_evaluate -> a
+// vulnerability rule on image findings fires -> notification carrying the
+// image.
 func TestImageFindingsPipeline(t *testing.T) {
 	f := newAlertFixture(t)
 	ctx := context.Background()
 	fake := &fakeNotifier{}
 	ch := f.channel("fake room", "fake", map[string]string{"room": "#sec"}, nil)
-	rule := f.rule("images only", ruleOpts{types: []string{notify.EventFindingOpened}}, ch)
-	f.exec(`UPDATE alert_rules SET finding_kinds = '{vulnerable_image}' WHERE id = $1`, rule)
+	f.rule("images only", `{"property":"vulnerability","operator":"severity_at_least","value":"low","options":{"source":"images"}}`, ruleOpts{}, ch)
 
 	b := make([]byte, 3)
 	_, _ = rand.Read(b)

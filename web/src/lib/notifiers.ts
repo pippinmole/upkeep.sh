@@ -34,32 +34,8 @@ export function channelType(type: string): ChannelType | undefined {
   return CHANNEL_TYPES.find((t) => t.type === type);
 }
 
-export const EVENT_TYPES = schema.eventTypes as string[];
-
-export const EVENT_TYPE_LABEL: Record<string, string> = {
-  "finding.opened": "Finding opened",
-  "finding.reopened": "Finding reopened",
-  "finding.resolved": "Finding resolved",
-  "agent.stale": "Agent went stale",
-  "agent.recovered": "Agent came back",
-};
-
-export function eventTypeLabel(t: string): string {
-  return EVENT_TYPE_LABEL[t] ?? t;
-}
-
-export const isFindingEvent = (t: string) => t.startsWith("finding.");
-
-// Finding kinds a rule's finding events can be narrowed to
-// (alert_rules.finding_kinds; its CHECK lists the same kinds).
-export const FINDING_KINDS = [
-  { kind: "vulnerable_package", label: "Host packages" },
-  { kind: "vulnerable_image", label: "Container images" },
-];
-export const ALL_FINDING_KINDS = FINDING_KINDS.map((k) => k.kind);
-
-// Rule option choices (seconds). Bounds match the alert_rules CHECKs.
-export const DEDUP_WINDOWS = [0, 900, 3600, 6 * 3600, 86400, 7 * 86400];
+// Digest intervals a rule can pick (seconds); alert_rules CHECK allows
+// 300 .. 604800.
 export const DIGEST_INTERVALS = [900, 3600, 6 * 3600, 86400, 7 * 86400];
 
 export function durationLabel(seconds: number): string {
@@ -68,16 +44,6 @@ export function durationLabel(seconds: number): string {
   if (seconds % 3600 === 0) return seconds === 3600 ? "1 hour" : `${seconds / 3600} hours`;
   return `${Math.round(seconds / 60)} minutes`;
 }
-
-// findings.severity_rank values (server/internal/severity buckets).
-export const SEVERITY_FLOORS = [
-  { rank: 0, label: "Any severity" },
-  { rank: 2, label: "Low and above" },
-  { rank: 3, label: "Unknown and above" },
-  { rank: 4, label: "Medium and above" },
-  { rank: 5, label: "High and above" },
-  { rank: 6, label: "Critical only" },
-];
 
 // Mirrors server/internal/netguard's URL shape rules (https, ports 443 /
 // 8443, no credentials, no literal private address). The worker re-checks

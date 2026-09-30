@@ -4,15 +4,7 @@ import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 
 import { pool } from "@/lib/db";
-import {
-  ALL_FINDING_KINDS,
-  channelType,
-  DEDUP_WINDOWS,
-  DIGEST_INTERVALS,
-  EVENT_TYPES,
-  isFindingEvent,
-  validateChannelValues,
-} from "@/lib/notifiers";
+import { channelType, validateChannelValues } from "@/lib/notifiers";
 import {
   type CleanSchedule,
   resetsNextRun,
@@ -22,11 +14,10 @@ import {
 import { enqueueAlertDelivery, enqueueReportSendNow } from "@/lib/river";
 import { requireAdmin } from "@/lib/viewer";
 
-// Alert rules (/dashboard/alerts), notification channels
-// (/dashboard/settings/channels) and report schedules (/dashboard/reports):
-// notification_channels,
-// alert_rules, alert_rule_channels, report_schedules (except next_run_at /
-// last_run_at) and report_schedule_channels are Next.js-owned tables
+// Notification channels (/dashboard/settings/channels) and report
+// schedules (/dashboard/reports): notification_channels, report_schedules
+// (except next_run_at / last_run_at) and report_schedule_channels are
+// Next.js-owned tables (alert rules: alert-rule-actions.ts)
 // (docs/ARCHITECTURE.md "Who owns what"). Every action re-checks the session and the admin role, and
 // scopes every statement by workspace_id; ids from the client are never trusted on their own.
 
@@ -248,197 +239,6 @@ export async function sendTestNotification(id: string): Promise<ActionResult<Tes
   }
   refresh();
   return { ok: true, ...last };
-}
-
-// ---- Rules ----
-
-export type RuleInput = {
-  name: string;
-  eventTypes: string[];
-  minSeverityRank: number;
-  kevOnly: boolean;
-  findingKinds: string[];
-  hostScope: "all" | "selected";
-  hostIds: string[];
-  channelIds: string[];
-  dedupWindowSeconds: number;
-  digest: boolean;
-  digestIntervalSeconds: number;
-};
-
-type CleanRule = Omit<RuleInput, "hostScope" | "hostIds"> & { hostIds: string[] | null };
-
-async function validateRule(
-  workspaceId: string,
-  input: RuleInput,
-): Promise<{ rule?: CleanRule; fieldErrors: Record<string, string> }> {
-  const errors: Record<string, string> = {};
-  const name = cleanName(input?.name);
-  if (!name) errors.name = "Name is required (up to 100 characters)";
-  const eventTypes = Array.isArray(input.eventTypes)
-    ? [...new Set(input.eventTypes.filter((t) => EVENT_TYPES.includes(t)))]
-    : [];
-  if (eventTypes.length === 0) errors.eventTypes = "Pick at least one event";
-  const minSeverityRank = Number(input.minSeverityRank);
-  if (!Number.isInteger(minSeverityRank) || minSeverityRank < 0 || minSeverityRank > 6) {
-    errors.minSeverityRank = "Invalid severity";
-  }
-  // Rules without finding events keep every kind (the column is never empty).
-  let findingKinds = Array.isArray(input.findingKinds)
-    ? ALL_FINDING_KINDS.filter((k) => input.findingKinds.includes(k))
-    : ALL_FINDING_KINDS;
-  if (!eventTypes.some(isFindingEvent)) findingKinds = ALL_FINDING_KINDS;
-  else if (findingKinds.length === 0) errors.findingKinds = "Pick at least one kind of finding";
-  const dedup = Number(input.dedupWindowSeconds);
-  if (!DEDUP_WINDOWS.includes(dedup)) errors.dedupWindowSeconds = "Invalid dedup window";
-  const interval = Number(input.digestIntervalSeconds);
-  if (!DIGEST_INTERVALS.includes(interval)) errors.digestIntervalSeconds = "Invalid interval";
-
-  const channelIds = Array.isArray(input.channelIds)
-    ? [...new Set(input.channelIds.filter(isUuid))]
-    : [];
-  if (channelIds.length === 0) {
-    errors.channelIds = "Pick at least one channel";
-  } else {
-    const { rows } = await pool.query<{ n: string }>(
-      `SELECT count(*) AS n FROM notification_channels WHERE workspace_id = $1 AND id = ANY($2::uuid[])`,
-      [workspaceId, channelIds],
-    );
-    if (Number(rows[0].n) !== channelIds.length) errors.channelIds = "Unknown channel";
-  }
-
-  let hostIds: string[] | null = null;
-  if (input.hostScope === "selected") {
-    hostIds = Array.isArray(input.hostIds) ? [...new Set(input.hostIds.filter(isUuid))] : [];
-    if (hostIds.length === 0) {
-      errors.hostIds = "Pick at least one host, or choose all hosts";
-    } else {
-      const { rows } = await pool.query<{ n: string }>(
-        `SELECT count(*) AS n FROM hosts WHERE workspace_id = $1 AND id = ANY($2::uuid[])`,
-        [workspaceId, hostIds],
-      );
-      if (Number(rows[0].n) !== hostIds.length) errors.hostIds = "Unknown host";
-    }
-  }
-  if (Object.keys(errors).length > 0) return { fieldErrors: errors };
-  return {
-    fieldErrors: {},
-    rule: {
-      name: name!,
-      eventTypes,
-      minSeverityRank,
-      kevOnly: input.kevOnly === true,
-      findingKinds,
-      hostIds,
-      channelIds,
-      dedupWindowSeconds: dedup,
-      digest: input.digest === true,
-      digestIntervalSeconds: interval,
-    },
-  };
-}
-
-async function writeRule(
-  workspaceId: string,
-  id: string | null,
-  r: CleanRule,
-): Promise<string | null> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const params = [
-      workspaceId,
-      r.name,
-      r.eventTypes,
-      r.minSeverityRank,
-      r.kevOnly,
-      r.hostIds,
-      r.dedupWindowSeconds,
-      r.digest,
-      r.digestIntervalSeconds,
-      r.findingKinds,
-    ];
-    const res = id
-      ? await client.query<{ id: string }>(
-          `UPDATE alert_rules SET name = $2, event_types = $3, min_severity_rank = $4, kev_only = $5,
-                  host_ids = $6, dedup_window_seconds = $7, digest = $8, digest_interval_seconds = $9,
-                  finding_kinds = $10, updated_at = now()
-           WHERE id = $11 AND workspace_id = $1 RETURNING id`,
-          [...params, id],
-        )
-      : await client.query<{ id: string }>(
-          `INSERT INTO alert_rules (workspace_id, name, event_types, min_severity_rank, kev_only, host_ids,
-                                    dedup_window_seconds, digest, digest_interval_seconds, finding_kinds)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-          params,
-        );
-    const ruleId = res.rows[0]?.id;
-    if (!ruleId) {
-      await client.query("ROLLBACK");
-      return null;
-    }
-    await client.query(`DELETE FROM alert_rule_channels WHERE rule_id = $1 AND workspace_id = $2`, [
-      ruleId,
-      workspaceId,
-    ]);
-    // The composite FKs refuse a channel of another user even if the
-    // ownership check above were bypassed.
-    await client.query(
-      `INSERT INTO alert_rule_channels (rule_id, channel_id, workspace_id)
-       SELECT $1, unnest($2::uuid[]), $3`,
-      [ruleId, r.channelIds, workspaceId],
-    );
-    await client.query("COMMIT");
-    return ruleId;
-  } catch (e) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw e;
-  } finally {
-    client.release();
-  }
-}
-
-export async function createRule(input: RuleInput): Promise<ActionResult<{ id: string }>> {
-  const workspaceId = await adminWorkspaceId();
-  const { rule, fieldErrors } = await validateRule(workspaceId, input);
-  if (!rule) return { ok: false, error: "Please fix the highlighted fields.", fieldErrors };
-  const id = await writeRule(workspaceId, null, rule);
-  refresh();
-  return id ? { ok: true, id } : { ok: false, error: "Could not create the rule." };
-}
-
-export async function updateRule(id: string, input: RuleInput): Promise<ActionResult> {
-  const workspaceId = await adminWorkspaceId();
-  if (!isUuid(id)) return { ok: false, error: "Rule not found." };
-  const { rule, fieldErrors } = await validateRule(workspaceId, input);
-  if (!rule) return { ok: false, error: "Please fix the highlighted fields.", fieldErrors };
-  const done = await writeRule(workspaceId, id, rule);
-  refresh();
-  return done ? { ok: true } : { ok: false, error: "Rule not found." };
-}
-
-export async function setRuleEnabled(id: string, enabled: boolean): Promise<ActionResult> {
-  const workspaceId = await adminWorkspaceId();
-  if (!isUuid(id)) return { ok: false, error: "Rule not found." };
-  const r = await pool.query(
-    `UPDATE alert_rules SET enabled = $3, updated_at = now() WHERE id = $1 AND workspace_id = $2`,
-    [id, workspaceId, enabled === true],
-  );
-  if (r.rowCount === 0) return { ok: false, error: "Rule not found." };
-  refresh();
-  return { ok: true };
-}
-
-export async function deleteRule(id: string): Promise<ActionResult> {
-  const workspaceId = await adminWorkspaceId();
-  if (!isUuid(id)) return { ok: false, error: "Rule not found." };
-  const r = await pool.query(`DELETE FROM alert_rules WHERE id = $1 AND workspace_id = $2`, [
-    id,
-    workspaceId,
-  ]);
-  if (r.rowCount === 0) return { ok: false, error: "Rule not found." };
-  refresh();
-  return { ok: true };
 }
 
 // ---- Report schedules ----

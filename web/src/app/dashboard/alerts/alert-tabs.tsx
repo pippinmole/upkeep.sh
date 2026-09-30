@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const BASE = "/dashboard/alerts";
 const TABS = [
-  { href: BASE, label: "Rules" },
+  { href: BASE, label: "Alerts" },
   { href: `${BASE}/log`, label: "Delivery log" },
 ];
 

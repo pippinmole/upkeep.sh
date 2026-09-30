@@ -14,7 +14,7 @@ interface NavCounts {
   vulnsUrgent: number;
   staleHosts: number;
   staleAgents: number;
-  failedDeliveries: number;
+  firingAlerts: number;
   hasSwarm: boolean;
 }
 

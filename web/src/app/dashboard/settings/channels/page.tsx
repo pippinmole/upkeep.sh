@@ -4,7 +4,7 @@ import Link from "next/link";
 
 import { EmptyState } from "@/components/empty-state";
 import { SectionHeading } from "@/components/layout/page-header";
-import { ALERTS_URL, REPORTS_URL } from "@/components/notifications/links";
+import { ALERT_RULES_URL, REPORTS_URL } from "@/components/notifications/links";
 import { requireViewer } from "@/lib/viewer";
 import { getChannels } from "@/lib/queries-notifications";
 
@@ -24,7 +24,7 @@ export default async function ChannelsPage() {
         description={
           <>
             Where notifications are delivered. What gets sent is decided by your{" "}
-            <Link href={ALERTS_URL} className={linkClass}>
+            <Link href={ALERT_RULES_URL} className={linkClass}>
               alert rules
             </Link>{" "}
             and{" "}

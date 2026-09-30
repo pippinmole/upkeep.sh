@@ -355,7 +355,7 @@ func Render(n notify.Notification) Message {
 	if n.Kind == notify.KindReport {
 		b.WriteString("\n\n-- \nSent by upkeep.sh. Change your reports under Reports in the dashboard.\n")
 	} else {
-		b.WriteString("\n\n-- \nSent by upkeep.sh. Change what you're alerted about under Alerts in the dashboard.\n")
+		b.WriteString("\n\n-- \nSent by upkeep.sh. Change what you're alerted about under Settings > Alert rules in the dashboard.\n")
 	}
 	return Message{Subject: render.Truncate(sanitizeHeader(subject), maxSubject), Body: b.String()}
 }

@@ -95,6 +95,9 @@ func EnqueueAfterIngest(ctx context.Context, client *river.Client[pgx.Tx], tx pg
 	if res.InventoryChanged() || res.KernelChanged || res.ImageUseChanged() {
 		params = append(params, river.InsertManyParams{Args: ReconcileHostArgs{HostID: hostID}})
 	}
+	// Every push: the host's alert rules read its listeners, packages, OS,
+	// reboot and collector state, and when it was last seen.
+	params = append(params, river.InsertManyParams{Args: AlertRulesEvaluateArgs{HostID: hostID}})
 	images, err := imageSBOMParams(ctx, tx, hostID, res) // image_sbom for newly seen image keys
 	if err != nil {
 		return err
@@ -204,9 +207,9 @@ type ReconcileHostWorker struct {
 }
 
 func (w *ReconcileHostWorker) Work(ctx context.Context, job *river.Job[ReconcileHostArgs]) error {
-	// Transitions go to the alert_events outbox in the reconcile
-	// transaction; alert_evaluate is queued in it too (jobs/alerting.go).
-	res, err := w.Store.ReconcileHostFindingsTx(ctx, job.Args.HostID, EnqueueAlertEvaluate)
+	// When findings changed, the host's alert rules are evaluated by a job
+	// queued in the reconcile transaction (jobs/alerting.go).
+	res, err := w.Store.ReconcileHostFindingsTx(ctx, job.Args.HostID, enqueueHostAlertRules(job.Args.HostID))
 	if errors.Is(err, store.ErrUnevaluated) {
 		// The host's match_versions job (inserted in the same transaction
 		// as the snapshot) hasn't run yet; matcher_sweep is the backstop.
@@ -220,8 +223,8 @@ func (w *ReconcileHostWorker) Work(ctx context.Context, job *river.Job[Reconcile
 		if kernel == "" {
 			kernel = "unknown"
 		}
-		log.Printf("reconcile_host %s: %d opened, %d reopened, %d resolved, %d unchanged (running kernel %s); %d alert events",
-			job.Args.HostID, res.Opened, res.Reopened, res.Resolved, res.Kept, kernel, res.AlertEvents)
+		log.Printf("reconcile_host %s: %d opened, %d reopened, %d resolved, %d unchanged (running kernel %s)",
+			job.Args.HostID, res.Opened, res.Reopened, res.Resolved, res.Kept, kernel)
 	}
 	return nil
 }

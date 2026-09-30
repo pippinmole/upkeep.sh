@@ -3,8 +3,8 @@ import type { PoolClient } from "pg";
 // Enqueue a River job from Node with plain SQL, the way River's non-Go
 // clients (riverqueue-python / -ruby) do: a river_job row in state
 // 'available' is picked up by the worker's next fetch poll (~1 s). Used by
-// "Send test" (alert_deliver, args AlertDeliverArgs) and the report "Send
-// now" button (report_send_now); each kind and its args must match the
+// "Send test" (alert_deliver, args AlertDeliverArgs), alert rule changes
+// (alert_rules_evaluate) and the report "Send now" button (report_send_now); each kind and its args must match the
 // worker's args type in server/internal/jobs. River's schema is vendored as
 // migration 0006, so a River upgrade that changed it would show up there.
 async function insertJob(
@@ -32,6 +32,12 @@ export async function enqueueAlertDelivery(
   maxAttempts: number,
 ): Promise<void> {
   await insertJob(client, "alert_deliver", { delivery_id: deliveryId }, "alerts", maxAttempts);
+}
+
+// Evaluate every alert rule now (jobs.AlertRulesEvaluateArgs with no host:
+// all hosts), after a rule change, instead of at the next minute's pass.
+export async function enqueueAlertRulesEvaluate(client: PoolClient): Promise<void> {
+  await insertJob(client, "alert_rules_evaluate", {}, "alerts", 5);
 }
 
 // "Send now": a real report run for one schedule (trigger 'manual'). The

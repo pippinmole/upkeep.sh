@@ -72,7 +72,7 @@ func TestSendReport(t *testing.T) {
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != 1 || got.Kind != "report" || got.Rule != nil || got.Events == nil || len(got.Events) != 0 ||
+	if got.Version != notify.PayloadVersion || got.Kind != "report" || got.Rule != nil || got.Events == nil || len(got.Events) != 0 ||
 		got.Summary != "Monday patch list: 1 urgent action, 2 to patch this week, 1 image to update, 1 host not reporting" ||
 		got.Report.ID != "r-1" || got.Report.URL != "https://upkeep.example/dashboard/reports/r-1" {
 		t.Fatalf("envelope: %s", body)

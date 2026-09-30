@@ -1,6 +1,6 @@
-import { Send, Users } from "lucide-react";
+import { BellRing, Send, Users } from "lucide-react";
 
-import { NOTIFICATION_SETTINGS_URL } from "@/components/notifications/links";
+import { ALERT_RULES_URL, NOTIFICATION_SETTINGS_URL } from "@/components/notifications/links";
 
 export const SETTINGS_URL = "/dashboard/settings";
 
@@ -8,6 +8,12 @@ export const SETTINGS_URL = "/dashboard/settings";
 // sub-nav and the command menu. Add an entry (and a route under
 // app/dashboard/settings/) for each new section.
 export const settingsSections = [
+  {
+    title: "Alert rules",
+    url: ALERT_RULES_URL,
+    icon: BellRing,
+    keywords: ["alerts", "rules", "ports", "ssh", "conditions"],
+  },
   {
     title: "Channels",
     url: NOTIFICATION_SETTINGS_URL,

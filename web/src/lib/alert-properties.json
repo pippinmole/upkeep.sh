@@ -1,0 +1,275 @@
+{
+  "$comment": "Generated from server/internal/alerting/catalog.go: go test ./internal/alerting -update. Do not edit.",
+  "properties": [
+    {
+      "key": "listening_port",
+      "label": "Listening port",
+      "description": "A port a process on the host listens on. One alert per port and protocol.",
+      "subject": "port",
+      "operators": [
+        {
+          "key": "in",
+          "label": "is one of",
+          "value": {
+            "kind": "int_list",
+            "label": "Ports",
+            "placeholder": "22, 3389",
+            "min": 1,
+            "max": 65535,
+            "maxItems": 50
+          }
+        },
+        {
+          "key": "not_in",
+          "label": "is not one of",
+          "value": {
+            "kind": "int_list",
+            "label": "Ports",
+            "placeholder": "22, 3389",
+            "help": "An allowlist: fires for every listening port that is not in it.",
+            "min": 1,
+            "max": 65535,
+            "maxItems": 50
+          }
+        }
+      ],
+      "options": [
+        {
+          "key": "protocol",
+          "label": "Protocol",
+          "default": "tcp",
+          "choices": [
+            {
+              "value": "tcp",
+              "label": "TCP"
+            },
+            {
+              "value": "udp",
+              "label": "UDP"
+            },
+            {
+              "value": "any",
+              "label": "TCP or UDP"
+            }
+          ]
+        },
+        {
+          "key": "bind",
+          "label": "Bound to",
+          "help": "Which listening addresses count.",
+          "default": "non_loopback",
+          "choices": [
+            {
+              "value": "non_loopback",
+              "label": "Any address except loopback"
+            },
+            {
+              "value": "all_interfaces",
+              "label": "All interfaces (0.0.0.0 or ::)"
+            },
+            {
+              "value": "loopback",
+              "label": "Loopback only (127.0.0.0/8, ::1)"
+            },
+            {
+              "value": "any",
+              "label": "Any address"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "package_installed",
+      "label": "Package",
+      "description": "An installed package, by name, from any package source the agent collects.",
+      "subject": "package",
+      "operators": [
+        {
+          "key": "installed",
+          "label": "is installed",
+          "value": {
+            "kind": "string_list",
+            "label": "Package names",
+            "placeholder": "telnetd, rsh-server",
+            "help": "Exact names, case-insensitive.",
+            "maxItems": 50,
+            "maxLength": 200,
+            "pattern": "^[^,]+$",
+            "lower": true
+          }
+        },
+        {
+          "key": "not_installed",
+          "label": "is not installed",
+          "value": {
+            "kind": "string_list",
+            "label": "Package names",
+            "placeholder": "telnetd, rsh-server",
+            "help": "Fires for every listed package missing from a host whose package inventory is known.",
+            "maxItems": 50,
+            "maxLength": 200,
+            "pattern": "^[^,]+$",
+            "lower": true
+          }
+        }
+      ]
+    },
+    {
+      "key": "os",
+      "label": "Operating system",
+      "description": "The host's OS id (ubuntu, debian, alpine, …) or family (linux, windows, macos).",
+      "operators": [
+        {
+          "key": "in",
+          "label": "is one of",
+          "value": {
+            "kind": "string_list",
+            "label": "OS ids or families",
+            "placeholder": "ubuntu, debian, windows",
+            "maxItems": 20,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9._-]+$",
+            "lower": true
+          }
+        },
+        {
+          "key": "not_in",
+          "label": "is not one of",
+          "value": {
+            "kind": "string_list",
+            "label": "OS ids or families",
+            "placeholder": "ubuntu, debian, windows",
+            "maxItems": 20,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9._-]+$",
+            "lower": true
+          }
+        }
+      ]
+    },
+    {
+      "key": "reboot_required",
+      "label": "Reboot required",
+      "description": "The host reports that it needs a reboot (for example after a kernel update).",
+      "operators": [
+        {
+          "key": "is_true",
+          "label": "is required",
+          "value": {
+            "kind": "none"
+          }
+        }
+      ]
+    },
+    {
+      "key": "vulnerability",
+      "label": "Vulnerability",
+      "description": "An open vulnerability finding on the host. One alert per finding.",
+      "subject": "finding",
+      "operators": [
+        {
+          "key": "severity_at_least",
+          "label": "severity is at least",
+          "value": {
+            "kind": "enum",
+            "label": "Severity",
+            "choices": [
+              {
+                "value": "low",
+                "label": "Low"
+              },
+              {
+                "value": "medium",
+                "label": "Medium"
+              },
+              {
+                "value": "high",
+                "label": "High"
+              },
+              {
+                "value": "critical",
+                "label": "Critical"
+              }
+            ]
+          }
+        },
+        {
+          "key": "kev",
+          "label": "is known exploited (CISA KEV)",
+          "value": {
+            "kind": "none"
+          }
+        }
+      ],
+      "options": [
+        {
+          "key": "source",
+          "label": "Found in",
+          "default": "any",
+          "choices": [
+            {
+              "value": "any",
+              "label": "Host packages and container images"
+            },
+            {
+              "value": "packages",
+              "label": "Host packages"
+            },
+            {
+              "value": "images",
+              "label": "Container images"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "host_not_seen",
+      "label": "Host not seen",
+      "description": "No snapshot has arrived for the host for a while.",
+      "operators": [
+        {
+          "key": "for_more_than",
+          "label": "for more than",
+          "value": {
+            "kind": "int",
+            "label": "Minutes",
+            "placeholder": "30",
+            "min": 5,
+            "max": 43200,
+            "unit": "minutes"
+          }
+        }
+      ]
+    },
+    {
+      "key": "collector_failed",
+      "label": "Collector failed",
+      "description": "A collector reported an error in the host's latest snapshot. One alert per collector.",
+      "subject": "collector",
+      "operators": [
+        {
+          "key": "any",
+          "label": "for any collector",
+          "value": {
+            "kind": "none"
+          }
+        },
+        {
+          "key": "in",
+          "label": "for one of",
+          "value": {
+            "kind": "string_list",
+            "label": "Collectors",
+            "placeholder": "deb_packages, tcp_listeners",
+            "maxItems": 30,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9_]+$",
+            "lower": true
+          }
+        }
+      ]
+    }
+  ]
+}

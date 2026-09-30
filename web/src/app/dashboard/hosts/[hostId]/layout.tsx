@@ -1,4 +1,4 @@
-import { RotateCw, ShieldCheck } from "lucide-react";
+import { BellRing, RotateCw, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 
@@ -6,7 +6,9 @@ import { OsLogo } from "@/components/brand";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
+import { hostAlertsHref } from "@/lib/alerts-table";
 import { collectorLabel, osLabel, requireHost } from "@/lib/host-page";
+import { getHostFiringAlerts } from "@/lib/queries-alerts";
 import { getHostSystem } from "@/lib/queries-host-facts";
 import { getHostCollectors } from "@/lib/queries-remote";
 import { getHostVulnSummary } from "@/lib/queries-vulns";
@@ -26,10 +28,11 @@ export default async function HostLayout({
 }) {
   const { hostId } = await params;
   const { workspaceId, host } = await requireHost(hostId);
-  const [vulns, sys, collectors] = await Promise.all([
+  const [vulns, sys, collectors, firing] = await Promise.all([
     getHostVulnSummary(workspaceId, host.id),
     getHostSystem(workspaceId, host.id),
     getHostCollectors(workspaceId, host.id),
+    getHostFiringAlerts(workspaceId, host.id),
   ]);
   const snap = host.latestSnapshot;
   const base = `/dashboard/hosts/${host.id}`;
@@ -100,6 +103,14 @@ export default async function HostLayout({
         badges={
           <>
             {host.label && <span className="text-muted-foreground text-sm">{host.hostname}</span>}
+            {firing > 0 && (
+              <Link href={hostAlertsHref(host.id)} title="Alerts firing on this host">
+                <Badge variant="warning">
+                  <BellRing aria-hidden />
+                  {firing} {firing === 1 ? "alert" : "alerts"} firing
+                </Badge>
+              </Link>
+            )}
             {snap?.rebootRequired && (
               <Badge
                 variant="warning"

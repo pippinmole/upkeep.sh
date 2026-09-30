@@ -8,7 +8,7 @@
 //     (software_vulnerabilities writers; see matching.go).
 //   - "findings": reconcile_host, findings_rerank, reconcile_image,
 //     image_score, image_score_sweep (imagefindings.go).
-//   - "alerts":   alert_evaluate, alert_digest, alert_deliver, agent_health,
+//   - "alerts":   alert_rules_evaluate, alert_evaluate, alert_digest, alert_deliver,
 //     alert_prune (see alerting.go); report_due, report_send_now (reports.go).
 //   - "maintenance": credential_cleanup (maintenance.go).
 //   - "images":   image_sbom, image_sbom_sweep (imagesbom.go): registry
@@ -174,8 +174,8 @@ type Config struct {
 	// nil): no report email renderer) and the dashboard base URL for links
 	// in notifications.
 	Alerting AlertingConfig
-	// AlertInterval is the cadence of agent_health, alert_digest and the
-	// alert_evaluate safety net (default 1m).
+	// AlertInterval is the cadence of the all-hosts alert_rules_evaluate
+	// pass, alert_digest and the alert_evaluate safety net (default 1m).
 	AlertInterval time.Duration
 	// DisableAlertSchedule turns those periodic jobs off (tests).
 	DisableAlertSchedule bool
@@ -217,7 +217,7 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 	}
 	river.AddWorker(workers, &AlertEvaluateWorker{Store: st, Cfg: acfg})
 	river.AddWorker(workers, &AlertDigestWorker{Store: st, Cfg: acfg})
-	river.AddWorker(workers, &AgentHealthWorker{Store: st, Cfg: acfg})
+	river.AddWorker(workers, &AlertRulesEvaluateWorker{Store: st, Cfg: acfg})
 	river.AddWorker(workers, &AlertPruneWorker{Store: st, Cfg: acfg})
 	river.AddWorker(workers, &AlertDeliverWorker{Store: st, Cfg: acfg})
 	river.AddWorker(workers, &ReportDueWorker{Store: st, Cfg: acfg})
@@ -250,8 +250,8 @@ func NewClient(pool *pgxpool.Pool, st *store.Store, syncer *feeds.Syncer, cfg Co
 		}
 		periodic = append(periodic,
 			river.NewPeriodicJob(river.PeriodicInterval(alertEvery),
-				func() (river.JobArgs, *river.InsertOpts) { return AgentHealthArgs{}, nil },
-				&river.PeriodicJobOpts{ID: "agent_health", RunOnStart: true}),
+				func() (river.JobArgs, *river.InsertOpts) { return AlertRulesEvaluateArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "alert_rules_evaluate", RunOnStart: true}),
 			river.NewPeriodicJob(river.PeriodicInterval(alertEvery),
 				func() (river.JobArgs, *river.InsertOpts) { return AlertEvaluateArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "alert_evaluate", RunOnStart: true}),

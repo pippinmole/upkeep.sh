@@ -241,6 +241,8 @@ export type HostListRow = {
   topVulnSeverity: string | null;
   // From the newest snapshot by collected_at; false when never reported.
   rebootRequired: boolean;
+  // Alert instances currently firing on the host (docs/ALERTING.md).
+  firingAlerts: number;
 };
 
 type HostRow = {
@@ -267,6 +269,7 @@ type HostRow = {
   kev_vulns: string;
   top_vuln_severity: string | null;
   reboot_required: boolean | null;
+  firing_alerts: string;
 };
 
 // Every host of the user, archived ones included (the Hosts page filters
@@ -281,7 +284,9 @@ export async function getHosts(workspaceId: string): Promise<HostListRow[]> {
             ag.agents,
             coalesce(f.open_findings, 0) AS open_findings, f.top_severity,
             coalesce(f.open_vulns, 0) AS open_vulns, coalesce(f.kev_vulns, 0) AS kev_vulns,
-            f.top_vuln_severity, rb.reboot_required
+            f.top_vuln_severity, rb.reboot_required,
+            (SELECT count(*) FROM alert_instances ai
+             WHERE ai.host_id = h.id AND ai.state = 'firing') AS firing_alerts -- alert_instances_host_firing_idx
      FROM hosts h
      LEFT JOIN hosts dh ON dh.id = h.duplicate_of AND dh.workspace_id = h.workspace_id
      LEFT JOIN hosts mh ON mh.id = h.merged_into AND mh.workspace_id = h.workspace_id
@@ -333,5 +338,6 @@ export async function getHosts(workspaceId: string): Promise<HostListRow[]> {
     kevVulns: Number(r.kev_vulns),
     topVulnSeverity: r.top_vuln_severity,
     rebootRequired: r.reboot_required ?? false,
+    firingAlerts: Number(r.firing_alerts),
   }));
 }

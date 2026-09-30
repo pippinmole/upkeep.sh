@@ -67,9 +67,8 @@ const workspaceHostsSQL = `h.workspace_id = $1 AND h.archived_at IS NULL`
 // instant agent staleness is judged at.
 //
 // Opened / resolved come from the findings' own timestamps, not from
-// alert_events: that outbox only gets rows for users with an enabled rule
-// for the event type (hasRuleForSQL), so it would count nothing for a user
-// without alert rules. A finding opened in the period has first_seen_at in
+// alert_events: that outbox only gets rows for alert rule transitions that
+// notify, so it would count nothing for a user without such rules. A finding opened in the period has first_seen_at in
 // it (kept across reopens); a reopen sets reopened_at; a resolution sets
 // resolved_at (cleared on reopen). Each column keeps only the latest
 // transition, so a finding that flaps several times within one period

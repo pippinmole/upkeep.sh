@@ -25,6 +25,7 @@ export type EstateSignals = {
   images: number; // distinct current image ids
   criticalImages: number; // image keys with an open critical vulnerable_image finding
   failedDeliveries: number; // notification deliveries failed in the last 7 days
+  firingAlerts: number; // alert instances firing on non-archived hosts
   neverConnected: string[]; // names of non-revoked agents that never pushed
 };
 
@@ -78,6 +79,7 @@ export async function getEstateHealth(workspaceId: string): Promise<EstateHealth
       images: string;
       critical_images: string;
       failed_deliveries: string;
+      firing_alerts: string;
       never_agents: string[] | null;
     }>(
       `SELECT
@@ -95,6 +97,8 @@ export async function getEstateHealth(workspaceId: string): Promise<EstateHealth
          (SELECT count(*) FROM notification_deliveries d
           WHERE d.workspace_id = $1 AND d.status = 'failed'
             AND d.created_at > now() - interval '7 days') AS failed_deliveries,
+         (SELECT count(*) FROM alert_instances ai JOIN hosts h ON h.id = ai.host_id
+          WHERE ai.workspace_id = $1 AND ai.state = 'firing' AND h.archived_at IS NULL) AS firing_alerts,
          (SELECT array_agg(a.name ORDER BY a.created_at) FROM agents a
           WHERE a.workspace_id = $1 AND a.revoked_at IS NULL AND a.last_seen_at IS NULL) AS never_agents`,
       [workspaceId],
@@ -134,6 +138,7 @@ export async function getEstateHealth(workspaceId: string): Promise<EstateHealth
       images: Number(s?.images ?? 0),
       criticalImages: Number(s?.critical_images ?? 0),
       failedDeliveries: Number(s?.failed_deliveries ?? 0),
+      firingAlerts: Number(s?.firing_alerts ?? 0),
       neverConnected: s?.never_agents ?? [],
     },
   };

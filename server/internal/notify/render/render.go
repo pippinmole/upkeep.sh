@@ -6,8 +6,10 @@
 package render
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
@@ -18,111 +20,43 @@ func IsKEVOrCritical(f *notify.Finding) bool {
 	return f.KEV || strings.EqualFold(f.Severity, "critical")
 }
 
-var findingVerb = map[string]string{
-	notify.EventFindingOpened:   "opened",
-	notify.EventFindingReopened: "reopened",
-	notify.EventFindingResolved: "resolved",
-}
+// Resolved reports whether an event is an alert resolving.
+func Resolved(e notify.Event) bool { return e.Type == notify.EventAlertResolved }
 
-// Title is a one-line description of an event, e.g. "KEV CVE-2024-3094
-// opened on web-1", "Critical CVE-2024-1 reopened on db",
-// `Agent "edge" stopped reporting`.
+// Title is a one-line description of an event: the alert's title and
+// host, e.g. "Port 22/tcp is listening on web-1", "KEV CVE-2024-3094 in
+// xz-utils on web-1", "Resolved: Port 22/tcp is listening on web-1".
 func Title(e notify.Event) string {
-	switch {
-	case e.Finding != nil:
-		f := e.Finding
-		prefix := ""
-		switch {
-		case f.KEV && e.Type != notify.EventFindingResolved:
-			prefix = "KEV "
-		case f.Severity != "" && e.Type != notify.EventFindingResolved:
-			prefix = capitalize(f.Severity) + " "
-		}
-		verb := findingVerb[e.Type]
-		if verb == "" {
-			verb = e.Type
-		}
-		s := prefix + f.VulnKey + " " + verb
-		if e.Host != nil {
-			s += " on " + HostName(*e.Host)
-		}
-		return s
-	case e.Agent != nil:
-		if e.Type == notify.EventAgentStale {
-			return fmt.Sprintf("Agent %q stopped reporting", e.Agent.Name)
-		}
-		return fmt.Sprintf("Agent %q is reporting again", e.Agent.Name)
+	s := e.Type
+	if e.Alert != nil && e.Alert.Title != "" {
+		s = e.Alert.Title
 	}
-	return e.Type
+	if e.Host != nil {
+		s += " on " + HostName(*e.Host)
+	}
+	if Resolved(e) {
+		s = "Resolved: " + s
+	}
+	return s
 }
 
-// Body is a few plain-text lines of detail about an event (package and
-// version, fix, severity/KEV/EPSS; or an agent's last check-in and hosts).
+// Body is a few plain-text lines of detail about an event: for a
+// vulnerability the package and version, fix, severity/KEV/EPSS; for other
+// alerts their details (addresses, versions, error, last seen); then since
+// when it fired.
 func Body(e notify.Event) string {
 	var lines []string
-	switch {
-	case e.Finding != nil:
-		f := e.Finding
-		pkg := f.SourcePackage
-		if pkg == "" && len(f.Packages) > 0 {
-			pkg = f.Packages[0]
-		}
-		if pkg != "" {
-			line := "Package: " + pkg
-			if f.InstalledVersion != "" {
-				line += " " + f.InstalledVersion
-			}
-			if bins := otherPackages(pkg, f.Packages); bins != "" {
-				line += " (" + bins + ")"
-			}
-			lines = append(lines, line)
-		}
-		if f.ImageID != "" {
-			img := f.ImageID
-			if len(f.ImageRefs) > 0 {
-				img = strings.Join(f.ImageRefs, ", ")
-			}
-			line := "Image: " + img
-			if len(f.Containers) > 0 {
-				line += " (containers: " + strings.Join(f.Containers, ", ") + ")"
-			}
-			lines = append(lines, line)
-		}
+	if e.Finding != nil {
+		lines = findingLines(e)
+	} else if e.Alert != nil {
+		lines = detailLines(e.Alert.Details)
+	}
+	if a := e.Alert; a != nil {
 		switch {
-		case e.Type == notify.EventFindingResolved && f.ImageID != "":
-			lines = append(lines, "No longer present in an image a container on the host uses.")
-		case e.Type == notify.EventFindingResolved:
-			lines = append(lines, "No longer present on the host.")
-		case f.FixedVersion != nil && *f.FixedVersion != "":
-			fix := "Fix: upgrade to " + *f.FixedVersion
-			if f.FixChannel != nil && *f.FixChannel != "" {
-				fix += " (" + *f.FixChannel + ")"
-			}
-			lines = append(lines, fix)
-		default:
-			lines = append(lines, "Fix: none available yet")
-		}
-		risk := []string{"Severity: " + orUnknown(f.Severity)}
-		if f.KEV {
-			risk = append(risk, "known exploited (CISA KEV)")
-		}
-		if f.EPSS != nil {
-			risk = append(risk, fmt.Sprintf("EPSS %.1f%%", *f.EPSS*100))
-		}
-		lines = append(lines, strings.Join(risk, ", "))
-	case e.Agent != nil:
-		if e.Agent.LastSeenAt != nil {
-			lines = append(lines, "Last seen "+e.Agent.LastSeenAt.UTC().Format("2006-01-02 15:04 UTC"))
-		}
-		if len(e.Agent.Hosts) > 0 {
-			names := make([]string, len(e.Agent.Hosts))
-			for i, h := range e.Agent.Hosts {
-				names[i] = HostName(h)
-			}
-			lines = append(lines, "Hosts: "+strings.Join(names, ", "))
-		}
-		if e.Type == notify.EventAgentStale {
-			lines = append(lines, "Its hosts aren't being scanned until it reports again.")
+		case Resolved(e) && a.ResolvedAt != nil:
+			lines = append(lines, "Fired "+stamp(a.FiredAt)+", resolved "+stamp(*a.ResolvedAt)+".")
+		case !a.FiredAt.IsZero():
+			lines = append(lines, "Firing since "+stamp(a.FiredAt)+".")
 		}
 	}
 	if len(lines) == 0 {
@@ -131,8 +65,106 @@ func Body(e notify.Event) string {
 	return strings.Join(lines, "\n")
 }
 
-// List lists up to max events, one "• title (package)" line each, ending
-// in "…and N more" when there are more.
+func stamp(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }
+
+func findingLines(e notify.Event) []string {
+	var lines []string
+	f := e.Finding
+	pkg := f.SourcePackage
+	if pkg == "" && len(f.Packages) > 0 {
+		pkg = f.Packages[0]
+	}
+	if pkg != "" {
+		line := "Package: " + pkg
+		if f.InstalledVersion != "" {
+			line += " " + f.InstalledVersion
+		}
+		if bins := otherPackages(pkg, f.Packages); bins != "" {
+			line += " (" + bins + ")"
+		}
+		lines = append(lines, line)
+	}
+	if f.ImageID != "" {
+		img := f.ImageID
+		if len(f.ImageRefs) > 0 {
+			img = strings.Join(f.ImageRefs, ", ")
+		}
+		line := "Image: " + img
+		if len(f.Containers) > 0 {
+			line += " (containers: " + strings.Join(f.Containers, ", ") + ")"
+		}
+		lines = append(lines, line)
+	}
+	switch {
+	case Resolved(e) && f.ImageID != "":
+		lines = append(lines, "No longer present in an image a container on the host uses.")
+	case Resolved(e):
+		lines = append(lines, "No longer present on the host.")
+	case f.FixedVersion != nil && *f.FixedVersion != "":
+		fix := "Fix: upgrade to " + *f.FixedVersion
+		if f.FixChannel != nil && *f.FixChannel != "" {
+			fix += " (" + *f.FixChannel + ")"
+		}
+		lines = append(lines, fix)
+	default:
+		lines = append(lines, "Fix: none available yet")
+	}
+	risk := []string{"Severity: " + orUnknown(f.Severity)}
+	if f.KEV {
+		risk = append(risk, "known exploited (CISA KEV)")
+	}
+	if f.EPSS != nil {
+		risk = append(risk, fmt.Sprintf("EPSS %.1f%%", *f.EPSS*100))
+	}
+	return append(lines, strings.Join(risk, ", "))
+}
+
+// detailLabels are the alert detail keys rendered for people, in order
+// (store/alertrules_eval.go writes them).
+var detailLabels = []struct{ key, label string }{
+	{"addresses", "Listening on"},
+	{"processes", "Process"},
+	{"versions", "Installed"},
+	{"os", "OS"},
+	{"packages", "Packages"},
+	{"collector", "Collector"},
+	{"error", "Error"},
+	{"last_seen_at", "Last seen"},
+}
+
+func detailLines(raw json.RawMessage) []string {
+	var d map[string]any
+	if len(raw) == 0 || json.Unmarshal(raw, &d) != nil {
+		return nil
+	}
+	var lines []string
+	for _, l := range detailLabels {
+		var s string
+		switch v := d[l.key].(type) {
+		case []any:
+			parts := make([]string, 0, len(v))
+			for _, x := range v {
+				parts = append(parts, fmt.Sprint(x))
+			}
+			s = strings.Join(parts, ", ")
+		case string:
+			s = v
+			if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+				s = stamp(t)
+			}
+		case nil:
+		default:
+			s = fmt.Sprint(v)
+		}
+		if s != "" {
+			lines = append(lines, l.label+": "+s)
+		}
+	}
+	return lines
+}
+
+// List lists up to max events, one "• title" line each, ending in
+// "…and N more" when there are more.
 func List(events []notify.Event, max int) string {
 	if len(events) == 0 {
 		return "No events."
@@ -144,9 +176,6 @@ func List(events []notify.Event, max int) string {
 			break
 		}
 		b.WriteString("• " + Title(e))
-		if e.Finding != nil && e.Finding.SourcePackage != "" {
-			b.WriteString(" (" + e.Finding.SourcePackage + ")")
-		}
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -203,13 +232,6 @@ func orUnknown(s string) string {
 		return "unknown"
 	}
 	return s
-}
-
-func capitalize(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // Truncate cuts s to at most max bytes on a rune boundary, ending in "…".
