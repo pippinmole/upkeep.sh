@@ -118,7 +118,7 @@ func TestImageScanJobEndToEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if ref.Source != store.SBOMSourceServerSyft || ref.OwnerUserID != "" {
+	if ref.Source != store.SBOMSourceServerSyft || ref.OwnerWorkspaceID != "" {
 		t.Errorf("list = %+v", ref)
 	}
 	var tool, toolVersion, distro, release string

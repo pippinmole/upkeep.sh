@@ -101,15 +101,19 @@ function foldSummary(rows: SummaryRow[]): VulnSummary {
   return s;
 }
 
-async function hostSummary(userId: string, hostId: string, kind: string): Promise<VulnSummary> {
+async function hostSummary(
+  workspaceId: string,
+  hostId: string,
+  kind: string,
+): Promise<VulnSummary> {
   if (!isUuid(hostId)) return foldSummary([]);
   const { rows } = await pool.query<SummaryRow>(
     `SELECT ${SUMMARY_COLUMNS}
      FROM hosts h
      JOIN findings f ON f.host_id = h.id AND f.kind = $3
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      GROUP BY f.severity`,
-    [userId, hostId, kind],
+    [workspaceId, hostId, kind],
   );
   return foldSummary(rows);
 }
@@ -117,19 +121,19 @@ async function hostSummary(userId: string, hostId: string, kind: string): Promis
 // Host package findings (vulnerable_package). Host header + tabs share
 // this per request (React cache).
 export const getHostVulnSummary = cache(async function getHostVulnSummary(
-  userId: string,
+  workspaceId: string,
   hostId: string,
 ): Promise<VulnSummary> {
-  return hostSummary(userId, hostId, "vulnerable_package");
+  return hostSummary(workspaceId, hostId, "vulnerable_package");
 });
 
 // Container image findings (vulnerable_image) on the host: shown next to
 // the host package summary, never added to it.
 export const getHostImageVulnSummary = cache(async function getHostImageVulnSummary(
-  userId: string,
+  workspaceId: string,
   hostId: string,
 ): Promise<VulnSummary> {
-  return hostSummary(userId, hostId, "vulnerable_image");
+  return hostSummary(workspaceId, hostId, "vulnerable_image");
 });
 
 export type OverviewStats = {
@@ -415,7 +419,7 @@ export type HostFindingDetail = {
 };
 
 // Sheet on the host Vulnerabilities tab (?v=<vuln_key>): host package and
-// container image findings. Null when this host (owned by userId) has no
+// container image findings. Null when this host (owned by workspaceId) has no
 // finding for vulnKey.
 export async function getHostFindingDetail(
   workspaceId: string,
@@ -427,11 +431,11 @@ export async function getHostFindingDetail(
     `SELECT ${FINDING_COLUMNS}, NULL::text AS description
      FROM hosts h
      JOIN findings f ON f.host_id = h.id
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
        AND f.kind IN ('vulnerable_package', 'vulnerable_image') AND f.vuln_key = $3
      ORDER BY f.kind = 'vulnerable_image', f.status, f.image_refs[1], f.image_id,
               f.source_package`,
-    [userId, hostId, vulnKey],
+    [workspaceId, hostId, vulnKey],
   );
   if (rows.length === 0) return null;
   const ids = [...new Set(rows.flatMap((r) => r.advisory_ids))];
@@ -793,7 +797,7 @@ export async function getFleetVulnDetail(
               h.id AS host_id, h.hostname, h.label, h.os_id
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.vuln_key = $2
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.vuln_key = $2
          AND f.kind IN ('vulnerable_package', 'vulnerable_image')
        ORDER BY f.severity_key DESC, h.hostname, h.id, f.source_package`,
       [workspaceId, vulnKey],

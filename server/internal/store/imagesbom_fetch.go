@@ -130,7 +130,7 @@ func (s *Store) ImageSBOMSweep(ctx context.Context, limit int, retryDisabled boo
 func (s *Store) ImageScanSweep(ctx context.Context, limit int) ([]ImageKey, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT s.image_id, s.os, s.arch, s.variant FROM image_sbom_state s
-		WHERE s.owner_user_id IS NULL AND s.status = 'unavailable' AND s.reason = $2
+		WHERE s.owner_workspace_id IS NULL AND s.status = 'unavailable' AND s.reason = $2
 		  AND EXISTS (SELECT 1 FROM host_images hi
 			WHERE hi.image_id = s.image_id AND hi.os = s.os AND hi.arch = s.arch AND hi.variant = s.variant
 			  AND hi.removed_at IS NULL AND cardinality(hi.repo_digests) > 0)

@@ -20,7 +20,7 @@ import {
 // by upgrading the host.
 //
 // Tenancy as in queries-vulns.ts: every read starts from the user's hosts
-// (`h.user_id = $1`); fleet-wide reads skip archived hosts.
+// (`h.workspace_id = $1`); fleet-wide reads skip archived hosts.
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 
@@ -56,7 +56,7 @@ export type HostVulnListFilters = {
 };
 
 export async function getHostVulnList(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   f: HostVulnListFilters,
 ): Promise<{ rows: FindingRow[]; total: number }> {
@@ -76,7 +76,7 @@ export async function getHostVulnList(
      FROM hosts h
      JOIN findings f ON f.host_id = h.id
      LEFT JOIN cves c ON c.id = f.vuln_key
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
        AND f.kind = ANY($3::text[]) AND f.status = $4
        AND ${qMatchSql(5)}
        AND ($6::text[] IS NULL OR f.severity = ANY($6))
@@ -88,7 +88,7 @@ export async function getHostVulnList(
      ORDER BY ${orderBy}
      LIMIT $9 OFFSET $10`,
     [
-      userId,
+      workspaceId,
       hostId,
       findingKinds(f.kinds),
       f.status,
@@ -201,7 +201,7 @@ function mapFleetRow(r: FleetDbRow): FleetVulnRow {
 // an image is resolved in one and open in the other. Severity and fix
 // columns come from the findings of the listed status.
 export async function getFleetVulnList(
-  userId: string,
+  workspaceId: string,
   f: FleetVulnListFilters,
 ): Promise<{ rows: FleetVulnRow[]; total: number }> {
   const dir = f.sort.desc ? "DESC" : "ASC";
@@ -218,7 +218,7 @@ export async function getFleetVulnList(
        SELECT f.*, f.kind = 'vulnerable_image' AS is_image
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = ANY($3::text[])
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = ANY($3::text[])
          AND f.vuln_key IS NOT NULL
      ),
      g AS (
@@ -265,7 +265,7 @@ export async function getFleetVulnList(
                 f.fixed_version
          FROM hosts h
          JOIN findings f ON f.host_id = h.id
-         WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_image'
+         WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_image'
            AND f.vuln_key = g.vuln_key AND f.image_id = g.image_id AND f.image_os = g.image_os
            AND f.image_arch = g.image_arch AND f.image_variant = g.image_variant
            AND f.status = $2
@@ -280,7 +280,7 @@ export async function getFleetVulnList(
      ) im ON g.is_image
      ORDER BY ${orderBy}`,
     [
-      userId,
+      workspaceId,
       f.status,
       findingKinds(f.kinds),
       f.q,
@@ -309,7 +309,7 @@ export type KindCounts = {
 
 export type FleetVulnCounts = { hosts: number } & Record<VulnKind, KindCounts>;
 
-export async function getFleetVulnCounts(userId: string): Promise<FleetVulnCounts> {
+export async function getFleetVulnCounts(workspaceId: string): Promise<FleetVulnCounts> {
   const { rows } = await pool.query<{
     hosts: string;
     kind: string | null;
@@ -320,7 +320,7 @@ export async function getFleetVulnCounts(userId: string): Promise<FleetVulnCount
     kev_hosts: string;
     images: string;
   }>(
-    `SELECT (SELECT count(*) FROM hosts WHERE user_id = $1 AND archived_at IS NULL) AS hosts,
+    `SELECT (SELECT count(*) FROM hosts WHERE workspace_id = $1 AND archived_at IS NULL) AS hosts,
             f.kind,
             count(DISTINCT f.vuln_key) AS vulns,
             count(f.id) AS findings,
@@ -333,9 +333,9 @@ export async function getFleetVulnCounts(userId: string): Promise<FleetVulnCount
      LEFT JOIN findings f
        ON f.host_id = h.id AND f.status = 'open' AND f.vuln_key IS NOT NULL
       AND f.kind IN ('vulnerable_package', 'vulnerable_image')
-     WHERE h.user_id = $1 AND h.archived_at IS NULL
+     WHERE h.workspace_id = $1 AND h.archived_at IS NULL
      GROUP BY f.kind`,
-    [userId],
+    [workspaceId],
   );
   const empty = (): KindCounts => ({
     vulns: 0,
