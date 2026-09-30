@@ -275,4 +275,3 @@ func TestSweepDir(t *testing.T) {
 		t.Errorf("missing dir: %v", err)
 	}
 }
-
