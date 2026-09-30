@@ -44,7 +44,7 @@ interface Props {
 }
 
 // Full search field on sm and up, an icon button below.
-export function Search({ className = "", placeholder = "Search" }: Props) {
+export function Search({ className = "", placeholder = "Search CVEs, hosts, packages…" }: Props) {
   const { setOpen } = useSearch();
   return (
     <>
@@ -60,7 +60,7 @@ export function Search({ className = "", placeholder = "Search" }: Props) {
           aria-hidden="true"
           className="absolute top-1/2 left-1.5 size-4 -translate-y-1/2"
         />
-        <span className="ml-3">{placeholder}</span>
+        <span className="ml-3 truncate">{placeholder}</span>
         <Shortcut keyName="K" className="absolute top-[0.3rem] right-[0.3rem]" />
       </Button>
       <Button
