@@ -4,8 +4,8 @@ Status as of 2026-09-30. Check this before starting new work — it's the
 single source of truth for what's done vs. outstanding, kept ahead of
 memory or a stale conversation summary.
 
-Roughly in the order they unblock each other. See root `README.md` for
-the original phased roadmap; this list is the actionable breakdown.
+Roughly in the order they unblock each other. See the root `README.md`
+for the roadmap at a glance; this list is the actionable breakdown.
 [DOMAIN_MODEL.md](../DOMAIN_MODEL.md) holds the design behind the P1a–c and
 Phase 1.5 items below, including open questions (Q1–Q17) to settle
 before or while building them.

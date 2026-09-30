@@ -1,186 +1,252 @@
-# security-whatnot
+<div align="center">
 
-Lightweight security monitoring for small developers self-hosting on VPSes
-(Hetzner, OVH, DigitalOcean) via Dokploy or Coolify. Not Wazuh, not
-Qualys — just the handful of things on your servers that actually matter:
+# upkeep.sh
 
-1. **Security updates** — installed packages with known CVEs, prioritized
-   by real-world exploitability (CISA KEV, FIRST EPSS), not raw CVSS.
-2. **Open ports** — what's listening on the host, and whether the host
-   firewall actually covers it ("port 5432 is published by Docker, and
-   ufw doesn't apply to it").
-3. **Patched but not fixed** — reboot required, or services still running
-   old library versions after an upgrade.
-4. **Docker inventory** — containers, images and Swarm services per host;
-   *(Phase 2)* vulnerabilities in those images.
-5. **Scheduled reports** — a weekly or monthly patch list for the whole
-   estate ("patch these 3 packages now, these 2 images this week"), with
-   what changed since the last one, sent to your notification channels
-   (email, webhook, ntfy). Alerts tell you when something changes;
-   reports tell you what's still open.
+**Lightweight, self-hosted security monitoring for the servers you actually run.**
 
-**Status**: early scaffold. The agent→ingest pipeline (enrollment, fact
-collection, snapshot storage) and the dashboard's auth/host-list flow
-work end to end. The actual vulnerability-matching and alerting pipeline
-— the core value prop — isn't built yet. See
-**[docs/tasks/](docs/tasks/README.md)** for exactly what's done vs. outstanding
-before picking up new work.
+Know which packages to patch, which ports are really exposed, and which
+container images are carrying known CVEs — ranked by what attackers are
+exploiting, not by raw CVSS.
 
-## Repo layout
+[![CI](https://github.com/pippinmole/upkeep.sh/actions/workflows/ci.yml/badge.svg)](https://github.com/pippinmole/upkeep.sh/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/pippinmole/upkeep.sh?sort=semver)](https://github.com/pippinmole/upkeep.sh/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-```
-agent/       Go, single static binary. Read-only, outbound-only host
-             fact collector (packages, listening sockets, OS release,
-             reboot state). No inbound ports, no remote command execution.
-server/      Go. Agent enrollment + snapshot ingest today; vulnerability
-             matching, exposure analysis, and alert dispatch land here.
-             server/migrations/ holds the SQL migrations (golang-migrate
-             format), the schema contract shared with web/; they are
-             embedded in the server image and applied by its /migrate.
-web/         Next.js (App Router) + Bun + Better Auth. Marketing, auth,
-             dashboard. Reads Postgres directly (see
-             docs/decisions/direct-postgres-reads.md).
-deploy/      docker-compose.yml + .env.example for running the published
-             images on your own box.
-docs/        Architecture, protocol spec, decision log, task tracker.
-```
+[Getting started](#getting-started) ·
+[How it works](#how-it-works) ·
+[Agent security](#agent-security-model) ·
+[Docs](#documentation) ·
+[Roadmap](#roadmap)
 
-For anything beyond a quick start, read:
+</div>
 
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — components, data
-  flow, the Go/Next.js write-ownership split, deployment shapes.
-- **[docs/PROTOCOL.md](docs/PROTOCOL.md)** — the agent↔server wire
-  format, auth, and versioning policy.
-- **[docs/decisions/](docs/decisions/README.md)** — why things are built this
-  way (direct Postgres reads, self-hosted auth, package manager, version
-  pinning policy, etc.) — read before relitigating a past call.
-- **[docs/tasks/](docs/tasks/README.md)** — done vs. to-do, kept current.
+<br>
 
-## Local development
+<p align="center">
+  <img alt="upkeep.sh host vulnerabilities page, light and dark themes: host package and container image findings ranked by CISA KEV and EPSS" src="docs/assets/screenshot.png" width="100%">
+</p>
 
-```sh
-docker compose -f docker-compose.dev.yml up --build
-```
+---
 
-This starts Postgres, runs migrations, then the Go API (`:8080`) and the
-Next.js app (`:3000`). Zero setup — dev credentials are hardcoded in that
-file on purpose. Copy `web/.env.example` to `web/.env.local` if you want
-to run `bun dev` outside Docker.
+## Why upkeep.sh
 
-To test against a real host, deploy `agent/docker-compose.example.yml` on
-a VPS with `SW_SERVER_URL` pointed at your dev API (tunneled or public)
-and an enrollment token from the dashboard's "Add host" button.
+Wazuh and Qualys are built for security teams. If you're a small developer
+running a handful of VPSes on Hetzner, OVH or DigitalOcean, perhaps through
+Dokploy or Coolify, you mostly need answers to a few questions:
 
-## Deploy (published images)
+- **What do I need to patch, and how urgently?** Installed packages are
+  matched against OSV advisories using real dpkg version comparison, then
+  ranked by [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
+  (actively exploited) and [FIRST EPSS](https://www.first.org/epss/)
+  (predicted exploitation), with CVSS only as a tiebreaker.
+- **What is actually exposed?** Listening sockets, combined with your ufw
+  rules and Docker's published ports: *"port 5432 is published by Docker,
+  and ufw doesn't apply to it."*
+- **Did the patch actually take?** Pending reboots, and services still
+  running old library versions after an upgrade.
+- **What's in my containers?** Containers, images, networks and Swarm
+  services per host, plus known vulnerabilities in the packages inside
+  those images.
+- **What's still open?** Alerts tell you when something changes. Weekly or
+  monthly estate reports give you a patch list for every host, showing what
+  changed since the last one, sent by email, webhook or
+  [ntfy](https://ntfy.sh).
 
-To run the platform on your own box without a source checkout, copy
+upkeep.sh does **not** patch anything for you, run remote commands,
+produce compliance reports (SOC 2/CIS) or act as a SIEM. It reads, ranks
+and tells you.
+
+## Getting started
+
+You run two things: the **platform** (dashboard, API, worker and Postgres),
+once, and a small **agent** container on every host you want to monitor.
+All images are published to GitHub Container Registry, signed, and ship
+with an SBOM and build provenance ([docs/RELEASING.md](docs/RELEASING.md)).
+
+| Image | What it is |
+|---|---|
+| `ghcr.io/pippinmole/upkeep-web` | Next.js dashboard and auth |
+| `ghcr.io/pippinmole/upkeep-server` | Go API, background worker and database migrations |
+| `ghcr.io/pippinmole/upkeep-agent` | Read-only host fact collector, a single static binary |
+
+### 1. Run the platform
+
+On the box that will host the dashboard, grab
 [`deploy/docker-compose.yml`](deploy/docker-compose.yml) and
-[`deploy/.env.example`](deploy/.env.example) there:
+[`deploy/.env.example`](deploy/.env.example):
 
 ```sh
-cp .env.example .env   # fill in the five required values; each says how to generate it
+mkdir upkeep && cd upkeep
+curl -fsSLO https://raw.githubusercontent.com/pippinmole/upkeep.sh/main/deploy/docker-compose.yml
+curl -fsSL  https://raw.githubusercontent.com/pippinmole/upkeep.sh/main/deploy/.env.example -o .env
+```
+
+Fill in `.env`. Each required value says how to generate it:
+
+| Variable | Value |
+|---|---|
+| `POSTGRES_PASSWORD` | `openssl rand -hex 24` |
+| `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
+| `SW_INTERNAL_RENDER_SECRET` | `openssl rand -base64 32` |
+| `PUBLIC_WEB_URL` | Public HTTPS URL of the dashboard, e.g. `https://upkeep.example.com` |
+| `PUBLIC_API_URL` | Public HTTPS URL agents report to, e.g. `https://api.upkeep.example.com` |
+
+Then start it:
+
+```sh
 docker compose up -d
 ```
 
-It pulls `ghcr.io/pippinmole/upkeep-server` and `upkeep-web` (tag
-`UPKEEP_VERSION`, default the current release) plus Postgres. A one-shot
-`migrate` service (the server image's `/migrate`) applies the database
-migrations before `api` and `worker` start, so there is no migrations
-folder to mount. `web` and `api` are published on ports 3000 and 8080
-(`UPKEEP_WEB_PORT`, `UPKEEP_API_PORT`); put a TLS reverse proxy in front
-of them at `PUBLIC_WEB_URL` and `PUBLIC_API_URL`. To upgrade, change
-`UPKEEP_VERSION` and run `docker compose up -d` again.
+This starts Postgres, runs a one-shot `migrate` service, then `api`
+(port 8080), `worker` and `web` (port 3000). Put a TLS-terminating reverse
+proxy (Caddy, Traefik, or your Dokploy/Coolify domains) in front of those
+two ports at `PUBLIC_WEB_URL` and `PUBLIC_API_URL`. To upgrade, set
+`UPKEEP_VERSION` in `.env` and run `docker compose up -d` again.
 
-## Production deployment from source (Dokploy on your own box)
+> [!NOTE]
+> The worker syncs vulnerability feeds (OSV, CISA KEV, EPSS) and scans
+> container images. Give the box about 1 GB of RAM for it.
 
-```sh
-cp .env.example .env   # then fill in real values, see below
-docker compose up --build -d
-```
+### 2. Create your account
 
-`docker-compose.yml` is the production stack (Postgres + migrate + api +
-worker + web), built from this checkout (`migrate` runs the built server
-image's `/migrate`), meant to run once on your own box via Dokploy. Required vars (see
-`.env.example`): `POSTGRES_PASSWORD`, `PUBLIC_API_URL`, `PUBLIC_WEB_URL`,
-`BETTER_AUTH_SECRET` (generate with `openssl rand -base64 32`; an older
-`.env` with `AUTH_SECRET` still works), and
-`SW_INTERNAL_RENDER_SECRET` (the same way), which the worker uses to have
-`web` render report emails. The worker reaches `web` over the compose
-network at `SW_WEB_INTERNAL_URL` (default `http://web:3000`); change it
-only if you rename the service, and never to the public URL. Point
-Dokploy's domains at the `web` service (port 3000) and `api` service
-(port 8080).
+Open `PUBLIC_WEB_URL` and sign up. Your account gets a workspace, and you
+can invite teammates later from **Members**.
 
-Then deploy `agent/docker-compose.example.yml` on each host you want
-monitored, with `SW_SERVER_URL` set to your platform's public API URL.
+### 3. Add a host
 
-### What the agent container can see of the host
-
-The agent reads filesystem facts (dpkg database, os-release, apt state,
-systemd units) from a read-only view of the host under `/host`. Keep the
-mounts as `agent/docker-compose.example.yml` has them, and don't
-"simplify" them to `- /:/host:ro`:
-
-- The host's `/` is bound at `/host` **non-recursively**
-  (`bind: recursive: disabled`, or `--mount
-  type=bind,src=/,dst=/host,readonly,bind-recursive=disabled` with
-  `docker run`). A plain `-v /:/host:ro` is recursive, so it also
-  carries the `/run` tmpfs with `docker.sock`, containerd, D-Bus and
-  systemd's private socket. `:ro` doesn't stop `connect()` on a socket,
-  so that mount alone is root on the host, Docker collection or not.
-- The directories the collectors need that are often on a separate
-  mount (`/var/lib/dpkg`, `/var/lib/apt`, `/run/systemd/system`) are
-  bound one by one, read-only, under `/host-extra`, with
-  `create_host_path: false` so a missing one is an error rather than a
-  new empty directory on the host. `/run` and `/var` are never bound
-  whole. The `/run/reboot-required` flag lives on the same tmpfs as the
-  sockets, so it isn't mounted: the agent works out a pending reboot
-  from the running kernel and the installed `linux-image-*` packages.
-
-Docker versions: the Compose file needs a Compose that supports
-`bind.recursive` (tested with Compose v5.5.1); the engine has honoured
-non-recursive binds since 19.03 (tested on Docker Engine 24.0.9 and
-29.8.1). With `docker run`, `bind-recursive=disabled` needs docker CLI 25
-or later; the docker 24 CLI rejects it ("unexpected key") and takes
-`bind-nonrecursive=true` instead.
-
-The agent checks this itself. If any host socket is reachable under
-`/host`, it logs a `WARN:` at startup, before enrolling, and reports the
-`host_mount` collector as an error on the host page. To check a host by
-hand (exit 1 if a socket is reachable):
+In the dashboard, go to **Agents → Register agent**. It issues a one-time
+enrollment token (valid for 1 hour) and gives you a ready-to-paste
+command. It looks like this:
 
 ```sh
-docker compose run --rm upkeep-agent check-mounts
+docker run -d --restart unless-stopped \
+  --pid host --network host --read-only \
+  --cap-drop ALL --security-opt no-new-privileges:true \
+  --mount type=bind,src=/,dst=/host,readonly,bind-recursive=disabled \
+  --mount type=bind,src=/var/lib/dpkg,dst=/host-extra/var/lib/dpkg,readonly \
+  --mount type=bind,src=/var/lib/apt,dst=/host-extra/var/lib/apt,readonly \
+  --mount type=bind,src=/run/systemd/system,dst=/host-extra/run/systemd/system,readonly \
+  -v upkeep-agent-data:/var/lib/upkeep \
+  -e SW_SERVER_URL=https://api.upkeep.example.com \
+  -e SW_ENROLLMENT_TOKEN=<one-time-token-from-the-dashboard> \
+  ghcr.io/pippinmole/upkeep-agent:0.1.1
 ```
 
-CI runs the same check against the compose example itself
-(`.github/workflows/host-mount.yml`, `agent/test/host-mount/run.sh`).
+To also inventory the host's Docker containers and images, add
+`-v /var/run/docker.sock:/var/run/docker.sock` (read
+[what that grants](#docker-collection-opt-in) first).
 
-### Docker collection (optional)
+The dialog shows the host connecting live. After its first report, the
+agent reports every 15 minutes (`SW_INTERVAL`).
 
-The agent can inventory a host's Docker containers, images, networks and
-Swarm services. It's off by default: enable it by mounting the Docker
-socket into the agent (uncomment the line in
-`agent/docker-compose.example.yml`, or tick "Collect Docker containers
-and images" in the dashboard's Register agent dialog):
+<details>
+<summary><strong>Prefer Compose, Dokploy or Coolify?</strong></summary>
 
-```yaml
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+<br>
+
+Use [`agent/docker-compose.example.yml`](agent/docker-compose.example.yml).
+Paste it into a Dokploy/Coolify compose app (or run it with
+`docker compose up -d`), then set `SW_SERVER_URL` and `SW_ENROLLMENT_TOKEN`.
+The agent needs no inbound ports.
+
+</details>
+
+<details>
+<summary><strong>Docker CLI older than 25?</strong></summary>
+
+<br>
+
+The docker 24 CLI rejects `bind-recursive=disabled` ("unexpected key") and
+spells it `bind-nonrecursive=true` instead. Docker CLI 25 and later reject
+that spelling in turn. The engine has honoured non-recursive binds since 19.03.
+Compose needs a version that supports `bind: recursive: disabled`
+(tested with Compose v5.5.1).
+
+</details>
+
+<details>
+<summary><strong>Hosts without their own agent</strong></summary>
+
+<br>
+
+An existing agent can also read other hosts over SSH: choose **Add host →
+Reach it from an existing agent**. Those hosts are read over SFTP, so they
+report packages and vulnerabilities, but no Docker inventory, listening
+ports, port exposure, restart-needed processes or public IP.
+
+</details>
+
+## How it works
+
+```
+ your hosts                                  your platform box
+┌───────────────────────┐   HTTPS, outbound   ┌───────────────────────────────┐
+│ upkeep-agent          │ ──────────────────▶ │ api     enroll + ingest       │
+│  packages (dpkg)      │    facts only       │ worker  OSV / KEV / EPSS sync │
+│  listening sockets    │                     │         matching, alerts,     │
+│  ufw + Docker ports   │                     │         image scans, reports  │
+│  reboot / restarts    │                     │ web     dashboard (Next.js)   │
+│  containers, images   │                     │ postgres                      │
+└───────────────────────┘                     └───────────────────────────────┘
 ```
 
-What that grants: access to the Docker socket is full Docker API access,
-which is **root-equivalent on the host** (anything that can talk to it
-can start a privileged container). A socket has no read-only mode, and
-`:ro` on the mount doesn't limit it. The agent only makes read calls, by
-design: ping, version, info, container list/inspect, image
-list/inspect, network list, and on Swarm managers service/task/node list.
-It never calls logs, exec, file export, secrets or configs, never changes
-state, and never sends environment variables
-([docs/decisions/docker-collection.md](docs/decisions/docker-collection.md)).
+- **agent/** (Go): a single static binary that collects read-only facts and
+  pushes them outbound. It opens no ports and has no remote command
+  execution.
+- **server/** (Go): agent enrollment and ingest (`api`); feed sync,
+  vulnerability matching, exposure analysis, image scanning, alerting and
+  reports (`worker`); and the SQL migrations (`migrate`).
+- **web/** (Next.js, Bun, Better Auth): the dashboard. It reads Postgres
+  directly ([why](docs/decisions/direct-postgres-reads.md)).
 
-The container side is `/var/run/docker.sock` unless you set
-`SW_DOCKER_SOCKET`. On the host side, mount the socket your engine uses:
+Currently supported: Debian and Ubuntu hosts (x86-64 and arm64), with Docker
+or Podman for container inventory. RHEL and Alpine collectors are on the
+roadmap. Windows and macOS are not planned for now.
+
+## Agent security model
+
+The agent is the part of upkeep.sh that runs on machines you care about, so
+it's deliberately boring:
+
+- **Outbound only, read only.** It runs with no inbound ports, a read-only
+  root filesystem, `cap_drop: ALL` and `no-new-privileges`, and it never
+  executes commands sent by the server.
+- **No host sockets.** The host's `/` is bound at `/host`
+  *non-recursively*. A plain `-v /:/host:ro` would also carry the `/run`
+  tmpfs with `docker.sock`, containerd, D-Bus and systemd's socket, and
+  `:ro` doesn't stop `connect()`, so that mount alone would be root on the
+  host. The few directories it needs from other mounts are bound one by
+  one under `/host-extra`. Please don't "simplify" the mounts.
+- **It checks itself.** If any host socket is reachable under `/host`, the
+  agent logs a `WARN:` at startup and reports the `host_mount` collector as
+  an error on the host page. To check by hand (exit code 1 if a socket is
+  reachable):
+
+  ```sh
+  docker compose run --rm upkeep-agent check-mounts
+  ```
+
+  CI runs the same check against the compose example.
+- **Pinned, signed releases.** Images are built only in CI from a `vX.Y.Z`
+  tag on `main`, then signed and attested. Install commands pin an exact
+  version, never `:latest`, so a bad release can't reach your hosts on its
+  own.
+
+### Docker collection (opt-in)
+
+With the Docker socket mounted, the agent inventories containers, images,
+networks and Swarm services, and the server scans those images for
+vulnerable packages. **Access to the Docker socket is root-equivalent on
+the host.** A socket has no read-only mode, and `:ro` doesn't limit it.
+
+The agent only makes read calls: ping, version, info, container
+list/inspect, image list/inspect, network list, and on Swarm managers
+service/task/node list. It never calls logs, exec, file export, secrets or
+configs, never changes state, and never sends environment variables. See
+[docs/decisions/docker-collection.md](docs/decisions/docker-collection.md).
+
+Mount the socket your engine uses at `/var/run/docker.sock` in the
+container (or set `SW_DOCKER_SOCKET`):
 
 | Engine | Host socket |
 |---|---|
@@ -189,62 +255,95 @@ The container side is `/var/run/docker.sock` unless you set
 | Podman (rootful) | `/run/podman/podman.sock` after `systemctl enable --now podman.socket` |
 | Podman (rootless) | `$XDG_RUNTIME_DIR/podman/podman.sock` after `systemctl --user enable --now podman.socket` |
 
-The agent runs as root (uid 0) in its container but with all
-capabilities dropped, so it can't bypass file permissions: it connects
-because root owns the usual rootful sockets. If the socket you mount is
-owned by another user (a rootless socket while the agent runs under a
-rootful engine), add the socket's group id (`stat -c %g <socket>`) with
-`group_add` in compose or `--group-add` on `docker run`.
+If the socket belongs to another user (for example, a rootless socket
+while the agent runs under a rootful engine), add its group id
+(`stat -c %g <socket>`) with `--group-add` or Compose's `group_add`.
 
-Docker is only collected on hosts with their own agent. Hosts reached
-over SSH from another agent ("Add host" → "Reach it from an existing
-agent") are read over SFTP, which can't reach the socket, and also don't
-report listening ports, port exposure, processes needing a restart or
-the public IP.
+## Configuration
+
+- **Platform:** every setting is documented inline in
+  [`deploy/.env.example`](deploy/.env.example) and
+  [`deploy/docker-compose.yml`](deploy/docker-compose.yml).
+- **Agent:** `SW_SERVER_URL`, `SW_ENROLLMENT_TOKEN` (first run only),
+  `SW_INTERVAL` (default `15m`), `SW_DOCKER_SOCKET` and `SW_SSH_KEY_FILE`.
+  The `upkeep-agent-data` volume holds the agent's credentials and SSH key.
+  Keep it across upgrades, or the agent will need to enroll again.
+- **Mirroring images:** set `SW_AGENT_IMAGE` on the `web` container, and
+  the dashboard's install command uses your registry.
+- **Alerts and reports:** channels (email over SMTP, webhooks, ntfy) are set
+  up in the dashboard. See [docs/ALERTING.md](docs/ALERTING.md) and
+  [docs/WEBHOOKS.md](docs/WEBHOOKS.md).
+
+## Development
+
+```sh
+git clone https://github.com/pippinmole/upkeep.sh
+cd upkeep.sh
+docker compose -f docker-compose.dev.yml up --build
+```
+
+This starts Postgres, runs the migrations, then the Go API on `:8080` and
+the Next.js app on `:3000`. You don't need to set anything up: the dev
+credentials are hardcoded in that file on purpose. To run `bun dev` outside
+Docker, copy `web/.env.example` to `web/.env.local`.
+
+To build the production stack from source instead of pulling images, use the
+root [`docker-compose.yml`](docker-compose.yml) with `.env.example`.
+
+```
+agent/     Go host agent (collectors, enrollment, check-mounts)
+server/    Go api, worker and migrate; server/migrations/ is the schema contract
+web/       Next.js dashboard (App Router, Bun, Better Auth, shadcn/ui)
+deploy/    Compose + env for running the published images
+docs/      Architecture, protocol, decision log, task tracker
+```
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md): components, data flow and
+  deployment shapes.
+- [Protocol](docs/PROTOCOL.md): the agent↔server wire format, auth and
+  versioning.
+- [Domain model](docs/DOMAIN_MODEL.md): agents, hosts, snapshots and
+  findings.
+- [Decisions](docs/decisions/README.md): why things are built the way they
+  are.
+- [Releasing](docs/RELEASING.md): how images are built, signed and pinned.
 
 ## Roadmap
 
-See [docs/tasks/](docs/tasks/README.md) for the actionable breakdown. At a
-glance, the phases:
+upkeep.sh is **early and pre-1.0**. It works end to end and runs on real
+servers, but expect rough edges and schema changes between minor versions.
+[docs/tasks/](docs/tasks/README.md) is the detailed, always-current
+tracker.
 
-1. ✅ Agent collectors + enrollment + ingest + schema.
-2. ✅ OSV Debian/Ubuntu sync + dpkg-version-comparison matching + CISA KEV /
-   FIRST EPSS enrichment → findings.
-3. ✅ Dashboard findings UI.
-4. ✅ Webhook, ntfy and email (SMTP) alerting with dedup and digest mode
-   (Slack/Discord integrations deferred).
-5. Docker inventory (containers, images, Swarm) + host-side port
-   exposure (listeners × ufw × Docker published ports) with alerts.
-6. ✅ Scheduled estate reports: a weekly or monthly patch list for the
-   whole estate, with week-on-week changes, sent to your notification
-   channels (HTML email via React Email, webhook, ntfy).
-7. Polish, tests, CI.
+- [x] Agent collectors, enrollment, ingest
+- [x] OSV Debian/Ubuntu matching with dpkg version semantics, KEV + EPSS
+      ranking
+- [x] Findings dashboard, CSV export
+- [x] Alerts over email, webhook and ntfy, with dedup and digests
+- [x] Scheduled weekly/monthly estate reports
+- [x] Workspaces, members and roles
+- [ ] Docker inventory and host-side port exposure (in progress)
+- [ ] Container image vulnerabilities (in progress)
+- [ ] RHEL and Alpine collectors
+- [ ] Slack and Discord notifiers
+- [ ] External port-exposure scanning
 
-**Phase 2+** (explicitly deferred): container image vulnerabilities,
-external port-exposure scanning, RHEL/Alpine collectors, Slack/Discord
-notifiers, SMS, billing, multi-tenant orgs.
+## Contributing
 
-**Non-goals**: auto-patching, remote command execution, compliance
-reporting (SOC2/CIS), Windows/macOS support, log analysis/SIEM.
+Issues and pull requests are welcome. Before you start on something
+non-trivial, check [docs/tasks/](docs/tasks/README.md) to see whether it's
+planned, and read [docs/decisions/](docs/decisions/README.md) before
+reopening a settled design choice. It's often faster to open an issue
+first.
 
-## Biggest risks
+## Security
 
-- **Version-matching correctness**: Debian/Ubuntu backport suffixes
-  (`~`, `+deb12u1`, etc.) must be compared with real dpkg version
-  semantics, not string/semver comparison, or findings will be silently
-  wrong in both directions.
-- **Alert fatigue**: raw CVSS ranks almost everything "critical." Ranking
-  must lead with CISA KEV (actively exploited) and EPSS (predicted
-  exploitation probability), with CVSS only as a tiebreaker.
-- **False reassurance on exposure**: Docker-published ports bypass ufw,
-  so "ufw is on" says nothing about a container's ports. Exposure must
-  combine listeners, firewall config and Docker's published ports, and
-  say "not protected by the host firewall" rather than guess "public".
-- **Docker socket = root**: with Docker collection enabled (opt-in),
-  the agent is root-equivalent on that host. Without it, the agent can't
-  reach any host control socket, as long as the host's `/` is bound
-  non-recursively (checked at startup and in CI; see "What the agent
-  container can see of the host"). Its code only makes a
-  fixed list of reads, and releases must be signed and
-  pinned, since a malicious release is the realistic threat (see
-  docs/decisions/docker-collection.md).
+If you've found a vulnerability in upkeep.sh, especially in the agent,
+please **don't open a public issue**. Report it privately through
+[GitHub security advisories](https://github.com/pippinmole/upkeep.sh/security/advisories/new).
+
+## License
+
+[MIT](LICENSE) © Jonathan Ruffles
