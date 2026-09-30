@@ -14,15 +14,16 @@ import { FirstRunHero, WaitingForFirstReport } from "@/components/overview/first
 import { GettingStarted } from "@/components/overview/getting-started";
 import { ContainerImagesSection } from "@/components/overview/image-section";
 import { LatestReportCard } from "@/components/overview/latest-report";
-import { attentionItems, NeedsAttention } from "@/components/overview/needs-attention";
+import { NeedsAttention } from "@/components/overview/needs-attention";
 import { UrgentVulns } from "@/components/overview/urgent-vulns";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { requireViewer } from "@/lib/viewer";
+import { getAttentionItems } from "@/lib/attention";
 import { getOnboardingState } from "@/lib/queries-onboarding";
 import { getEstateHealth, getLatestReport } from "@/lib/queries-overview";
 import { getImageOverviewStats, getUrgentVulns } from "@/lib/queries-overview-images";
 import { getCollectorAgents } from "@/lib/queries-remote";
 import { getOverviewStats } from "@/lib/queries-vulns";
+import { requireViewer } from "@/lib/viewer";
 
 import { AddHostDialog } from "./hosts/add-host-dialog";
 
@@ -79,6 +80,8 @@ export default async function DashboardPage() {
   }
 
   const critHigh = v.bySeverity.critical + v.bySeverity.high;
+  // After the first-run check, so a new account doesn't run the providers.
+  const attention = await getAttentionItems(workspaceId, estate);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
@@ -87,10 +90,7 @@ export default async function DashboardPage() {
       <GettingStarted state={onboarding} />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <NeedsAttention
-          className="md:col-span-2"
-          items={attentionItems(estate, { findings: v.kev, hosts: stats.hostsWithKev })}
-        />
+        <NeedsAttention className="md:col-span-2" items={attention} />
         <EstateCard className="md:col-span-2 lg:col-span-1" estate={estate} />
       </div>
 
