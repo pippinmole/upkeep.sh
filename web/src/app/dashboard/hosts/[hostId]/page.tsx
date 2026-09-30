@@ -25,13 +25,13 @@ const TOP_FINDINGS = 5;
 // severity, the most urgent open findings, what listens on every
 // interface) and its inventory and system facts, each linking to its tab.
 export default async function HostOverviewPage({ params }: { params: Params }) {
-  const { userId, host } = await requireHost((await params).hostId);
+  const { workspaceId, host } = await requireHost((await params).hostId);
   const snap = host.latestSnapshot;
   const base = `/dashboard/hosts/${host.id}`;
 
   const [vulns, top, listeners, docker] = await Promise.all([
-    getHostVulnSummary(userId, host.id),
-    getHostFindings(userId, host.id, {
+    getHostVulnSummary(workspaceId, host.id),
+    getHostFindings(workspaceId, host.id, {
       status: "open",
       q: null,
       severity: null,
@@ -41,8 +41,8 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
       page: 1,
       pageSize: TOP_FINDINGS,
     }),
-    getHostListeners(userId, host.id),
-    getHostDockerCounts(userId, host.id),
+    getHostListeners(workspaceId, host.id),
+    getHostDockerCounts(workspaceId, host.id),
   ]);
   const wildcard = listeners.rows.filter((l) => l.wildcard);
   const listenersReported = listeners.freshness.tcp !== null || listeners.freshness.udp !== null;
@@ -211,7 +211,7 @@ export default async function HostOverviewPage({ params }: { params: Params }) {
         </div>
       </OverviewCard>
 
-      <SystemOverview userId={userId} hostId={host.id} />
+      <SystemOverview workspaceId={workspaceId} hostId={host.id} />
     </div>
   );
 }

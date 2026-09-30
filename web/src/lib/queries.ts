@@ -118,10 +118,10 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
 // One row per (agent, assigned host); an agent that has never pushed has
 // no assignment and comes back once with NULL host columns. Scoped by
-// agents.user_id; hosts are reached only through that user's agents'
+// agents.workspace_id; hosts are reached only through that user's agents'
 // assignments. Order: active agents first, most recently seen first; the
 // local host first under each agent.
-export async function getAgentsWithHosts(userId: string): Promise<AgentWithHosts[]> {
+export async function getAgentsWithHosts(workspaceId: string): Promise<AgentWithHosts[]> {
   const { rows } = await pool.query<Row>(
     `SELECT a.id AS agent_id, a.name, a.agent_version, a.platform, a.push_interval_seconds,
             a.created_at, a.last_seen_at, a.revoked_at,
@@ -138,7 +138,7 @@ export async function getAgentsWithHosts(userId: string): Promise<AgentWithHosts
      FROM agents a
      LEFT JOIN agent_credentials c ON c.agent_id = a.id
      LEFT JOIN agent_hosts ah ON ah.agent_id = a.id
-     LEFT JOIN hosts h ON h.id = ah.host_id AND h.user_id = a.user_id
+     LEFT JOIN hosts h ON h.id = ah.host_id AND h.workspace_id = a.workspace_id
      LEFT JOIN LATERAL (${HOST_FINDINGS_SQL}) f ON h.id IS NOT NULL
      LEFT JOIN LATERAL (
        SELECT sn.public_ipv4, sn.public_ipv6
@@ -147,10 +147,10 @@ export async function getAgentsWithHosts(userId: string): Promise<AgentWithHosts
        ORDER BY sn.collected_at DESC
        LIMIT 1
      ) s ON h.id IS NOT NULL
-     WHERE a.user_id = $1
+     WHERE a.workspace_id = $1
      ORDER BY a.revoked_at IS NOT NULL, a.last_seen_at DESC NULLS LAST, a.id,
               ah.mode <> 'local', h.hostname`,
-    [userId],
+    [workspaceId],
   );
 
   const agents: AgentWithHosts[] = [];
@@ -271,8 +271,8 @@ type HostRow = {
 
 // Every host of the user, archived ones included (the Hosts page filters
 // them client-side), with the agents that collect it. Scoped by
-// hosts.user_id; joined agents and hosts are the same user's.
-export async function getHosts(userId: string): Promise<HostListRow[]> {
+// hosts.workspace_id; joined agents and hosts are the same user's.
+export async function getHosts(workspaceId: string): Promise<HostListRow[]> {
   const { rows } = await pool.query<HostRow>(
     `SELECT h.id, h.hostname, h.label, h.os_family, h.os_id, h.os_version, h.os_codename,
             h.kernel, h.duplicate_of, dh.hostname AS duplicate_of_hostname,
@@ -283,8 +283,8 @@ export async function getHosts(userId: string): Promise<HostListRow[]> {
             coalesce(f.open_vulns, 0) AS open_vulns, coalesce(f.kev_vulns, 0) AS kev_vulns,
             f.top_vuln_severity, rb.reboot_required
      FROM hosts h
-     LEFT JOIN hosts dh ON dh.id = h.duplicate_of AND dh.user_id = h.user_id
-     LEFT JOIN hosts mh ON mh.id = h.merged_into AND mh.user_id = h.user_id
+     LEFT JOIN hosts dh ON dh.id = h.duplicate_of AND dh.workspace_id = h.workspace_id
+     LEFT JOIN hosts mh ON mh.id = h.merged_into AND mh.workspace_id = h.workspace_id
      LEFT JOIN LATERAL (
        SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'mode', ah.mode,
                                          'status', ${AGENT_STATUS_SQL},
@@ -293,7 +293,7 @@ export async function getHosts(userId: string): Promise<HostListRow[]> {
                                          'collected', ah.last_collected_at IS NOT NULL)
                        ORDER BY a.revoked_at IS NOT NULL, ah.mode <> 'local', a.name) AS agents
        FROM agent_hosts ah
-       JOIN agents a ON a.id = ah.agent_id AND a.user_id = h.user_id
+       JOIN agents a ON a.id = ah.agent_id AND a.workspace_id = h.workspace_id
        WHERE ah.host_id = h.id
      ) ag ON true
      LEFT JOIN LATERAL (${HOST_FINDINGS_SQL}) f ON true
@@ -302,9 +302,9 @@ export async function getHosts(userId: string): Promise<HostListRow[]> {
        WHERE s.host_id = h.id
        ORDER BY s.collected_at DESC LIMIT 1   -- snapshots_host_collected_idx
      ) rb ON true
-     WHERE h.user_id = $1
+     WHERE h.workspace_id = $1
      ORDER BY h.archived_at IS NOT NULL, h.last_seen_at DESC NULLS LAST, h.hostname, h.id`,
-    [userId],
+    [workspaceId],
   );
   return rows.map((r) => ({
     id: r.id,

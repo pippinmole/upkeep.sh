@@ -28,10 +28,10 @@ type imageFixture struct {
 func newImageFixture(t *testing.T) *imageFixture {
 	f := &imageFixture{matchFixture: newMatchFixture(t)}
 	ctx := context.Background()
-	if err := f.s.Pool.QueryRow(ctx, `SELECT user_id FROM hosts WHERE id = $1`, f.hostID).Scan(&f.userU); err != nil {
+	if err := f.s.Pool.QueryRow(ctx, `SELECT workspace_id FROM hosts WHERE id = $1`, f.hostID).Scan(&f.userU); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
+	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
 		f.distro+"-v@test.invalid").Scan(&f.userV); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func newImageFixture(t *testing.T) *imageFixture {
 	// (LIFO): findings / ranges go with the users, lists with the images.
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, f.userV)
+		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, f.userV)
 		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM host_containers WHERE host_id = $1`, f.hostID)
 		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM host_images WHERE host_id = $1`, f.hostID)
 		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM image_sbom_state WHERE image_id = ANY($1)`, f.images)
@@ -111,7 +111,7 @@ func (f *imageFixture) deb(name, source, version string) ImagePackage {
 func (f *imageFixture) list(k ImageKey, owner, source string, pkgs ...ImagePackage) ImageSBOMResult {
 	f.t.Helper()
 	ctx := context.Background()
-	res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{Key: k, OwnerUserID: owner, Source: source,
+	res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{Key: k, OwnerWorkspaceID: owner, Source: source,
 		OS: purl.OSRelease{ID: f.distro}, Release: "jammy", Packages: pkgs})
 	if err != nil {
 		f.t.Fatal(err)

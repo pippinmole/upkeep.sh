@@ -1,8 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 
+import type { Role } from "@/lib/roles";
+
 interface User {
   name: string;
   email: string;
+  role: Role;
 }
 
 // "Needs action" counts behind the nav badges (lib/queries-nav.ts), and

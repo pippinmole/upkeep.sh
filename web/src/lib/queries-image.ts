@@ -19,7 +19,7 @@ import {
 // Tenancy: container_images, image_sbom_state and image_software are
 // shared ACROSS USERS (server lists are fleet-wide per image key). Every
 // read here starts from the user's own current host_images rows
-// (`hosts.user_id = $1`, not archived, `removed_at IS NULL`); an image the
+// (`hosts.workspace_id = $1`, not archived, `removed_at IS NULL`); an image the
 // user doesn't have is a 404, whatever the id. Package lists are only
 // reached through image_sbom_effective(user), which never returns another
 // user's agent list.
@@ -30,7 +30,7 @@ import {
 export type ImagePlatforms = { platforms: ImageKey[]; uninspected: boolean };
 
 export const getImagePlatforms = cache(async function getImagePlatforms(
-  userId: string,
+  workspaceId: string,
   imageId: string,
   hostId: string | null,
 ): Promise<ImagePlatforms | null> {
@@ -44,10 +44,10 @@ export const getImagePlatforms = cache(async function getImagePlatforms(
     `SELECT hi.os, hi.arch, hi.variant, bool_or(h.id::text = $3) AS on_host
      FROM hosts h
      JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
-     WHERE h.user_id = $1 AND h.archived_at IS NULL AND hi.image_id = $2
+     WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND hi.image_id = $2
      GROUP BY 1, 2, 3
      ORDER BY on_host DESC, hi.os NULLS LAST, hi.arch, hi.variant`,
-    [userId, imageId, hostId && isUuid(hostId) ? hostId : ""],
+    [workspaceId, imageId, hostId && isUuid(hostId) ? hostId : ""],
   );
   if (rows.length === 0) return null;
   const platforms: ImageKey[] = [];
@@ -111,10 +111,10 @@ export type ImageOverview = {
 };
 
 export const getImageOverview = cache(async function getImageOverview(
-  userId: string,
+  workspaceId: string,
   key: ImageKey,
 ): Promise<ImageOverview | null> {
-  const k = [userId, key.imageId, key.os, key.arch, key.variant];
+  const k = [workspaceId, key.imageId, key.os, key.arch, key.variant];
   const [hosts, score, list] = await Promise.all([
     pool.query<{
       host_id: string;
@@ -144,7 +144,7 @@ export const getImageOverview = cache(async function getImageOverview(
        JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
        JOIN container_images ci
          ON ci.image_id = hi.image_id AND ci.os = hi.os AND ci.arch = hi.arch AND ci.variant = hi.variant
-       WHERE h.user_id = $1 AND h.archived_at IS NULL
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL
          AND hi.image_id = $2 AND hi.os = $3 AND hi.arch = $4 AND hi.variant = $5
        ORDER BY lower(coalesce(h.label, h.hostname)), h.id`,
       k,
@@ -182,8 +182,8 @@ export const getImageOverview = cache(async function getImageOverview(
        FROM image_sbom_state st
        LEFT JOIN distro_releases dr ON dr.distro = st.distro AND dr.codename = st.release
        WHERE st.image_id = $2 AND st.os = $3 AND st.arch = $4 AND st.variant = $5
-         AND (st.owner_user_id IS NULL OR st.owner_user_id = $1)
-       ORDER BY st.status = 'ok' DESC, (st.status = 'ok' AND st.owner_user_id IS NULL) DESC,
+         AND (st.owner_workspace_id IS NULL OR st.owner_workspace_id = $1)
+       ORDER BY st.status = 'ok' DESC, (st.status = 'ok' AND st.owner_workspace_id IS NULL) DESC,
                 st.updated_at DESC, st.id DESC
        LIMIT 1`,
       k,

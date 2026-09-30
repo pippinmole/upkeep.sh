@@ -30,10 +30,11 @@ import type { ChannelRow, RuleRow, ScopeHost } from "@/lib/queries-notifications
 import { deleteRule, setRuleEnabled } from "@/app/dashboard/notification-actions";
 import { RuleDialog } from "./rule-dialog";
 import { ConfirmDialog, EnabledBadge } from "@/components/notifications/shared";
+import { adminOnly } from "@/components/viewer-context";
 
 type Ctx = { channels: ChannelRow[]; hosts: ScopeHost[] };
 
-function RuleActions({ rule, ctx }: { rule: RuleRow; ctx: Ctx }) {
+function RuleActionsControl({ rule, ctx }: { rule: RuleRow; ctx: Ctx }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [, startToggle] = useTransition();
@@ -196,7 +197,7 @@ function makeColumns(ctx: Ctx) {
 
 // A rule needs somewhere to send to: disabled, with the reason on hover,
 // until a channel exists (same as AddScheduleButton).
-export function AddRuleButton(ctx: Ctx) {
+function AddRuleButtonControl(ctx: Ctx) {
   const [open, setOpen] = useState(false);
   const noChannels = ctx.channels.length === 0;
   return (
@@ -223,3 +224,7 @@ export function RulesTable({ rules, ...ctx }: { rules: RuleRow[] } & Ctx) {
     />
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+const RuleActions = adminOnly(RuleActionsControl);
+export const AddRuleButton = adminOnly(AddRuleButtonControl);

@@ -20,7 +20,7 @@ const (
 // addRemote adds an ssh target for agentID and returns the new host id.
 func (f *agentFixture) addRemote(agentID, address string) string {
 	f.t.Helper()
-	st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, $3, 22, 'upkeep', '')`, f.userID, agentID, address)
+	st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, $3, 22, 'upkeep', '')`, f.workspaceID, agentID, address)
 	id, ok := strings.CutPrefix(st, "ok:")
 	if !ok {
 		f.t.Fatalf("mgmt_add_remote_host: %s", st)
@@ -59,7 +59,7 @@ func TestRemoteHostLifecycle(t *testing.T) {
 
 	// A host can be added before the agent has reported its ssh key (it
 	// may not have started yet); the dashboard waits for the key.
-	if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, '10.0.0.5', 22, 'upkeep', '')`, f.userID, f.enroll("")); !strings.HasPrefix(st, "ok:") {
+	if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, '10.0.0.5', 22, 'upkeep', '')`, f.workspaceID, f.enroll("")); !strings.HasPrefix(st, "ok:") {
 		t.Fatalf("add before key: %s", st)
 	}
 	f.reportStatus(a, StatusReport{SSHPublicKey: testAgentKey})
@@ -70,13 +70,13 @@ func TestRemoteHostLifecycle(t *testing.T) {
 		{"root@10.0.0.5", "upkeep", "invalid_address"},
 		{"10.0.0.5", "Root;", "invalid_username"},
 	} {
-		if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, $3, 22, $4, '')`, f.userID, a, c.addr, c.user); st != c.want {
+		if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, $3, 22, $4, '')`, f.workspaceID, a, c.addr, c.user); st != c.want {
 			t.Errorf("add %q/%q: %s, want %s", c.addr, c.user, st, c.want)
 		}
 	}
 
 	h := f.addRemote(a, "DB-1.internal")
-	if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, 'db-1.internal', 22, 'x', '')`, f.userID, a); st != "duplicate_target" {
+	if st := f.mgmt(`SELECT mgmt_add_remote_host($1, $2, 'db-1.internal', 22, 'x', '')`, f.workspaceID, a); st != "duplicate_target" {
 		t.Errorf("duplicate add: %s", st)
 	}
 
@@ -97,10 +97,10 @@ func TestRemoteHostLifecycle(t *testing.T) {
 	}
 
 	// Confirming a key other than the pending one is refused.
-	if st := f.mgmt(`SELECT mgmt_confirm_host_key($1, $2, $3, $4)`, f.userID, a, h, otherHostKey); st != "host_key_changed" {
+	if st := f.mgmt(`SELECT mgmt_confirm_host_key($1, $2, $3, $4)`, f.workspaceID, a, h, otherHostKey); st != "host_key_changed" {
 		t.Fatalf("confirm wrong key: %s", st)
 	}
-	if st := f.mgmt(`SELECT mgmt_confirm_host_key($1, $2, $3, $4)`, f.userID, a, h, testHostKey); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_confirm_host_key($1, $2, $3, $4)`, f.workspaceID, a, h, testHostKey); st != "ok" {
 		t.Fatalf("confirm: %s", st)
 	}
 	cfg, _ = f.s.AgentConfig(ctx, a)
@@ -150,14 +150,14 @@ func TestRemoteHostLifecycle(t *testing.T) {
 	}
 
 	// Removing the target (agent still active) stops pushes for its ref.
-	if st := f.mgmt(`SELECT mgmt_remove_remote_target($1, $2, $3)`, f.userID, a, h); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_remove_remote_target($1, $2, $3)`, f.workspaceID, a, h); st != "ok" {
 		t.Fatalf("remove: %s", st)
 	}
 	if _, err := f.tryPush(a, HostClaim{Ref: h}); !errors.Is(err, ErrUnknownHostRef) {
 		t.Fatalf("push after remove: %v", err)
 	}
 	// The local assignment can't be removed this way.
-	if st := f.mgmt(`SELECT mgmt_remove_remote_target($1, $2, $3)`, f.userID, a, local.HostID); st != "not_found" {
+	if st := f.mgmt(`SELECT mgmt_remove_remote_target($1, $2, $3)`, f.workspaceID, a, local.HostID); st != "not_found" {
 		t.Errorf("remove local: %s", st)
 	}
 }

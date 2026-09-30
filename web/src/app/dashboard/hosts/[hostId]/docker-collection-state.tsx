@@ -27,21 +27,21 @@ type What = "containers" | "images";
 // - hasRows true and collection not ok: a banner above the (stale) table.
 // - hasRows true and ok: nothing.
 export async function DockerCollectionState({
-  userId,
+  workspaceId,
   hostId,
   what,
   collectorStatus,
   freshness,
   hasRows,
 }: {
-  userId: string;
+  workspaceId: string;
   hostId: string;
   what: What;
   collectorStatus: Record<string, CollectorStatus> | null | undefined;
   freshness: DockerFreshness;
   hasRows: boolean;
 }) {
-  const agents = await getHostCollectors(userId, hostId);
+  const agents = await getHostCollectors(workspaceId, hostId);
   const active = agents.filter((a) => a.status !== "revoked");
   const onlyRemote = active.length > 0 && active.every((a) => a.mode !== "local");
   const state = dockerCollection(

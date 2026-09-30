@@ -79,12 +79,12 @@ func (f *fakeNotifier) all() []notify.Notification {
 }
 
 type alertFixture struct {
-	t      *testing.T
-	s      *store.Store
-	tag    string
-	userID string
-	hostID string
-	cves   []string
+	t           *testing.T
+	s           *store.Store
+	tag         string
+	workspaceID string
+	hostID      string
+	cves        []string
 }
 
 func newAlertFixture(t *testing.T) *alertFixture {
@@ -101,11 +101,11 @@ func newAlertFixture(t *testing.T) *alertFixture {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	f := &alertFixture{t: t, s: s, tag: "swtest-" + hex.EncodeToString(b)}
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-		f.tag+"@test.invalid").Scan(&f.userID); err != nil {
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+		f.tag+"@test.invalid").Scan(&f.workspaceID); err != nil {
 		t.Fatal(err)
 	}
-	if f.hostID, err = s.CreateHost(ctx, f.userID, "web-"+f.tag); err != nil {
+	if f.hostID, err = s.CreateHost(ctx, f.workspaceID, "web-"+f.tag); err != nil {
 		t.Fatal(err)
 	}
 	// Anything still pending in the outbox belongs to an earlier, aborted
@@ -113,7 +113,7 @@ func newAlertFixture(t *testing.T) *alertFixture {
 	_, _ = s.Pool.Exec(ctx, `UPDATE alert_events SET processed_at = now() WHERE processed_at IS NULL`)
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, f.userID)
+		_, _ = s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, f.workspaceID)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM software_versions WHERE distro = $1`, f.tag)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM advisories WHERE source = $1`, f.tag)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM advisory_changes WHERE distro = $1`, f.tag)
@@ -137,8 +137,8 @@ func (f *alertFixture) channel(name, typ string, config, secrets map[string]stri
 	s, _ := json.Marshal(secrets)
 	var id string
 	if err := f.s.Pool.QueryRow(context.Background(), `
-		INSERT INTO notification_channels (user_id, name, type, config, secrets) VALUES ($1, $2, $3, $4, $5) RETURNING id
-	`, f.userID, name, typ, c, s).Scan(&id); err != nil {
+		INSERT INTO notification_channels (workspace_id, name, type, config, secrets) VALUES ($1, $2, $3, $4, $5) RETURNING id
+	`, f.workspaceID, name, typ, c, s).Scan(&id); err != nil {
 		f.t.Fatal(err)
 	}
 	return id
@@ -165,15 +165,15 @@ func (f *alertFixture) rule(name string, o ruleOpts, channels ...string) string 
 	}
 	var id string
 	if err := f.s.Pool.QueryRow(context.Background(), `
-		INSERT INTO alert_rules (user_id, name, event_types, min_severity_rank, kev_only, host_ids,
+		INSERT INTO alert_rules (workspace_id, name, event_types, min_severity_rank, kev_only, host_ids,
 		                         dedup_window_seconds, digest, digest_interval_seconds, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
-	`, f.userID, name, o.types, o.minSeverity, o.kevOnly, o.hostIDs, int(o.dedup.Seconds()),
+	`, f.workspaceID, name, o.types, o.minSeverity, o.kevOnly, o.hostIDs, int(o.dedup.Seconds()),
 		o.digest > 0, interval, o.createdAt).Scan(&id); err != nil {
 		f.t.Fatal(err)
 	}
 	for _, c := range channels {
-		f.exec(`INSERT INTO alert_rule_channels (rule_id, channel_id, user_id) VALUES ($1, $2, $3)`, id, c, f.userID)
+		f.exec(`INSERT INTO alert_rule_channels (rule_id, channel_id, workspace_id) VALUES ($1, $2, $3)`, id, c, f.workspaceID)
 	}
 	return id
 }
@@ -183,8 +183,8 @@ func (f *alertFixture) event(typ, subject string, sevRank *int, kev bool, at tim
 	f.t.Helper()
 	payload := fmt.Sprintf(`{"host":{"id":%q,"hostname":"web"},"finding":{"id":"00000000-0000-0000-0000-000000000000","kind":"vulnerable_package","vuln_key":%q,"severity":"high","severity_rank":5,"kev":%v,"status":"open"}}`,
 		f.hostID, subject, kev)
-	f.exec(`INSERT INTO alert_events (user_id, type, subject, occurred_at, host_ids, severity_rank, is_kev, payload)
-	        VALUES ($1, $2, $3, $4, ARRAY[$5::uuid], $6, $7, $8)`, f.userID, typ, subject, at, f.hostID, sevRank, kev, payload)
+	f.exec(`INSERT INTO alert_events (workspace_id, type, subject, occurred_at, host_ids, severity_rank, is_kev, payload)
+	        VALUES ($1, $2, $3, $4, ARRAY[$5::uuid], $6, $7, $8)`, f.workspaceID, typ, subject, at, f.hostID, sevRank, kev, payload)
 }
 
 func (f *alertFixture) count(q string, args ...any) int {
@@ -336,14 +336,14 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 		t.Fatalf("fake notifier: %d notifications, cfg %v", len(got), fake.cfgs)
 	}
 	// Delivery log: 4 delivered deliveries, one attempt each.
-	for time.Now().Before(deadline) && f.count(`SELECT count(*) FROM notification_deliveries WHERE user_id = $1 AND status = 'delivered'`, f.userID) < 4 {
+	for time.Now().Before(deadline) && f.count(`SELECT count(*) FROM notification_deliveries WHERE workspace_id = $1 AND status = 'delivered'`, f.workspaceID) < 4 {
 		time.Sleep(100 * time.Millisecond)
 	}
-	if n := f.count(`SELECT count(*) FROM notification_deliveries WHERE user_id = $1 AND status = 'delivered' AND attempts = 1 AND delivered_at IS NOT NULL`, f.userID); n != 4 {
+	if n := f.count(`SELECT count(*) FROM notification_deliveries WHERE workspace_id = $1 AND status = 'delivered' AND attempts = 1 AND delivered_at IS NOT NULL`, f.workspaceID); n != 4 {
 		t.Fatalf("delivered deliveries = %d, want 4", n)
 	}
 	if n := f.count(`SELECT count(*) FROM notification_delivery_attempts a JOIN notification_deliveries d ON d.id = a.delivery_id
-	                 WHERE d.user_id = $1 AND d.channel_type = 'webhook' AND a.status_code = 204`, f.userID); n != 2 {
+	                 WHERE d.workspace_id = $1 AND d.channel_type = 'webhook' AND a.status_code = 204`, f.workspaceID); n != 2 {
 		t.Fatalf("webhook attempts with 204 = %d, want 2", n)
 	}
 }
@@ -456,7 +456,7 @@ func TestEvaluateDedupAndDigest(t *testing.T) {
 func TestEvaluateScopeAndKEV(t *testing.T) {
 	f := newAlertFixture(t)
 	ctx := context.Background()
-	other, err := f.s.CreateHost(ctx, f.userID, "other-"+f.tag)
+	other, err := f.s.CreateHost(ctx, f.workspaceID, "other-"+f.tag)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,9 +469,9 @@ func TestEvaluateScopeAndKEV(t *testing.T) {
 	if err != nil || r.Matched != 0 {
 		t.Fatalf("out of scope: %+v %v", r, err)
 	}
-	f.exec(`INSERT INTO alert_events (user_id, type, subject, host_ids, severity_rank, is_kev, payload)
+	f.exec(`INSERT INTO alert_events (workspace_id, type, subject, host_ids, severity_rank, is_kev, payload)
 	        VALUES ($1, 'finding.opened', 's1', ARRAY[$2::uuid], 6, false, '{}'), ($1, 'finding.opened', 's2', ARRAY[$2::uuid], 6, true, '{}')`,
-		f.userID, other)
+		f.workspaceID, other)
 	if r, err = f.s.EvaluateAlerts(ctx, now, store.AlertOptions{}); err != nil || r.Matched != 1 || r.Notifications != 1 {
 		t.Fatalf("in scope: %+v %v", r, err)
 	}
@@ -502,10 +502,10 @@ func TestEvaluateFindingKinds(t *testing.T) {
 	sev := 5
 	now := time.Now().UTC()
 	f.event(notify.EventFindingOpened, "finding:pkg", &sev, false, now) // kind vulnerable_package
-	f.exec(`INSERT INTO alert_events (user_id, type, subject, host_ids, severity_rank, is_kev, payload)
+	f.exec(`INSERT INTO alert_events (workspace_id, type, subject, host_ids, severity_rank, is_kev, payload)
 	        VALUES ($1, 'finding.opened', 'finding:img', ARRAY[$2::uuid], 5, false,
 	                '{"finding": {"kind": "vulnerable_image", "vuln_key": "CVE-1", "image_id": "sha256:x", "severity": "high"}}')`,
-		f.userID, f.hostID)
+		f.workspaceID, f.hostID)
 	r, err := f.s.EvaluateAlerts(ctx, now, store.AlertOptions{})
 	if err != nil || r.Events != 2 || r.Matched != 4 {
 		t.Fatalf("evaluate: %+v %v (want 2 events, 4 matches)", r, err)
@@ -527,8 +527,8 @@ func TestAgentHealthEvents(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	var agentID string
 	if err := f.s.Pool.QueryRow(ctx, `
-		INSERT INTO agents (user_id, name, push_interval_seconds, last_seen_at) VALUES ($1, $2, 60, $3) RETURNING id
-	`, f.userID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
+		INSERT INTO agents (workspace_id, name, push_interval_seconds, last_seen_at) VALUES ($1, $2, 60, $3) RETURNING id
+	`, f.workspaceID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
 		t.Fatal(err)
 	}
 	f.exec(`INSERT INTO agent_hosts (agent_id, host_id, mode) VALUES ($1, $2, 'local')`, agentID, f.hostID)
@@ -584,7 +584,7 @@ func TestAgentHealthEvents(t *testing.T) {
 		t.Fatalf("revoked agent emitted: %v", e)
 	}
 	// No rule for the type -> no event written.
-	f.exec(`UPDATE alert_rules SET event_types = '{finding.opened}' WHERE user_id = $1`, f.userID)
+	f.exec(`UPDATE alert_rules SET event_types = '{finding.opened}' WHERE workspace_id = $1`, f.workspaceID)
 	f.exec(`UPDATE agents SET revoked_at = NULL, last_seen_at = $2 WHERE id = $1`, agentID, now.Add(10*time.Minute))
 	check(now.Add(10 * time.Minute)) // silent re-observation (online)
 	check(now.Add(20 * time.Minute)) // stale, but nobody listens
@@ -599,7 +599,7 @@ func TestAgentHealthEvents(t *testing.T) {
 func TestArchivedHostsDontAlert(t *testing.T) {
 	f := newAlertFixture(t)
 	ctx := context.Background()
-	archived, err := f.s.CreateHost(ctx, f.userID, "archived-"+f.tag)
+	archived, err := f.s.CreateHost(ctx, f.workspaceID, "archived-"+f.tag)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,8 +631,8 @@ func TestArchivedHostsDontAlert(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	var agentID string
 	if err := f.s.Pool.QueryRow(ctx, `
-		INSERT INTO agents (user_id, name, push_interval_seconds, last_seen_at) VALUES ($1, $2, 60, $3) RETURNING id
-	`, f.userID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
+		INSERT INTO agents (workspace_id, name, push_interval_seconds, last_seen_at) VALUES ($1, $2, 60, $3) RETURNING id
+	`, f.workspaceID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
 		t.Fatal(err)
 	}
 	f.exec(`INSERT INTO agent_hosts (agent_id, host_id, mode, target_ref, address, port, username) VALUES ($1, $2, 'local', 'local', NULL, NULL, NULL), ($1, $3, 'ssh', 'ssh:old', '10.0.0.9', 22, 'upkeep')`,
@@ -667,13 +667,13 @@ func TestDeliverWorker(t *testing.T) {
 	// A "send test" exactly as the dashboard inserts it (no payload).
 	newDelivery := func(channelID string) string {
 		var nid, did string
-		if err := f.s.Pool.QueryRow(ctx, `INSERT INTO notifications (user_id, kind) VALUES ($1, 'test') RETURNING id`, f.userID).Scan(&nid); err != nil {
+		if err := f.s.Pool.QueryRow(ctx, `INSERT INTO notifications (workspace_id, kind) VALUES ($1, 'test') RETURNING id`, f.workspaceID).Scan(&nid); err != nil {
 			t.Fatal(err)
 		}
 		if err := f.s.Pool.QueryRow(ctx, `
-			INSERT INTO notification_deliveries (user_id, notification_id, channel_id, channel_name, channel_type)
+			INSERT INTO notification_deliveries (workspace_id, notification_id, channel_id, channel_name, channel_type)
 			SELECT $1, $2, id, name, type FROM notification_channels WHERE id = $3 RETURNING id
-		`, f.userID, nid, channelID).Scan(&did); err != nil {
+		`, f.workspaceID, nid, channelID).Scan(&did); err != nil {
 			t.Fatal(err)
 		}
 		return did
@@ -752,7 +752,7 @@ func TestDeliverWorker(t *testing.T) {
 	if s, _ := status(u); s != store.DeliveryFailed {
 		t.Fatalf("unknown type: %s", s)
 	}
-	if n := f.count(`SELECT count(*) FROM notification_delivery_attempts a JOIN notification_deliveries d ON d.id = a.delivery_id WHERE d.user_id = $1`, f.userID); n != 7 {
+	if n := f.count(`SELECT count(*) FROM notification_delivery_attempts a JOIN notification_deliveries d ON d.id = a.delivery_id WHERE d.workspace_id = $1`, f.workspaceID); n != 7 {
 		t.Fatalf("attempt rows = %d, want 7", n)
 	}
 }

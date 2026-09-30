@@ -33,7 +33,7 @@ var ErrNotFound = errors.New("not found")
 // rule selecting the event type in typeCol: events nobody listens for are
 // never written.
 func hasRuleForSQL(userCol, typeCol string) string {
-	return fmt.Sprintf(`EXISTS (SELECT 1 FROM alert_rules r WHERE r.user_id = %s AND r.enabled AND %s = ANY (r.event_types))`, userCol, typeCol)
+	return fmt.Sprintf(`EXISTS (SELECT 1 FROM alert_rules r WHERE r.workspace_id = %s AND r.enabled AND %s = ANY (r.event_types))`, userCol, typeCol)
 }
 
 // insertFindingEvents writes finding.* events for the given transitions of
@@ -45,8 +45,8 @@ func insertFindingEvents(ctx context.Context, tx pgx.Tx, hostID string, keys, ty
 		return 0, nil
 	}
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO alert_events (user_id, type, subject, occurred_at, host_ids, severity_rank, is_kev, payload)
-		SELECT h.user_id, t.type, 'finding:' || f.host_id || ':' || f.dedup_key, $4, ARRAY[f.host_id],
+		INSERT INTO alert_events (workspace_id, type, subject, occurred_at, host_ids, severity_rank, is_kev, payload)
+		SELECT h.workspace_id, t.type, 'finding:' || f.host_id || ':' || f.dedup_key, $4, ARRAY[f.host_id],
 		       f.severity_rank, f.is_kev,
 		       jsonb_build_object(
 		         'host', jsonb_build_object('id', h.id, 'hostname', h.hostname, 'label', h.label),
@@ -62,7 +62,7 @@ func insertFindingEvents(ctx context.Context, tx pgx.Tx, hostID string, keys, ty
 		FROM unnest($2::text[], $3::text[]) AS t(dedup_key, type)
 		JOIN findings f ON f.host_id = $1 AND f.dedup_key = t.dedup_key
 		JOIN hosts h ON h.id = f.host_id
-		WHERE h.archived_at IS NULL AND `+hasRuleForSQL("h.user_id", "t.type"), hostID, keys, types, now)
+		WHERE h.archived_at IS NULL AND `+hasRuleForSQL("h.workspace_id", "t.type"), hostID, keys, types, now)
 	if err != nil {
 		return 0, fmt.Errorf("insert finding alert events: %w", err)
 	}
@@ -94,7 +94,7 @@ func (s *Store) CheckAgentHealth(ctx context.Context, now time.Time) (AgentHealt
 	staleSQL := staleAgentSQL("$1::timestamptz")
 	if _, err := tx.Exec(ctx, `
 		CREATE TEMP TABLE agent_health_cur ON COMMIT DROP AS
-		SELECT a.id, a.user_id, a.name, a.last_seen_at,
+		SELECT a.id, a.workspace_id, a.name, a.last_seen_at,
 		       CASE WHEN `+staleSQL+` THEN 'stale' ELSE 'online' END AS state
 		FROM agents a WHERE a.revoked_at IS NULL AND a.last_seen_at IS NOT NULL
 	`, now); err != nil {
@@ -126,8 +126,8 @@ func (s *Store) CheckAgentHealth(ctx context.Context, now time.Time) (AgentHealt
 	res.Changed = len(changed)
 	if len(changed) > 0 {
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO alert_events (user_id, type, subject, occurred_at, host_ids, payload)
-			SELECT c.user_id, e.type, 'agent:' || c.id, $2,
+			INSERT INTO alert_events (workspace_id, type, subject, occurred_at, host_ids, payload)
+			SELECT c.workspace_id, e.type, 'agent:' || c.id, $2,
 			       COALESCE((SELECT array_agg(ah.host_id ORDER BY ah.host_id)
 			                 FROM agent_hosts ah JOIN hosts h ON h.id = ah.host_id
 			                 WHERE ah.agent_id = c.id AND h.archived_at IS NULL), '{}'),
@@ -138,7 +138,7 @@ func (s *Store) CheckAgentHealth(ctx context.Context, now time.Time) (AgentHealt
 			                            WHERE ah.agent_id = c.id AND h.archived_at IS NULL), '[]')))
 			FROM agent_health_cur c
 			CROSS JOIN LATERAL (SELECT CASE c.state WHEN 'stale' THEN 'agent.stale' ELSE 'agent.recovered' END AS type) e
-			WHERE c.id = ANY ($1::uuid[]) AND `+hasRuleForSQL("c.user_id", "e.type"), changed, now)
+			WHERE c.id = ANY ($1::uuid[]) AND `+hasRuleForSQL("c.workspace_id", "e.type"), changed, now)
 		if err != nil {
 			return res, fmt.Errorf("insert agent alert events: %w", err)
 		}
@@ -170,22 +170,22 @@ type ruleWithChannels struct {
 
 type channelRef struct{ id, name, typ string }
 
-// loadRules loads the enabled rules of the given users with their enabled
+// loadRules loads the enabled rules of the given workspaces with their enabled
 // channels. Rules without an enabled channel are left out: nothing could
 // be sent, so they neither dedup nor collect digest items.
-func loadRules(ctx context.Context, tx pgx.Tx, userIDs []string, ruleIDs []string) (map[string][]*ruleWithChannels, error) {
+func loadRules(ctx context.Context, tx pgx.Tx, workspaceIDs []string, ruleIDs []string) (map[string][]*ruleWithChannels, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT r.id::text, r.user_id::text, r.name, r.event_types, r.min_severity_rank, r.kev_only,
+		SELECT r.id::text, r.workspace_id::text, r.name, r.event_types, r.min_severity_rank, r.kev_only,
 		       r.finding_kinds, r.host_ids::text[], r.dedup_window_seconds, r.digest, r.digest_interval_seconds,
 		       r.last_digest_at, r.created_at,
 		       array_agg(c.id::text ORDER BY c.name), array_agg(c.name ORDER BY c.name), array_agg(c.type ORDER BY c.name)
 		FROM alert_rules r
 		JOIN alert_rule_channels rc ON rc.rule_id = r.id
 		JOIN notification_channels c ON c.id = rc.channel_id AND c.enabled
-		WHERE r.enabled AND (r.user_id = ANY ($1::uuid[]) OR r.id = ANY ($2::uuid[]))
+		WHERE r.enabled AND (r.workspace_id = ANY ($1::uuid[]) OR r.id = ANY ($2::uuid[]))
 		GROUP BY r.id
 		ORDER BY r.created_at, r.id
-	`, userIDs, ruleIDs)
+	`, workspaceIDs, ruleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func loadRules(ctx context.Context, tx pgx.Tx, userIDs []string, ruleIDs []strin
 			dedup, interval    int
 			cids, cnames, ctyp []string
 		)
-		if err := rows.Scan(&r.ID, &r.UserID, &r.Name, &r.EventTypes, &r.MinSeverityRank, &r.KEVOnly,
+		if err := rows.Scan(&r.ID, &r.WorkspaceID, &r.Name, &r.EventTypes, &r.MinSeverityRank, &r.KEVOnly,
 			&r.FindingKinds, &r.HostIDs, &dedup, &r.Digest, &interval, &r.LastDigestAt, &r.CreatedAt, &cids, &cnames, &ctyp); err != nil {
 			return nil, err
 		}
@@ -206,7 +206,7 @@ func loadRules(ctx context.Context, tx pgx.Tx, userIDs []string, ruleIDs []strin
 		for i := range cids {
 			r.channels = append(r.channels, channelRef{cids[i], cnames[i], ctyp[i]})
 		}
-		out[r.UserID] = append(out[r.UserID], &r)
+		out[r.WorkspaceID] = append(out[r.WorkspaceID], &r)
 	}
 	return out, rows.Err()
 }
@@ -289,7 +289,7 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 		return res, 0, err
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id, user_id::text, type, subject, host_ids::text[], severity_rank, is_kev,
+		SELECT id, workspace_id::text, type, subject, host_ids::text[], severity_rank, is_kev,
 		       coalesce(payload->'finding'->>'kind', ''), payload, occurred_at
 		FROM alert_events WHERE processed_at IS NULL ORDER BY id LIMIT $1
 	`, limit)
@@ -297,16 +297,16 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 		return res, 0, err
 	}
 	var events []eventRow
-	users := map[string]bool{}
+	workspaces := map[string]bool{}
 	for rows.Next() {
 		var e eventRow
-		if err := rows.Scan(&e.meta.ID, &e.meta.UserID, &e.meta.Type, &e.meta.Subject, &e.meta.HostIDs,
+		if err := rows.Scan(&e.meta.ID, &e.meta.WorkspaceID, &e.meta.Type, &e.meta.Subject, &e.meta.HostIDs,
 			&e.meta.SeverityRank, &e.meta.KEV, &e.meta.FindingKind, &e.payload, &e.at); err != nil {
 			rows.Close()
 			return res, 0, err
 		}
 		events = append(events, e)
-		users[e.meta.UserID] = true
+		workspaces[e.meta.WorkspaceID] = true
 	}
 	if err := rows.Err(); err != nil {
 		return res, 0, err
@@ -315,11 +315,11 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 	if len(events) == 0 {
 		return res, 0, nil
 	}
-	userIDs := make([]string, 0, len(users))
-	for u := range users {
-		userIDs = append(userIDs, u)
+	workspaceIDs := make([]string, 0, len(workspaces))
+	for u := range workspaces {
+		workspaceIDs = append(workspaceIDs, u)
 	}
-	rules, err := loadRules(ctx, tx, userIDs, nil)
+	rules, err := loadRules(ctx, tx, workspaceIDs, nil)
 	if err != nil {
 		return res, 0, err
 	}
@@ -333,7 +333,7 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 	var matches []match
 	var mRules, mKeys []string
 	for _, e := range events {
-		for _, r := range rules[e.meta.UserID] {
+		for _, r := range rules[e.meta.WorkspaceID] {
 			if alerting.Match(r.Rule, e.meta) {
 				k := alerting.DedupKey(e.meta)
 				matches = append(matches, match{r, e, k})
@@ -469,17 +469,17 @@ func createNotifications(ctx context.Context, tx pgx.Tx, r *ruleWithChannels, ki
 			return nil, 0, err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO notifications (id, user_id, rule_id, kind, event_count, summary, payload, created_at)
+			INSERT INTO notifications (id, workspace_id, rule_id, kind, event_count, summary, payload, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, n.ID, r.UserID, r.ID, kind, len(chunk), n.Summary, payload, now); err != nil {
+		`, n.ID, r.WorkspaceID, r.ID, kind, len(chunk), n.Summary, payload, now); err != nil {
 			return nil, 0, err
 		}
 		for _, c := range r.channels {
 			var id string
 			if err := tx.QueryRow(ctx, `
-				INSERT INTO notification_deliveries (user_id, notification_id, channel_id, channel_name, channel_type, created_at, updated_at)
+				INSERT INTO notification_deliveries (workspace_id, notification_id, channel_id, channel_name, channel_type, created_at, updated_at)
 				VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id::text
-			`, r.UserID, n.ID, c.id, c.name, c.typ, now).Scan(&id); err != nil {
+			`, r.WorkspaceID, n.ID, c.id, c.name, c.typ, now).Scan(&id); err != nil {
 				return nil, 0, err
 			}
 			deliveries = append(deliveries, id)
@@ -539,14 +539,14 @@ func (s *Store) FlushDigests(ctx context.Context, now time.Time, opt AlertOption
 		rows, err := tx.Query(ctx, `
 			DELETE FROM alert_digest_items i USING alert_events e
 			WHERE i.rule_id = $1 AND e.id = i.event_id
-			RETURNING e.id, e.user_id::text, e.type, e.subject, e.host_ids::text[], e.severity_rank, e.is_kev, e.payload, e.occurred_at
+			RETURNING e.id, e.workspace_id::text, e.type, e.subject, e.host_ids::text[], e.severity_rank, e.is_kev, e.payload, e.occurred_at
 		`, id)
 		if err != nil {
 			return res, err
 		}
 		evs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (eventRow, error) {
 			var e eventRow
-			err := row.Scan(&e.meta.ID, &e.meta.UserID, &e.meta.Type, &e.meta.Subject, &e.meta.HostIDs,
+			err := row.Scan(&e.meta.ID, &e.meta.WorkspaceID, &e.meta.Type, &e.meta.Subject, &e.meta.HostIDs,
 				&e.meta.SeverityRank, &e.meta.KEV, &e.payload, &e.at)
 			return e, err
 		})
@@ -591,14 +591,14 @@ func (s *Store) FlushDigests(ctx context.Context, now time.Time, opt AlertOption
 
 // Delivery is everything alert_deliver needs for one delivery.
 type Delivery struct {
-	ID, UserID, Status, Kind string
-	ChannelID                *string
-	ChannelType              string
-	ChannelEnabled           bool
-	Config                   notify.Config
-	Notification             notify.Notification
-	NotificationID           string
-	HasPayload               bool
+	ID, WorkspaceID, Status, Kind string
+	ChannelID                     *string
+	ChannelType                   string
+	ChannelEnabled                bool
+	Config                        notify.Config
+	Notification                  notify.Notification
+	NotificationID                string
+	HasPayload                    bool
 	// ReportDeleted: a report notification whose report is gone (deleted
 	// with its schedule; notifications.report_id is then NULL).
 	ReportDeleted bool
@@ -619,7 +619,7 @@ func (s *Store) LoadDelivery(ctx context.Context, id string) (Delivery, error) {
 		snapshot        []byte
 	)
 	err := s.Pool.QueryRow(ctx, `
-		SELECT d.id::text, d.user_id::text, d.status, n.kind, n.id::text, d.channel_id::text,
+		SELECT d.id::text, d.workspace_id::text, d.status, n.kind, n.id::text, d.channel_id::text,
 		       COALESCE(c.type, d.channel_type), c.enabled, c.config, c.secrets, n.payload, n.created_at,
 		       r.id::text, r.snapshot
 		FROM notification_deliveries d
@@ -627,7 +627,7 @@ func (s *Store) LoadDelivery(ctx context.Context, id string) (Delivery, error) {
 		LEFT JOIN notification_channels c ON c.id = d.channel_id
 		LEFT JOIN reports r ON r.id = n.report_id
 		WHERE d.id = $1
-	`, id).Scan(&d.ID, &d.UserID, &d.Status, &d.Kind, &d.NotificationID, &d.ChannelID, &d.ChannelType,
+	`, id).Scan(&d.ID, &d.WorkspaceID, &d.Status, &d.Kind, &d.NotificationID, &d.ChannelID, &d.ChannelType,
 		&enabled, &config, &secrets, &payload, &createdAt, &reportID, &snapshot)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, ErrNotFound

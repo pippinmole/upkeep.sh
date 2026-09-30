@@ -16,7 +16,7 @@ import (
 // are shown to users as is and are stable, so other producers can select
 // on them: server-side Syft (docs/tasks/phase-2a-image-vulns.md) picks up
 //
-//	WHERE owner_user_id IS NULL AND status = 'unavailable' AND reason = SBOMReasonNoAttestation
+//	WHERE owner_workspace_id IS NULL AND status = 'unavailable' AND reason = SBOMReasonNoAttestation
 //
 // and the agent round trip the SBOMReasonPrivate ones.
 const (
@@ -42,7 +42,7 @@ func (s *Store) ServerImageSBOMState(ctx context.Context, key ImageKey) (*ImageS
 	)
 	err := s.Pool.QueryRow(ctx, `
 		SELECT status, reason, attempts, next_attempt_at FROM image_sbom_state
-		WHERE owner_user_id IS NULL AND image_id = $1 AND os = $2 AND arch = $3 AND variant = $4
+		WHERE owner_workspace_id IS NULL AND image_id = $1 AND os = $2 AND arch = $3 AND variant = $4
 	`, key.ImageID, key.OS, key.Arch, key.Variant).Scan(&st.Status, &reason, &st.Attempts, &st.NextAttemptAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -78,7 +78,7 @@ func ImageKeysForSBOMTx(ctx context.Context, tx pgx.Tx, hostID, snapshotID strin
 	rows, err := tx.Query(ctx, `
 		SELECT DISTINCT hi.image_id, hi.os, hi.arch, hi.variant
 		FROM host_images hi
-		LEFT JOIN image_sbom_state s ON s.owner_user_id IS NULL
+		LEFT JOIN image_sbom_state s ON s.owner_workspace_id IS NULL
 			AND s.image_id = hi.image_id AND s.os = hi.os AND s.arch = hi.arch AND s.variant = hi.variant
 		WHERE hi.host_id = $1 AND hi.first_seen_snapshot_id = $2 AND hi.removed_at IS NULL
 		  AND hi.os IS NOT NULL AND cardinality(hi.repo_digests) > 0
@@ -105,12 +105,12 @@ func ImageKeysForSBOMTx(ctx context.Context, tx pgx.Tx, hostID, snapshotID strin
 func (s *Store) ImageSBOMSweep(ctx context.Context, limit int, retryDisabled bool) ([]ImageKey, error) {
 	rows, err := s.Pool.Query(ctx, `
 		(SELECT image_id, os, arch, variant FROM image_sbom_state
-		 WHERE owner_user_id IS NULL AND status <> 'ok'
+		 WHERE owner_workspace_id IS NULL AND status <> 'ok'
 		   AND (next_attempt_at <= now() OR ($2 AND reason = $3 AND next_attempt_at IS NULL)))
 		UNION
 		(SELECT hi.image_id, hi.os, hi.arch, hi.variant FROM host_images hi
 		 WHERE hi.removed_at IS NULL AND hi.os IS NOT NULL AND cardinality(hi.repo_digests) > 0
-		   AND NOT EXISTS (SELECT 1 FROM image_sbom_state s WHERE s.owner_user_id IS NULL
+		   AND NOT EXISTS (SELECT 1 FROM image_sbom_state s WHERE s.owner_workspace_id IS NULL
 			AND s.image_id = hi.image_id AND s.os = hi.os AND s.arch = hi.arch AND s.variant = hi.variant))
 		ORDER BY 1, 2, 3, 4
 		LIMIT $1

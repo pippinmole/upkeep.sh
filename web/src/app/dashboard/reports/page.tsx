@@ -1,13 +1,12 @@
 import { FileChartColumn, FileText } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader, SectionHeading } from "@/components/layout/page-header";
 import { CHANNELS_URL } from "@/components/notifications/links";
 import { Button } from "@/components/ui/button";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getChannels } from "@/lib/queries-notifications";
 import { getRecentReports, getReportSchedules } from "@/lib/queries-reports";
 
@@ -22,13 +21,11 @@ const RECENT = 10;
 // history is /dashboard/reports/schedules/[scheduleId]; one report is
 // /dashboard/reports/[id] (the link in emails and ntfy).
 export default async function ReportsPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
   const [channels, schedules, recent] = await Promise.all([
-    getChannels(userId),
-    getReportSchedules(userId),
-    getRecentReports(userId, RECENT),
+    getChannels(workspaceId),
+    getReportSchedules(workspaceId),
+    getRecentReports(workspaceId, RECENT),
   ]);
   const noChannels = channels.length === 0;
 

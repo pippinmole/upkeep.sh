@@ -14,6 +14,7 @@ const USERNAME_PATTERN = /^[a-zA-Z0-9_.]{3,30}$/;
 
 // Friendly copy for the Better Auth error codes a sign-up can hit.
 const SIGN_UP_ERRORS: Partial<Record<string, string>> = {
+  SIGN_UP_CLOSED: "Sign-up is closed. Ask an administrator to create your account.",
   USERNAME_IS_ALREADY_TAKEN: "That username is taken. Try another one.",
   USER_ALREADY_EXISTS: "An account with that email already exists. Sign in instead.",
   USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL:
@@ -48,11 +49,17 @@ export async function signUp(_prev: SignUpState, formData: FormData): Promise<Si
     return { error: "Use at least 8 characters for the password.", username, email };
   }
 
+  // Bootstrap only: once any account exists, lib/auth.ts refuses the
+  // sign-up (SIGN_UP_CLOSED) whatever this form sends. autoSignIn is off
+  // (admin-created accounts must not sign the admin in as them), so sign in
+  // explicitly afterwards.
   try {
+    const h = await headers();
     await authServer.api.signUpEmail({
       body: { email, password, name: username, username },
-      headers: await headers(),
+      headers: h,
     });
+    await authServer.api.signInUsername({ body: { username, password }, headers: h });
   } catch (err) {
     if (isAPIError(err)) {
       return {

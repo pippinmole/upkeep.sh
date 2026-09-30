@@ -1,6 +1,6 @@
 import { Info, Lock } from "lucide-react";
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import { RegistryLogo } from "@/components/brand";
 import { ContainerStateBadge, HostLink, hostName } from "@/components/docker-fleet/badges";
@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import {
   type SwarmService,
   type SwarmServicePort,
@@ -72,11 +72,10 @@ function portLabel(p: SwarmServicePort): string {
 }
 
 export default async function SwarmClusterPage({ params }: { params: Params }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const { workspaceId } = await requireViewer();
   const { clusterId } = await params;
 
-  const cluster = await getSwarmCluster(session.user.id, clusterId);
+  const cluster = await getSwarmCluster(workspaceId, clusterId);
   if (!cluster) notFound();
   const { summary, services, nodes } = cluster;
   const lockedManagers = nodes.filter((n) => n.state === "locked");

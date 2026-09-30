@@ -6,19 +6,19 @@ import { isUuid } from "./queries-inventory";
 // Host facts beyond packages (DOMAIN_MODEL.md §4.5, migration 0010):
 // services, listeners and local users as validity ranges (open range =
 // current), plus the newest snapshot's uptime and facts (unattended-upgrades,
-// processes on deleted libraries). Every query is scoped by hosts.user_id;
-// callers pass the userId from requireHost().
+// processes on deleted libraries). Every query is scoped by hosts.workspace_id;
+// callers pass the workspaceId from requireHost().
 
 // When a kind was last confirmed / changed (host_fact_state), or null when
 // the collector has never reported ok for this host.
 export type FactFreshness = { confirmedAt: string; changedAt: string } | null;
 
-async function freshness(userId: string, hostId: string, kinds: string[]) {
+async function freshness(workspaceId: string, hostId: string, kinds: string[]) {
   const { rows } = await pool.query<{ kind: string; confirmed_at: Date; changed_at: Date }>(
     `SELECT st.kind, st.confirmed_at, st.changed_at
      FROM hosts h JOIN host_fact_state st ON st.host_id = h.id
-     WHERE h.id = $2 AND h.user_id = $1 AND st.kind = ANY($3::text[])`,
-    [userId, hostId, kinds],
+     WHERE h.id = $2 AND h.workspace_id = $1 AND st.kind = ANY($3::text[])`,
+    [workspaceId, hostId, kinds],
   );
   const out: Record<string, FactFreshness> = {};
   for (const k of kinds) out[k] = null;
@@ -49,7 +49,7 @@ export type HostServiceRow = {
   since: string;
 };
 
-export async function getHostServices(userId: string, hostId: string) {
+export async function getHostServices(workspaceId: string, hostId: string) {
   if (!isUuid(hostId)) return { rows: [] as HostServiceRow[], freshness: null };
   const { rows } = await pool.query<{
     row_key: string;
@@ -67,11 +67,11 @@ export async function getHostServices(userId: string, hostId: string) {
             s.run_as, s.binary_path, s.attrs->>'activated_by' AS activated_by, s.first_seen_at
      FROM hosts h
      JOIN host_services s ON s.host_id = h.id AND s.removed_at IS NULL
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      ORDER BY s.name`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
-  const f = await freshness(userId, hostId, ["services:systemd"]);
+  const f = await freshness(workspaceId, hostId, ["services:systemd"]);
   return {
     rows: rows.map((r): HostServiceRow => ({
       key: r.row_key,
@@ -110,7 +110,7 @@ const WILDCARDS = new Set(["0.0.0.0", "::"]);
 const isLoopback = (a: string) =>
   a.startsWith("127.") || a === "::1" || a.startsWith("::ffff:127.");
 
-export async function getHostListeners(userId: string, hostId: string) {
+export async function getHostListeners(workspaceId: string, hostId: string) {
   if (!isUuid(hostId))
     return { rows: [] as HostListenerRow[], freshness: { tcp: null, udp: null } };
   const { rows } = await pool.query<{
@@ -125,11 +125,11 @@ export async function getHostListeners(userId: string, hostId: string) {
     `SELECT l.row_key, l.transport, l.proto, l.local_addr, l.port, l.process_name, l.first_seen_at
      FROM hosts h
      JOIN host_listeners l ON l.host_id = h.id AND l.removed_at IS NULL
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      ORDER BY l.port, l.proto, l.local_addr`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
-  const f = await freshness(userId, hostId, ["listeners:tcp", "listeners:udp"]);
+  const f = await freshness(workspaceId, hostId, ["listeners:tcp", "listeners:udp"]);
   return {
     rows: rows.map((r): HostListenerRow => ({
       key: r.row_key,
@@ -162,7 +162,7 @@ export type HostUserRow = {
   since: string;
 };
 
-export async function getHostUsers(userId: string, hostId: string) {
+export async function getHostUsers(workspaceId: string, hostId: string) {
   if (!isUuid(hostId)) return { rows: [] as HostUserRow[], freshness: null };
   const { rows } = await pool.query<{
     name: string;
@@ -178,11 +178,11 @@ export async function getHostUsers(userId: string, hostId: string) {
     `SELECT u.name, u.uid, u.gid, u.home, u.shell, u.groups, u.login_shell, u.admin, u.first_seen_at
      FROM hosts h
      JOIN host_users u ON u.host_id = h.id AND u.removed_at IS NULL
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      ORDER BY u.uid, u.name`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
-  const f = await freshness(userId, hostId, ["users:local"]);
+  const f = await freshness(workspaceId, hostId, ["users:local"]);
   return {
     rows: rows.map((r): HostUserRow => ({
       name: r.name,
@@ -232,7 +232,7 @@ export type HostSystem = {
 
 // cache(): the layout's header badges and the overview page share it.
 export const getHostSystem = cache(async function getHostSystem(
-  userId: string,
+  workspaceId: string,
   hostId: string,
 ): Promise<HostSystem | null> {
   if (!isUuid(hostId)) return null;
@@ -250,8 +250,8 @@ export const getHostSystem = cache(async function getHostSystem(
        ORDER BY collected_at DESC   -- snapshots_host_collected_idx
        LIMIT 1
      ) s ON true
-     WHERE h.id = $2 AND h.user_id = $1`,
-    [userId, hostId],
+     WHERE h.id = $2 AND h.workspace_id = $1`,
+    [workspaceId, hostId],
   );
   const r = rows[0];
   if (!r) return null;

@@ -2,14 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
 import { pool } from "@/lib/db";
 import { isUuid } from "@/lib/queries-inventory";
 import { getRemoteTarget, type RemoteTarget } from "@/lib/queries-remote";
+import { ForbiddenError, requireAdmin, type Viewer } from "@/lib/viewer";
 
 // Agent and host management (DOMAIN_MODEL.md §4.3 "Management"). Every
 // mutation is one call to a mgmt_* SQL function (migrations/0011), which
-// scopes every row it touches by the signed-in user's id; the Go
+// scopes every row it touches by the workspace's id (only admins get here); the Go
 // integration tests call the same functions, cross-tenant cases included.
 // Arguments are bound parameters; the function name is from the fixed
 // union below, never from input.
@@ -46,13 +46,24 @@ const MESSAGES: Record<string, string> = {
 
 const fail = (error: string) => ({ ok: false, error }) as const;
 
+// Every action here writes, so every one needs an admin (docs/MEMBERS.md).
+// A refusal comes back as a result the dialogs show, like any other error.
+async function admin(): Promise<Viewer | { ok: false; error: string }> {
+  try {
+    return await requireAdmin();
+  } catch (err) {
+    if (err instanceof ForbiddenError) return fail(err.message);
+    throw err;
+  }
+}
+
 async function call(fn: MgmtFn, args: unknown[]): Promise<ActionResult> {
-  const session = await auth();
-  if (!session?.user?.id) return fail("You are not signed in.");
+  const viewer = await admin();
+  if ("ok" in viewer) return viewer;
   const params = args.map((_, i) => `$${i + 2}`).join(", ");
   try {
     const { rows } = await pool.query<{ status: string }>(`SELECT ${fn}($1, ${params}) AS status`, [
-      session.user.id,
+      viewer.workspaceId,
       ...args,
     ]);
     const status = rows[0]?.status;
@@ -132,13 +143,13 @@ export async function addRemoteHost(input: {
   ) {
     return bad;
   }
-  const session = await auth();
-  if (!session?.user?.id) return fail("You are not signed in.");
+  const viewer = await admin();
+  if ("ok" in viewer) return viewer;
   let status: string | undefined;
   try {
     const { rows } = await pool.query<{ status: string }>(
       `SELECT mgmt_add_remote_host($1, $2, $3, $4, $5, $6) AS status`,
-      [session.user.id, agentId, address, port, username, label],
+      [viewer.workspaceId, agentId, address, port, username, label],
     );
     status = rows[0]?.status;
   } catch (err) {
@@ -173,7 +184,7 @@ export async function fetchRemoteTarget(
   hostId: string,
 ): Promise<RemoteTarget | null> {
   if (!ids(agentId, hostId)) return null;
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  return getRemoteTarget(session.user.id, agentId, hostId);
+  const viewer = await admin();
+  if ("ok" in viewer) return null;
+  return getRemoteTarget(viewer.workspaceId, agentId, hostId);
 }

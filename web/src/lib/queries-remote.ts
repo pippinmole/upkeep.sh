@@ -25,13 +25,13 @@ export type CollectorAgent = {
 
 // The user's agents that aren't revoked, for "Reach it from an existing
 // agent".
-export async function getCollectorAgents(userId: string): Promise<CollectorAgent[]> {
+export async function getCollectorAgents(workspaceId: string): Promise<CollectorAgent[]> {
   const { rows } = await pool.query<CollectorAgent>(
     `SELECT a.id, a.name, ${AGENT_STATUS_SQL} AS status
      FROM agents a
-     WHERE a.user_id = $1 AND a.revoked_at IS NULL
+     WHERE a.workspace_id = $1 AND a.revoked_at IS NULL
      ORDER BY a.last_seen_at DESC NULLS LAST, a.name`,
-    [userId],
+    [workspaceId],
   );
   return rows;
 }
@@ -48,18 +48,18 @@ export type HostCollector = {
 // remote. Remote hosts lack Docker, listeners etc. (docs/tasks/phase-1-6-docker-exposure.md),
 // so pages use this to say why. cache(): layout + tab pages share it.
 export const getHostCollectors = cache(async function getHostCollectors(
-  userId: string,
+  workspaceId: string,
   hostId: string,
 ): Promise<HostCollector[]> {
   if (!isUuid(hostId)) return [];
   const { rows } = await pool.query<HostCollector>(
     `SELECT a.id, a.name, ${AGENT_STATUS_SQL} AS status, ah.mode
      FROM agent_hosts ah
-     JOIN agents a ON a.id = ah.agent_id AND a.user_id = $1
-     JOIN hosts h ON h.id = ah.host_id AND h.user_id = $1
+     JOIN agents a ON a.id = ah.agent_id AND a.workspace_id = $1
+     JOIN hosts h ON h.id = ah.host_id AND h.workspace_id = $1
      WHERE ah.host_id = $2
      ORDER BY a.revoked_at IS NOT NULL, ah.mode <> 'local', a.name`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
   return rows;
 });
@@ -115,9 +115,9 @@ type Row = {
 };
 
 // One remote assignment of the user's, or null. Scoped by both the
-// agent's and the host's user_id.
+// agent's and the host's workspace_id.
 export async function getRemoteTarget(
-  userId: string,
+  workspaceId: string,
   agentId: string,
   hostId: string,
 ): Promise<RemoteTarget | null> {
@@ -127,10 +127,10 @@ export async function getRemoteTarget(
             ah.address, ah.port, ah.username, ah.host_key, ah.host_key_pending,
             ah.last_attempt_at, ah.last_collected_at, ah.last_error_code, ah.last_error
      FROM agent_hosts ah
-     JOIN agents a ON a.id = ah.agent_id AND a.user_id = $1
-     JOIN hosts h ON h.id = ah.host_id AND h.user_id = $1
+     JOIN agents a ON a.id = ah.agent_id AND a.workspace_id = $1
+     JOIN hosts h ON h.id = ah.host_id AND h.workspace_id = $1
      WHERE ah.agent_id = $2 AND ah.host_id = $3 AND ah.mode <> 'local'`,
-    [userId, agentId, hostId],
+    [workspaceId, agentId, hostId],
   );
   const r = rows[0];
   if (!r) return null;

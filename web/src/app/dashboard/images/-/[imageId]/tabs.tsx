@@ -38,17 +38,17 @@ function sortOf<T extends string>(state: DataTableServerState, allowed: readonly
 }
 
 export async function PackagesTab({
-  userId,
+  workspaceId,
   imageKey,
   sp,
 }: {
-  userId: string;
+  workspaceId: string;
   imageKey: ImageKey;
   sp: SearchParams;
 }) {
   const state = tableStateFromParams(sp, PACKAGES_TABLE);
-  const ecosystems = await getImageEcosystems(userId, imageKey);
-  const { rows, total } = await getImagePackages(userId, imageKey, {
+  const ecosystems = await getImageEcosystems(workspaceId, imageKey);
+  const { rows, total } = await getImagePackages(workspaceId, imageKey, {
     q: state.globalFilter || null,
     ecosystems: facet(
       state,
@@ -64,12 +64,12 @@ export async function PackagesTab({
 }
 
 export async function VulnsTab({
-  userId,
+  workspaceId,
   imageKey,
   sp,
   notAssessed,
 }: {
-  userId: string;
+  workspaceId: string;
   imageKey: ImageKey;
   sp: SearchParams;
   notAssessed: number;
@@ -78,7 +78,7 @@ export async function VulnsTab({
   const severities = facet(state, "severity", SEVERITIES);
   const kev = facet(state, "kev", ["1"]) !== null;
   const fix = facet(state, "fix", IMAGE_VULN_FIXES);
-  const { rows, total } = await getImageVulns(userId, imageKey, {
+  const { rows, total } = await getImageVulns(workspaceId, imageKey, {
     q: state.globalFilter || null,
     severities,
     kev,

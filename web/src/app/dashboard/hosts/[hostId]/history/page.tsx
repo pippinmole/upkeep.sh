@@ -142,15 +142,15 @@ export default async function HostHistoryPage({
 }) {
   const { hostId } = await params;
   const sp = await searchParams;
-  const { userId, host } = await requireHost(hostId);
+  const { workspaceId, host } = await requireHost(hostId);
   const before = parseAt(param(sp, "before"));
 
   // Two timelines, packages and Docker (containers / images), each paged
   // the same way; the page is the newest BOUNDARIES_PER_PAGE boundaries of
   // their union, so each side's first page covers it.
   const [pkg, docker] = await Promise.all([
-    getHostHistory(userId, host.id, { before, limit: BOUNDARIES_PER_PAGE }),
-    getHostDockerHistory(userId, host.id, { before, limit: BOUNDARIES_PER_PAGE }),
+    getHostHistory(workspaceId, host.id, { before, limit: BOUNDARIES_PER_PAGE }),
+    getHostDockerHistory(workspaceId, host.id, { before, limit: BOUNDARIES_PER_PAGE }),
   ]);
   // at strings are fixed-width UTC, so string order == time order.
   const allAts = [
@@ -222,7 +222,7 @@ export default async function HostHistoryPage({
   const pairs = perBoundary.flatMap((x) =>
     x.changes.filter(isPair).map((c) => ({ from: c.from.softwareId, to: c.to.softwareId })),
   );
-  const effects = await getChangeEffects(userId, host.id, pairs);
+  const effects = await getChangeEffects(workspaceId, host.id, pairs);
 
   const days = ats.map((at) => formatDate(at));
   return (

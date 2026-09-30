@@ -14,7 +14,9 @@ import { AGENT_STATUS_SQL } from "./queries";
 // - staleAgents: agents that went quiet or never reported, not revoked.
 // - failedDeliveries: deliveries that gave up, in the last 7 days.
 // - hasSwarm: as queries-docker-fleet.ts hasSwarm.
-export const getNavCounts = cache(async function getNavCounts(userId: string): Promise<NavCounts> {
+export const getNavCounts = cache(async function getNavCounts(
+  workspaceId: string,
+): Promise<NavCounts> {
   const { rows } = await pool.query<{
     vulns_urgent: string;
     stale_hosts: string;
@@ -23,7 +25,7 @@ export const getNavCounts = cache(async function getNavCounts(userId: string): P
     has_swarm: boolean;
   }>(
     `WITH agent_status AS (
-       SELECT a.id, ${AGENT_STATUS_SQL} AS status FROM agents a WHERE a.user_id = $1
+       SELECT a.id, ${AGENT_STATUS_SQL} AS status FROM agents a WHERE a.workspace_id = $1
      ), host_agents AS (
        SELECT ah.host_id,
               bool_or(s.status = 'online') AS any_online,
@@ -34,22 +36,22 @@ export const getNavCounts = cache(async function getNavCounts(userId: string): P
      SELECT
        (SELECT count(DISTINCT f.vuln_key)
         FROM hosts h JOIN findings f ON f.host_id = h.id
-        WHERE h.user_id = $1 AND h.archived_at IS NULL
+        WHERE h.workspace_id = $1 AND h.archived_at IS NULL
           AND f.kind = 'vulnerable_package' AND f.status = 'open'
           AND (f.is_kev OR f.severity = 'critical')) AS vulns_urgent,
        (SELECT count(*)
         FROM hosts h JOIN host_agents ha ON ha.host_id = h.id
-        WHERE h.user_id = $1 AND h.archived_at IS NULL
+        WHERE h.workspace_id = $1 AND h.archived_at IS NULL
           AND ha.any_active AND NOT ha.any_online) AS stale_hosts,
        (SELECT count(*) FROM agent_status WHERE status IN ('stale', 'never')) AS stale_agents,
        (SELECT count(*) FROM notification_deliveries d
-        WHERE d.user_id = $1 AND d.status = 'failed'
+        WHERE d.workspace_id = $1 AND d.status = 'failed'
           AND d.created_at > now() - interval '7 days') AS failed_deliveries,
-       EXISTS (SELECT 1 FROM swarm_clusters sc WHERE sc.user_id = $1)
+       EXISTS (SELECT 1 FROM swarm_clusters sc WHERE sc.workspace_id = $1)
          OR EXISTS (SELECT 1 FROM hosts h JOIN host_docker hd ON hd.host_id = h.id
-                    WHERE h.user_id = $1 AND h.archived_at IS NULL
+                    WHERE h.workspace_id = $1 AND h.archived_at IS NULL
                       AND hd.swarm_state IS NOT NULL) AS has_swarm`,
-    [userId],
+    [workspaceId],
   );
   const r = rows[0];
   return {

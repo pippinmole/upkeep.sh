@@ -1,10 +1,9 @@
 import { ArrowRight, RadioTower, Server } from "lucide-react";
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getAgentsWithHosts } from "@/lib/queries";
 
 import { AgentsTable } from "./agents-table";
@@ -18,10 +17,9 @@ export const metadata: Metadata = {
 // The machine list is /dashboard/hosts; both pages open the same
 // enrollment dialog (Q15).
 export default async function AgentsPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const { workspaceId } = await requireViewer();
 
-  const agents = await getAgentsWithHosts(session.user.id);
+  const agents = await getAgentsWithHosts(workspaceId);
 
   // Same source of truth the docker-compose.dev/prod stacks use to tell
   // the browser bundle where the API lives; the agent needs the same URL.

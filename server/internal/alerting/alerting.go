@@ -29,23 +29,23 @@ const MaxEventsPerNotification = 200
 
 // Rule is an alert_rules row.
 type Rule struct {
-	ID, UserID, Name string
-	EventTypes       []string
-	MinSeverityRank  int // 0 = any
-	KEVOnly          bool
-	HostIDs          []string // nil = all hosts
-	DedupWindow      time.Duration
-	Digest           bool
-	DigestInterval   time.Duration
-	LastDigestAt     *time.Time
-	CreatedAt        time.Time
-	FindingKinds     []string // findings.kind of finding events (alert_rules.finding_kinds); nil = any
+	ID, WorkspaceID, Name string
+	EventTypes            []string
+	MinSeverityRank       int // 0 = any
+	KEVOnly               bool
+	HostIDs               []string // nil = all hosts
+	DedupWindow           time.Duration
+	Digest                bool
+	DigestInterval        time.Duration
+	LastDigestAt          *time.Time
+	CreatedAt             time.Time
+	FindingKinds          []string // findings.kind of finding events (alert_rules.finding_kinds); nil = any
 }
 
 // EventMeta is what rule matching needs to know about an alert_events row.
 type EventMeta struct {
 	ID           int64
-	UserID       string
+	WorkspaceID  string
 	Type         string
 	Subject      string
 	HostIDs      []string
@@ -62,7 +62,7 @@ func IsFindingEvent(t string) bool { return strings.HasPrefix(t, "finding.") }
 // Match reports whether rule r selects event e. The caller has already
 // checked the rule is enabled.
 func Match(r Rule, e EventMeta) bool {
-	if r.UserID != e.UserID || !slices.Contains(r.EventTypes, e.Type) {
+	if r.WorkspaceID != e.WorkspaceID || !slices.Contains(r.EventTypes, e.Type) {
 		return false
 	}
 	if IsFindingEvent(e.Type) {

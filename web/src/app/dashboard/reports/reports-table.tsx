@@ -29,6 +29,7 @@ import type { ChannelRow } from "@/lib/queries-notifications";
 import type { ScheduleRow } from "@/lib/queries-reports";
 import { cadenceSummary, formatRunAt, NEXT_RUN_PENDING } from "@/lib/report-schedules";
 import { formatDateTime, relativeTime } from "@/lib/time";
+import { adminOnly } from "@/components/viewer-context";
 
 import {
   deleteReportSchedule,
@@ -119,7 +120,7 @@ export function useSendNow(schedule: Pick<ScheduleRow, "id" | "channels">) {
   return { send, dialog };
 }
 
-export function SendNowButton({ schedule }: { schedule: Pick<ScheduleRow, "id" | "channels"> }) {
+function SendNowButtonControl({ schedule }: { schedule: Pick<ScheduleRow, "id" | "channels"> }) {
   const { send, dialog } = useSendNow(schedule);
   return (
     <>
@@ -134,7 +135,7 @@ export function SendNowButton({ schedule }: { schedule: Pick<ScheduleRow, "id" |
 
 type Ctx = { channels: ChannelRow[] };
 
-function ScheduleActions({ schedule, ctx }: { schedule: ScheduleRow; ctx: Ctx }) {
+function ScheduleActionsControl({ schedule, ctx }: { schedule: ScheduleRow; ctx: Ctx }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [, startToggle] = useTransition();
@@ -268,7 +269,7 @@ function makeColumns(ctx: Ctx) {
 
 // A schedule needs somewhere to send to: disabled, with the reason on
 // hover, until a channel exists (same as AddRuleButton).
-export function AddScheduleButton(ctx: Ctx) {
+function AddScheduleButtonControl(ctx: Ctx) {
   const [open, setOpen] = useState(false);
   const noChannels = ctx.channels.length === 0;
   return (
@@ -295,3 +296,8 @@ export function ReportsTable({ schedules, ...ctx }: { schedules: ScheduleRow[] }
     />
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+export const SendNowButton = adminOnly(SendNowButtonControl);
+const ScheduleActions = adminOnly(ScheduleActionsControl);
+export const AddScheduleButton = adminOnly(AddScheduleButtonControl);

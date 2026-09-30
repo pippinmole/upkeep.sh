@@ -7,7 +7,7 @@ roughly by when they were made.
 - [Ingest API in Go, not Next.js API routes](ingest-api-in-go.md) — the agent protocol and background workers live in a persistent Go process, not Next.js route handlers.
 - [Direct Postgres reads from Next.js](direct-postgres-reads.md) — the dashboard reads Postgres directly from server-side Next.js; writes are split by table; caching via revalidation if ever needed.
 - [Auth: self-hosted Better Auth, not a managed vendor (Clerk/Auth0)](auth-self-hosted.md) — self-hosted Better Auth (username + password, database sessions), so the product doesn't depend on an auth vendor.
-- [Single-user tenancy for MVP (no orgs/teams)](single-user-tenancy.md) — hosts belong directly to a user; an organization layer can be migrated in later.
+- [Single-user tenancy for MVP (no orgs/teams)](single-user-tenancy.md) — hosts belong directly to a user; an organization layer can be migrated in later. **Superseded** by [MEMBERS.md](../MEMBERS.md): one shared workspace per install with roles.
 - [Billing deferred](billing-deferred.md) — free during beta, no Stripe or plan-gating fields until billing is built.
 - [Email notifier: SMTP settings per channel, not platform config](email-notifier-smtp.md) — each email channel carries its own SMTP server; STARTTLS by default, no platform SMTP config.
 - [Port exposure: host-side analysis, not an external scanner (MVP)](port-exposure.md) — classify exposure from host facts (listeners, ufw, Docker ports); external scanner deferred to Phase 2+.

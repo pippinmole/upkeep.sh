@@ -27,14 +27,14 @@ func TestReportInputs(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	var userID string
-	if err := db.QueryRow(ctx, `SELECT user_id FROM hosts WHERE id = $1`, f.hostID).Scan(&userID); err != nil {
+	var workspaceID string
+	if err := db.QueryRow(ctx, `SELECT workspace_id FROM hosts WHERE id = $1`, f.hostID).Scan(&workspaceID); err != nil {
 		t.Fatal(err)
 	}
 	img1, img2 := "sha256:"+f.distro+"-app", "sha256:"+f.distro+"-private"
 	t.Cleanup(func() {
 		// Before the fixture's cleanup: host_images reference the keys.
-		_, _ = db.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+		_, _ = db.Exec(context.Background(), `DELETE FROM workspaces WHERE id = $1`, workspaceID)
 		_, _ = db.Exec(context.Background(), `DELETE FROM container_images WHERE image_id = ANY($1)`, []string{img1, img2})
 	})
 
@@ -47,11 +47,11 @@ func TestReportInputs(t *testing.T) {
 	// data must not show anywhere.
 	web := f.hostID
 	exec(`UPDATE hosts SET label = 'web-1' WHERE id = $1`, web)
-	dbHost, err := f.s.CreateHost(ctx, userID, "db-1")
+	dbHost, err := f.s.CreateHost(ctx, workspaceID, "db-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	archived, err := f.s.CreateHost(ctx, userID, "old-1")
+	archived, err := f.s.CreateHost(ctx, workspaceID, "old-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,8 +61,8 @@ func TestReportInputs(t *testing.T) {
 	// 60s interval), the archived host's is stale but covers nothing.
 	agent := func(name string, lastSeen time.Time, hosts ...string) string {
 		var id string
-		if err := db.QueryRow(ctx, `INSERT INTO agents (user_id, name, push_interval_seconds, last_seen_at)
-			VALUES ($1, $2, 60, $3) RETURNING id`, userID, name, lastSeen).Scan(&id); err != nil {
+		if err := db.QueryRow(ctx, `INSERT INTO agents (workspace_id, name, push_interval_seconds, last_seen_at)
+			VALUES ($1, $2, 60, $3) RETURNING id`, workspaceID, name, lastSeen).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		for _, h := range hosts {
@@ -165,7 +165,7 @@ func TestReportInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in, err := f.s.LoadReportInputs(ctx, tx, userID, period)
+	in, err := f.s.LoadReportInputs(ctx, tx, workspaceID, period)
 	_ = tx.Rollback(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -236,8 +236,8 @@ func TestReportInputs(t *testing.T) {
 
 	// The schedule's latest report is the one to compare with.
 	var schedID string
-	if err := db.QueryRow(ctx, `INSERT INTO report_schedules (user_id, name, cadence, weekday, hour, timezone)
-		VALUES ($1, 'Weekly', 'weekly', 1, 7, 'UTC') RETURNING id`, userID).Scan(&schedID); err != nil {
+	if err := db.QueryRow(ctx, `INSERT INTO report_schedules (workspace_id, name, cadence, weekday, hour, timezone)
+		VALUES ($1, 'Weekly', 'weekly', 1, 7, 'UTC') RETURNING id`, workspaceID).Scan(&schedID); err != nil {
 		t.Fatal(err)
 	}
 	tx, err = f.s.BeginReportRead(ctx)
@@ -254,10 +254,10 @@ func TestReportInputs(t *testing.T) {
 	}
 	var newest string
 	for i, at := range []time.Time{ago(14 * day), ago(7 * day)} {
-		if err := db.QueryRow(ctx, `INSERT INTO reports (schedule_id, user_id, generated_at, period_start, period_end,
+		if err := db.QueryRow(ctx, `INSERT INTO reports (schedule_id, workspace_id, generated_at, period_start, period_end,
 				ranking_version, snapshot, trigger)
 			VALUES ($1, $2, $3, $3, $3, $4, $5, 'scheduled') RETURNING id`,
-			schedID, userID, at, reports.RankingVersion, raw).Scan(&newest); err != nil {
+			schedID, workspaceID, at, reports.RankingVersion, raw).Scan(&newest); err != nil {
 			t.Fatal(i, err)
 		}
 	}

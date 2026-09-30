@@ -28,13 +28,13 @@ func (f *alertFixture) schedule(name, tz string, nextRunAt *time.Time, channels 
 	f.t.Helper()
 	var id string
 	if err := f.s.Pool.QueryRow(context.Background(), `
-		INSERT INTO report_schedules (user_id, name, cadence, weekday, hour, timezone, next_run_at)
+		INSERT INTO report_schedules (workspace_id, name, cadence, weekday, hour, timezone, next_run_at)
 		VALUES ($1, $2, 'weekly', 1, 7, $3, $4) RETURNING id
-	`, f.userID, name, tz, nextRunAt).Scan(&id); err != nil {
+	`, f.workspaceID, name, tz, nextRunAt).Scan(&id); err != nil {
 		f.t.Fatal(err)
 	}
 	for _, c := range channels {
-		f.exec(`INSERT INTO report_schedule_channels (schedule_id, channel_id, user_id) VALUES ($1, $2, $3)`, id, c, f.userID)
+		f.exec(`INSERT INTO report_schedule_channels (schedule_id, channel_id, workspace_id) VALUES ($1, $2, $3)`, id, c, f.workspaceID)
 	}
 	return id
 }
@@ -102,8 +102,8 @@ func TestReportJobs(t *testing.T) {
 		_ = client.Stop(stopCtx)
 		_, _ = f.s.Pool.Exec(context.Background(), `
 			DELETE FROM river_job WHERE id = ANY ($1) OR (kind = 'alert_deliver' AND args->>'delivery_id' IN (
-				SELECT id::text FROM notification_deliveries WHERE user_id = $2))
-		`, jobIDs, f.userID)
+				SELECT id::text FROM notification_deliveries WHERE workspace_id = $2))
+		`, jobIDs, f.workspaceID)
 	})
 
 	// run inserts a job and waits for River to finish it.
@@ -318,9 +318,9 @@ func TestPruneReports(t *testing.T) {
 		at := now.Add(-age)
 		var id string
 		if err := f.s.Pool.QueryRow(ctx, `
-			INSERT INTO reports (schedule_id, user_id, generated_at, period_start, period_end, ranking_version, snapshot, previous_report_id, trigger)
+			INSERT INTO reports (schedule_id, workspace_id, generated_at, period_start, period_end, ranking_version, snapshot, previous_report_id, trigger)
 			VALUES ($1, $2, $3, $3, $3, 1, '{}', $4, 'scheduled') RETURNING id
-		`, scheduleID, f.userID, at, prev).Scan(&id); err != nil {
+		`, scheduleID, f.workspaceID, at, prev).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		return id
@@ -336,8 +336,8 @@ func TestPruneReports(t *testing.T) {
 	// possible with the real retentions, 90 days vs a year, but the FK
 	// must still leave the log row alone).
 	var nid string
-	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO notifications (user_id, kind, report_id) VALUES ($1, 'report', $2) RETURNING id`,
-		f.userID, expired).Scan(&nid); err != nil {
+	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO notifications (workspace_id, kind, report_id) VALUES ($1, 'report', $2) RETURNING id`,
+		f.workspaceID, expired).Scan(&nid); err != nil {
 		t.Fatal(err)
 	}
 

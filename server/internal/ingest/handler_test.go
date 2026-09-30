@@ -88,17 +88,17 @@ func TestEnrollAndPushHTTP(t *testing.T) {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	tag := "swtest-" + hex.EncodeToString(b)
-	var userID string
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-		tag+"@test.invalid").Scan(&userID); err != nil {
+	var workspaceID string
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+		tag+"@test.invalid").Scan(&workspaceID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = s.Pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+		_, _ = s.Pool.Exec(context.Background(), `DELETE FROM workspaces WHERE id = $1`, workspaceID)
 		s.Close()
 	})
-	if _, err := s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, user_id, expires_at) VALUES ($1, $2, now() + interval '1 hour')`,
-		tag, userID); err != nil {
+	if _, err := s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, workspace_id, expires_at) VALUES ($1, $2, now() + interval '1 hour')`,
+		tag, workspaceID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,7 +123,7 @@ func TestEnrollAndPushHTTP(t *testing.T) {
 		t.Fatalf("enroll response %s: %v", rec.Body, err)
 	}
 	var hosts int
-	_ = s.Pool.QueryRow(ctx, `SELECT count(*) FROM hosts WHERE user_id = $1`, userID).Scan(&hosts)
+	_ = s.Pool.QueryRow(ctx, `SELECT count(*) FROM hosts WHERE workspace_id = $1`, workspaceID).Scan(&hosts)
 	if hosts != 0 {
 		t.Fatalf("enroll created %d hosts", hosts)
 	}
@@ -142,7 +142,7 @@ func TestEnrollAndPushHTTP(t *testing.T) {
 		WHERE ah.agent_id = $1 AND ah.mode = 'local'`, creds.AgentID).Scan(&hostname, &fam); err != nil {
 		t.Fatal(err)
 	}
-	_ = s.Pool.QueryRow(ctx, `SELECT count(*) FROM hosts WHERE user_id = $1`, userID).Scan(&hosts)
+	_ = s.Pool.QueryRow(ctx, `SELECT count(*) FROM hosts WHERE workspace_id = $1`, workspaceID).Scan(&hosts)
 	if hosts != 1 || hostname != "c0ffee" || fam != "linux" {
 		t.Errorf("after v1 pushes: %d hosts, hostname %q, family %q", hosts, hostname, fam)
 	}

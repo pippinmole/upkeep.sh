@@ -16,10 +16,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { AgentWithHosts } from "@/lib/queries";
 import { formatDate } from "@/lib/time";
+import { adminOnly } from "@/components/viewer-context";
 
 // Per-agent actions: request a credential rotation (the agent rotates on
 // its next push; PROTOCOL.md "Credential rotation") and revoke.
-export function AgentRowActions({ agent }: { agent: AgentWithHosts }) {
+function AgentRowActionsControl({ agent }: { agent: AgentWithHosts }) {
   const [dialog, setDialog] = useState<"rotate" | "revoke" | null>(null);
   const revoked = agent.status === "revoked";
   const set = (d: typeof dialog) => (open: boolean) => setDialog(open ? d : null);
@@ -105,3 +106,6 @@ export function AgentRowActions({ agent }: { agent: AgentWithHosts }) {
     </>
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+export const AgentRowActions = adminOnly(AgentRowActionsControl);

@@ -36,6 +36,7 @@ import { vulnHref } from "@/components/vuln/links";
 
 import { Shortcut } from "./search";
 import { useSearch } from "./search-provider";
+import { useViewer } from "./viewer-context";
 
 // Advisory id prefixes that open a vulnerability page directly.
 const VULN_ID = /^(CVE|GHSA|USN|DSA|DLA|ALSA|RHSA)-/i;
@@ -66,6 +67,8 @@ export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
   const { toggleSidebar } = useSidebar();
   const { open, setOpen } = useSearch();
   const [query, setQuery] = React.useState("");
+  // The actions all lead to write controls, which members don't get.
+  const { isAdmin } = useViewer();
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
@@ -134,9 +137,9 @@ export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
               ))}
             </CommandGroup>
           ))}
-          <CommandSeparator />
-          <CommandGroup heading="Actions">
-            {ACTIONS.map((a) => (
+          {isAdmin && <CommandSeparator />}
+          <CommandGroup heading="Actions" hidden={!isAdmin}>
+            {(isAdmin ? ACTIONS : []).map((a) => (
               <CommandItem
                 key={a.title}
                 value={a.title}

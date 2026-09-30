@@ -7,10 +7,11 @@ import { detachHost } from "@/app/dashboard/manage-actions";
 import { ActionDialog } from "@/components/action-dialog";
 import { Button } from "@/components/ui/button";
 import type { AgentHostRow, AgentWithHosts } from "@/lib/queries";
+import { adminOnly } from "@/components/viewer-context";
 
 // Remove an inactive (revoked or stale) agent's assignment to a host, e.g.
 // the old agent left on a host after a reinstall was merged into it.
-export function DetachHostButton({ agent, host }: { agent: AgentWithHosts; host: AgentHostRow }) {
+function DetachHostButtonControl({ agent, host }: { agent: AgentWithHosts; host: AgentHostRow }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -45,3 +46,6 @@ export function DetachHostButton({ agent, host }: { agent: AgentWithHosts; host:
     </>
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+export const DetachHostButton = adminOnly(DetachHostButtonControl);

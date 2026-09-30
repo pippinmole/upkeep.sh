@@ -101,13 +101,15 @@ func (s *Store) EnrollAgent(ctx context.Context, in EnrollInput) (agentID string
 	}
 	defer tx.Rollback(ctx)
 
-	var userID string
-	var tokenName *string
+	// The token belongs to the workspace; created_by (the admin who issued
+	// it, NULL once that user is removed) is kept on the agent as enrolled_by.
+	var workspaceID string
+	var tokenName, issuedBy *string
 	if err := tx.QueryRow(ctx, `
 		DELETE FROM enrollment_tokens
 		WHERE token = $1 AND expires_at > now()
-		RETURNING user_id, agent_name
-	`, in.Token).Scan(&userID, &tokenName); err != nil {
+		RETURNING workspace_id, agent_name, created_by
+	`, in.Token).Scan(&workspaceID, &tokenName, &issuedBy); err != nil {
 		return "", err
 	}
 	name := in.Hostname
@@ -118,10 +120,10 @@ func (s *Store) EnrollAgent(ctx context.Context, in EnrollInput) (agentID string
 		name = "unknown-host"
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO agents (user_id, name, agent_version, platform)
-		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''))
+		INSERT INTO agents (workspace_id, name, agent_version, platform, enrolled_by)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5)
 		RETURNING id
-	`, userID, name, in.Version, in.Platform).Scan(&agentID); err != nil {
+	`, workspaceID, name, in.Version, in.Platform, issuedBy).Scan(&agentID); err != nil {
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO agent_credentials (agent_id, secret_hash) VALUES ($1, $2)`,
@@ -164,8 +166,8 @@ type HostResolution struct {
 // the agent as seen. Runs inside the snapshot transaction; the agent row
 // is locked first, so one agent's pushes resolve one at a time.
 func resolveHost(ctx context.Context, tx pgx.Tx, agentID string, claim HostClaim, rep AgentReport) (res HostResolution, err error) {
-	var userID, agentName string
-	err = tx.QueryRow(ctx, `SELECT user_id, name FROM agents WHERE id = $1 FOR UPDATE`, agentID).Scan(&userID, &agentName)
+	var workspaceID, agentName string
+	err = tx.QueryRow(ctx, `SELECT workspace_id, name FROM agents WHERE id = $1 FOR UPDATE`, agentID).Scan(&workspaceID, &agentName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return res, ErrAgentNotFound
 	} else if err != nil {
@@ -177,9 +179,9 @@ func resolveHost(ctx context.Context, tx pgx.Tx, agentID string, claim HostClaim
 		ref = LocalRef
 	}
 	if ref == LocalRef {
-		res, err = resolveLocalHost(ctx, tx, userID, agentID, agentName, claim)
+		res, err = resolveLocalHost(ctx, tx, workspaceID, agentID, agentName, claim)
 	} else {
-		res, err = resolveRemoteHost(ctx, tx, userID, agentID, ref, claim)
+		res, err = resolveRemoteHost(ctx, tx, workspaceID, agentID, ref, claim)
 	}
 	if err != nil {
 		return res, err
@@ -207,12 +209,12 @@ func resolveHost(ctx context.Context, tx pgx.Tx, agentID string, claim HostClaim
 	return res, nil
 }
 
-func resolveLocalHost(ctx context.Context, tx pgx.Tx, userID, agentID, agentName string, claim HostClaim) (res HostResolution, err error) {
+func resolveLocalHost(ctx context.Context, tx pgx.Tx, workspaceID, agentID, agentName string, claim HostClaim) (res HostResolution, err error) {
 	// The identity is serialised per (user, kind, value) so two agents
 	// claiming the same machine-id at once resolve one after the other.
 	if claim.MachineID != "" {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-			"host_identity:"+userID+":"+IdentityMachineID+":"+claim.MachineID); err != nil {
+			"host_identity:"+workspaceID+":"+IdentityMachineID+":"+claim.MachineID); err != nil {
 			return res, err
 		}
 	}
@@ -223,7 +225,7 @@ func resolveLocalHost(ctx context.Context, tx pgx.Tx, userID, agentID, agentName
 		return res, err
 	}
 
-	owner, err := identityOwner(ctx, tx, userID, IdentityMachineID, claim.MachineID)
+	owner, err := identityOwner(ctx, tx, workspaceID, IdentityMachineID, claim.MachineID)
 	if err != nil {
 		return res, err
 	}
@@ -234,7 +236,7 @@ func resolveLocalHost(ctx context.Context, tx pgx.Tx, userID, agentID, agentName
 		switch {
 		case claim.MachineID == "" || owner == current:
 		case owner == "":
-			if err := addIdentity(ctx, tx, userID, IdentityMachineID, claim.MachineID, current); err != nil {
+			if err := addIdentity(ctx, tx, workspaceID, IdentityMachineID, claim.MachineID, current); err != nil {
 				return res, err
 			}
 		default:
@@ -285,14 +287,14 @@ func resolveLocalHost(ctx context.Context, tx pgx.Tx, userID, agentID, agentName
 	if owner != "" {
 		dup = owner
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO hosts (user_id, hostname, duplicate_of) VALUES ($1, $2, $3) RETURNING id`,
-		userID, hostname, dup).Scan(&res.HostID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO hosts (workspace_id, hostname, duplicate_of) VALUES ($1, $2, $3) RETURNING id`,
+		workspaceID, hostname, dup).Scan(&res.HostID); err != nil {
 		return res, err
 	}
 	res.Created = true
 	res.DuplicateOf = owner
 	if owner == "" && claim.MachineID != "" {
-		if err := addIdentity(ctx, tx, userID, IdentityMachineID, claim.MachineID, res.HostID); err != nil {
+		if err := addIdentity(ctx, tx, workspaceID, IdentityMachineID, claim.MachineID, res.HostID); err != nil {
 			return res, err
 		}
 	}
@@ -302,7 +304,7 @@ func resolveLocalHost(ctx context.Context, tx pgx.Tx, userID, agentID, agentName
 // resolveRemoteHost maps a remote target ref to its assignment, created
 // up front in the dashboard (mgmt_add_remote_host, migration 0012). A
 // push can never create one implicitly: an unknown ref is refused.
-func resolveRemoteHost(ctx context.Context, tx pgx.Tx, userID, agentID, ref string, claim HostClaim) (res HostResolution, err error) {
+func resolveRemoteHost(ctx context.Context, tx pgx.Tx, workspaceID, agentID, ref string, claim HostClaim) (res HostResolution, err error) {
 	err = tx.QueryRow(ctx, `
 		SELECT host_id FROM agent_hosts WHERE agent_id = $1 AND target_ref = $2 AND enabled
 	`, agentID, ref).Scan(&res.HostID)
@@ -314,14 +316,14 @@ func resolveRemoteHost(ctx context.Context, tx pgx.Tx, userID, agentID, ref stri
 	if claim.MachineID == "" {
 		return res, nil
 	}
-	owner, err := identityOwner(ctx, tx, userID, IdentityMachineID, claim.MachineID)
+	owner, err := identityOwner(ctx, tx, workspaceID, IdentityMachineID, claim.MachineID)
 	if err != nil {
 		return res, err
 	}
 	switch {
 	case owner == res.HostID:
 	case owner == "":
-		err = addIdentity(ctx, tx, userID, IdentityMachineID, claim.MachineID, res.HostID)
+		err = addIdentity(ctx, tx, workspaceID, IdentityMachineID, claim.MachineID, res.HostID)
 	default:
 		var flagged bool
 		if flagged, err = flagDuplicate(ctx, tx, res.HostID, owner); flagged {
@@ -331,24 +333,24 @@ func resolveRemoteHost(ctx context.Context, tx pgx.Tx, userID, agentID, ref stri
 	return res, err
 }
 
-func identityOwner(ctx context.Context, tx pgx.Tx, userID, kind, value string) (string, error) {
+func identityOwner(ctx context.Context, tx pgx.Tx, workspaceID, kind, value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
 	var hostID string
-	err := tx.QueryRow(ctx, `SELECT host_id FROM host_identities WHERE user_id = $1 AND kind = $2 AND value = $3`,
-		userID, kind, value).Scan(&hostID)
+	err := tx.QueryRow(ctx, `SELECT host_id FROM host_identities WHERE workspace_id = $1 AND kind = $2 AND value = $3`,
+		workspaceID, kind, value).Scan(&hostID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	return hostID, err
 }
 
-func addIdentity(ctx context.Context, tx pgx.Tx, userID, kind, value, hostID string) error {
+func addIdentity(ctx context.Context, tx pgx.Tx, workspaceID, kind, value, hostID string) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO host_identities (user_id, kind, value, host_id) VALUES ($1, $2, $3, $4)
+		INSERT INTO host_identities (workspace_id, kind, value, host_id) VALUES ($1, $2, $3, $4)
 		ON CONFLICT DO NOTHING
-	`, userID, kind, value, hostID)
+	`, workspaceID, kind, value, hostID)
 	return err
 }
 

@@ -16,11 +16,11 @@ import (
 )
 
 type rotateEnv struct {
-	t      *testing.T
-	s      *store.Store
-	h      *Handler
-	userID string
-	agent  string
+	t           *testing.T
+	s           *store.Store
+	h           *Handler
+	workspaceID string
+	agent       string
 }
 
 func newRotateEnv(t *testing.T) (*rotateEnv, string) {
@@ -38,16 +38,16 @@ func newRotateEnv(t *testing.T) (*rotateEnv, string) {
 	_, _ = rand.Read(b)
 	tag := "swtest-" + hex.EncodeToString(b)
 	e := &rotateEnv{t: t, s: s, h: &Handler{Store: s, RotationGrace: time.Hour}}
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-		tag+"@test.invalid").Scan(&e.userID); err != nil {
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+		tag+"@test.invalid").Scan(&e.workspaceID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = s.Pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, e.userID)
+		_, _ = s.Pool.Exec(context.Background(), `DELETE FROM workspaces WHERE id = $1`, e.workspaceID)
 		s.Close()
 	})
-	if _, err := s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, user_id, expires_at) VALUES ($1, $2, now() + interval '1 hour')`,
-		tag, e.userID); err != nil {
+	if _, err := s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, workspace_id, expires_at) VALUES ($1, $2, now() + interval '1 hour')`,
+		tag, e.workspaceID); err != nil {
 		t.Fatal(err)
 	}
 	rec := e.do(e.h.Enroll, "", enrollRequest{EnrollmentToken: tag, Hostname: "rot"})
@@ -105,7 +105,7 @@ func TestRotationFlowHTTP(t *testing.T) {
 		t.Fatalf("plain push: %d, rotate header %q", rec.Code, rec.Header().Get(RotateHeader))
 	}
 	var st string
-	if err := e.s.Pool.QueryRow(context.Background(), `SELECT mgmt_request_rotation($1, $2)`, e.userID, e.agent).Scan(&st); err != nil || st != "ok" {
+	if err := e.s.Pool.QueryRow(context.Background(), `SELECT mgmt_request_rotation($1, $2)`, e.workspaceID, e.agent).Scan(&st); err != nil || st != "ok" {
 		t.Fatalf("request rotation: %q %v", st, err)
 	}
 	if rec := e.push(s0); rec.Code != http.StatusAccepted || rec.Header().Get(RotateHeader) != "1" {
@@ -163,7 +163,7 @@ func TestRotationReplayAfterGraceHTTP(t *testing.T) {
 func TestRotationRefusedForRevokedAgentHTTP(t *testing.T) {
 	e, s0 := newRotateEnv(t)
 	var st string
-	if err := e.s.Pool.QueryRow(context.Background(), `SELECT mgmt_revoke_agent($1, $2)`, e.userID, e.agent).Scan(&st); err != nil || st != "ok" {
+	if err := e.s.Pool.QueryRow(context.Background(), `SELECT mgmt_revoke_agent($1, $2)`, e.workspaceID, e.agent).Scan(&st); err != nil || st != "ok" {
 		t.Fatalf("revoke: %q %v", st, err)
 	}
 	if _, code := e.rotate(s0); code != http.StatusUnauthorized {

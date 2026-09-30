@@ -1,7 +1,6 @@
 import { SearchX } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { EcosystemIcon, OsLogo } from "@/components/brand";
 import { EmptyState } from "@/components/empty-state";
@@ -16,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { osName } from "@/lib/os";
 import { getFleetPackage } from "@/lib/queries-inventory";
 import { formatDate, formatDateTime } from "@/lib/time";
@@ -66,11 +65,10 @@ function HostLink({
 }
 
 export default async function FleetPackagePage({ params }: { params: Params }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const { workspaceId } = await requireViewer();
   const name = await packageName(params);
 
-  const { versions, hosts, formerHosts } = await getFleetPackage(session.user.id, name);
+  const { versions, hosts, formerHosts } = await getFleetPackage(workspaceId, name);
   const hostCount = new Set(hosts.map((h) => h.hostId)).size;
   const ecosystems = [...new Set(versions.map((v) => v.ecosystem))];
 

@@ -1,12 +1,11 @@
 import { Send } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { SectionHeading } from "@/components/layout/page-header";
 import { ALERTS_URL, REPORTS_URL } from "@/components/notifications/links";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getChannels } from "@/lib/queries-notifications";
 
 import { AddChannelButton, ChannelsTable } from "./channels-table";
@@ -16,9 +15,8 @@ export const metadata: Metadata = { title: "Channels" };
 const linkClass = "text-foreground font-medium underline underline-offset-4";
 
 export default async function ChannelsPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const channels = await getChannels(session.user.id);
+  const { workspaceId } = await requireViewer();
+  const channels = await getChannels(workspaceId);
 
   return (
     <div className="flex flex-col gap-4">

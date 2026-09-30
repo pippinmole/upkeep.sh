@@ -116,12 +116,12 @@ func (r *testRegistry) pushImage(t *testing.T, tag string, withSBOM bool) (image
 }
 
 type imageFixture struct {
-	t      *testing.T
-	s      *store.Store
-	tag    string
-	userID string
-	hosts  []string
-	images []string
+	t           *testing.T
+	s           *store.Store
+	tag         string
+	workspaceID string
+	hosts       []string
+	images      []string
 }
 
 func newImageFixture(t *testing.T) *imageFixture {
@@ -138,14 +138,14 @@ func newImageFixture(t *testing.T) *imageFixture {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	f := &imageFixture{t: t, s: s, tag: "swtest-" + hex.EncodeToString(b)}
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-		f.tag+"@test.invalid").Scan(&f.userID); err != nil {
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+		f.tag+"@test.invalid").Scan(&f.workspaceID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx := context.Background()
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM river_job WHERE kind = 'image_sbom' AND args->>'image_id' = ANY($1)`, f.images)
-		_, _ = s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, f.userID) // hosts, host_images
+		_, _ = s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, f.workspaceID) // hosts, host_images
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM image_sbom_state WHERE image_id = ANY($1)`, f.images)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM container_images WHERE image_id = ANY($1)`, f.images)
 	})
@@ -157,7 +157,7 @@ func newImageFixture(t *testing.T) *imageFixture {
 func (f *imageFixture) pushHost(imageID, repoDigest string) {
 	f.t.Helper()
 	ctx := context.Background()
-	hostID, err := f.s.CreateHost(ctx, f.userID, f.tag+"-"+string(rune('a'+len(f.hosts))))
+	hostID, err := f.s.CreateHost(ctx, f.workspaceID, f.tag+"-"+string(rune('a'+len(f.hosts))))
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestImageSBOMJobEndToEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if ref.Source != store.SBOMSourceAttestation || ref.OwnerUserID != "" {
+	if ref.Source != store.SBOMSourceAttestation || ref.OwnerWorkspaceID != "" {
 		t.Errorf("list = %+v", ref)
 	}
 	var tool, toolVersion, distro, release string

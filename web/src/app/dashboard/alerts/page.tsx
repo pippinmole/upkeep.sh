@@ -1,12 +1,11 @@
 import { BellRing } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { CHANNELS_URL } from "@/components/notifications/links";
 import { Button } from "@/components/ui/button";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getChannels, getRules, getScopeHosts } from "@/lib/queries-notifications";
 
 import { AddRuleButton, RulesTable } from "./rules-table";
@@ -14,13 +13,11 @@ import { AddRuleButton, RulesTable } from "./rules-table";
 export const metadata: Metadata = { title: "Alert rules" };
 
 export default async function RulesPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
   const [rules, channels, hosts] = await Promise.all([
-    getRules(userId),
-    getChannels(userId),
-    getScopeHosts(userId),
+    getRules(workspaceId),
+    getChannels(workspaceId),
+    getScopeHosts(workspaceId),
   ]);
   const noChannels = channels.length === 0;
 

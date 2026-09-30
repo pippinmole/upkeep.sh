@@ -27,6 +27,7 @@ import {
 import { CHANNEL_TYPES, channelTarget, channelType } from "@/lib/notifiers";
 import type { ChannelRow } from "@/lib/queries-notifications";
 import { relativeTime } from "@/lib/time";
+import { adminOnly } from "@/components/viewer-context";
 
 import {
   deleteChannel,
@@ -101,7 +102,7 @@ function TestResultDialog({
   );
 }
 
-function ChannelActions({ channel }: { channel: ChannelRow }) {
+function ChannelActionsControl({ channel }: { channel: ChannelRow }) {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
@@ -142,7 +143,7 @@ function ChannelActions({ channel }: { channel: ChannelRow }) {
             {channel.enabled ? "Disable" : "Enable"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive" onSelect={() => setDeleting(true)}>
+          <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -238,7 +239,7 @@ const columns = col.columns([
 // The menu lists every type in the generated registry (CHANNEL_TYPES) and
 // opens the schema-driven ChannelDialog for it, so a new type needs at most
 // an icon in channelTypeIcon.
-export function AddChannelButton() {
+function AddChannelButtonControl() {
   const [type, setType] = useState<string | null>(null);
   return (
     <>
@@ -283,3 +284,7 @@ export function ChannelsTable({ channels }: { channels: ChannelRow[] }) {
     />
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+const ChannelActions = adminOnly(ChannelActionsControl);
+export const AddChannelButton = adminOnly(AddChannelButtonControl);

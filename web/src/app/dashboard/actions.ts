@@ -2,7 +2,7 @@
 
 import { randomBytes } from "crypto";
 import { resolveAgentImage } from "@/lib/agent-image";
-import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/viewer";
 import { pool } from "@/lib/db";
 
 // enrollment_tokens is a Next.js-owned table (user-settings-shaped, not
@@ -20,16 +20,15 @@ export async function createEnrollmentToken(agentName?: string | null): Promise<
 export async function issueEnrollmentToken(
   agentName?: string | null,
 ): Promise<{ token: string; issuedAt: string; agentImage: string }> {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("not authenticated");
+  const { userId, workspaceId } = await requireAdmin();
 
   const name = typeof agentName === "string" ? agentName.trim().slice(0, 100) : "";
   const token = randomBytes(24).toString("base64url");
   const { rows } = await pool.query<{ created_at: Date }>(
-    `INSERT INTO enrollment_tokens (token, user_id, expires_at, agent_name)
-     VALUES ($1, $2, now() + interval '1 hour', $3)
+    `INSERT INTO enrollment_tokens (token, workspace_id, created_by, expires_at, agent_name)
+     VALUES ($1, $2, $3, now() + interval '1 hour', $4)
      RETURNING created_at`,
-    [token, session.user.id, name || null],
+    [token, workspaceId, userId, name || null],
   );
   return { token, issuedAt: rows[0].created_at.toISOString(), agentImage: resolveAgentImage() };
 }
@@ -51,16 +50,14 @@ export async function getEnrollmentStatus(
   token: string,
   issuedAt: string,
 ): Promise<EnrollmentStatus> {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("not authenticated");
-  const userId = session.user.id;
+  const { workspaceId } = await requireAdmin();
   const since = new Date(issuedAt);
   if (typeof token !== "string" || Number.isNaN(since.getTime())) return { state: "expired" };
 
   const { rows: pending } = await pool.query<{ expired: boolean }>(
     `SELECT expires_at <= now() AS expired FROM enrollment_tokens
-     WHERE token = $1 AND user_id = $2`,
-    [token, userId],
+     WHERE token = $1 AND workspace_id = $2`,
+    [token, workspaceId],
   );
   if (pending[0]) return pending[0].expired ? { state: "expired" } : { state: "waiting" };
 
@@ -74,15 +71,15 @@ export async function getEnrollmentStatus(
      LEFT JOIN LATERAL (
        SELECT hh.id, hh.label, hh.hostname
        FROM agent_hosts ah
-       JOIN hosts hh ON hh.id = ah.host_id AND hh.user_id = a.user_id
+       JOIN hosts hh ON hh.id = ah.host_id AND hh.workspace_id = a.workspace_id
        WHERE ah.agent_id = a.id
        ORDER BY ah.mode <> 'local', ah.created_at
        LIMIT 1
      ) h ON true
-     WHERE a.user_id = $1 AND a.created_at >= $2::timestamptz
+     WHERE a.workspace_id = $1 AND a.created_at >= $2::timestamptz
      ORDER BY a.created_at
      LIMIT 1`,
-    [userId, since.toISOString()],
+    [workspaceId, since.toISOString()],
   );
   const a = rows[0];
   // Token gone and no agent: pruned after expiring.

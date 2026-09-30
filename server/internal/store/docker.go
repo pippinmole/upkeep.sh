@@ -168,15 +168,15 @@ func applyDockerHost(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, 
 // managers of one cluster pushing at once serialise.
 func applySwarmServices(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, at time.Time, in SwarmServicesInput) (FactResult, error) {
 	res := FactResult{Kind: in.Set.Kind}
-	var userID string
-	if err := tx.QueryRow(ctx, `SELECT user_id FROM hosts WHERE id = $1`, hostID).Scan(&userID); err != nil {
+	var workspaceID string
+	if err := tx.QueryRow(ctx, `SELECT workspace_id FROM hosts WHERE id = $1`, hostID).Scan(&workspaceID); err != nil {
 		return res, err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO swarm_clusters (user_id, cluster_id, confirmed_at, changed_at, first_seen_at)
+		INSERT INTO swarm_clusters (workspace_id, cluster_id, confirmed_at, changed_at, first_seen_at)
 		VALUES ($1, $2, '-infinity', '-infinity', $3)
-		ON CONFLICT (user_id, cluster_id) DO NOTHING
-	`, userID, in.ClusterID, at); err != nil {
+		ON CONFLICT (workspace_id, cluster_id) DO NOTHING
+	`, workspaceID, in.ClusterID, at); err != nil {
 		return res, err
 	}
 	var (
@@ -184,8 +184,8 @@ func applySwarmServices(ctx context.Context, tx pgx.Tx, hostID, snapshotID strin
 		stale   bool
 	)
 	if err := tx.QueryRow(ctx, `
-		SELECT set_hash, confirmed_at >= $3 FROM swarm_clusters WHERE user_id = $1 AND cluster_id = $2 FOR UPDATE
-	`, userID, in.ClusterID, at).Scan(&curHash, &stale); err != nil {
+		SELECT set_hash, confirmed_at >= $3 FROM swarm_clusters WHERE workspace_id = $1 AND cluster_id = $2 FOR UPDATE
+	`, workspaceID, in.ClusterID, at).Scan(&curHash, &stale); err != nil {
 		return res, err
 	}
 	if stale {
@@ -197,7 +197,7 @@ func applySwarmServices(ctx context.Context, tx pgx.Tx, hostID, snapshotID strin
 		res.Outcome = InventoryUnchanged
 	} else {
 		res.Outcome = InventoryDiffed
-		owner := rangeOwner{cols: []string{"user_id", "cluster_id"}, vals: []any{userID, in.ClusterID}}
+		owner := rangeOwner{cols: []string{"workspace_id", "cluster_id"}, vals: []any{workspaceID, in.ClusterID}}
 		var err error
 		if res.Opened, res.Closed, res.Updated, err = reconcileRanges(ctx, tx, owner, snapshotID, at, in.Set); err != nil {
 			return res, err
@@ -215,7 +215,7 @@ func applySwarmServices(ctx context.Context, tx pgx.Tx, hostID, snapshotID strin
 			confirmed_snapshot_id = $5,
 			last_manager_host_id  = $6,
 			changed_at = CASE WHEN $7 OR changed_at = '-infinity' THEN $4 ELSE changed_at END
-		WHERE user_id = $1 AND cluster_id = $2
-	`, userID, in.ClusterID, hash, at, snapshotID, hostID, changed)
+		WHERE workspace_id = $1 AND cluster_id = $2
+	`, workspaceID, in.ClusterID, hash, at, snapshotID, hostID, changed)
 	return res, err
 }

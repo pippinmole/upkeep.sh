@@ -14,7 +14,7 @@ import { emptySeverityCounts, isSeverity, type Severity, type SeverityCounts } f
 //   cves, advisories, advisory_affected   public advisory data
 //
 // Tenancy: findings are per host, so every findings read starts from
-// `hosts h WHERE h.user_id = $1`. software_vulnerabilities and
+// `hosts h WHERE h.workspace_id = $1`. software_vulnerabilities and
 // software_versions are shared ACROSS USERS: they are only reached through
 // the user's own host_software or findings rows, never by an id taken from
 // the URL on its own. cves / advisories / advisory_affected are public
@@ -99,7 +99,7 @@ function foldSummary(rows: SummaryRow[]): VulnSummary {
 
 // Host header + tabs share this per request (React cache).
 export const getHostVulnSummary = cache(async function getHostVulnSummary(
-  userId: string,
+  workspaceId: string,
   hostId: string,
 ): Promise<VulnSummary> {
   if (!isUuid(hostId)) return foldSummary([]);
@@ -107,9 +107,9 @@ export const getHostVulnSummary = cache(async function getHostVulnSummary(
     `SELECT ${SUMMARY_COLUMNS}
      FROM hosts h
      JOIN findings f ON f.host_id = h.id AND f.kind = 'vulnerable_package'
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      GROUP BY f.severity`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
   return foldSummary(rows);
 });
@@ -124,7 +124,7 @@ export type OverviewStats = {
   distinctOpenVulns: number;
 };
 
-export async function getOverviewStats(userId: string): Promise<OverviewStats> {
+export async function getOverviewStats(workspaceId: string): Promise<OverviewStats> {
   const [hosts, sev] = await Promise.all([
     pool.query<{
       hosts: string;
@@ -143,7 +143,7 @@ export async function getOverviewStats(userId: string): Promise<OverviewStats> {
               (SELECT count(DISTINCT f.vuln_key)
                FROM hosts h2
                JOIN findings f ON f.host_id = h2.id
-               WHERE h2.user_id = $1 AND h2.archived_at IS NULL AND f.kind = 'vulnerable_package'
+               WHERE h2.workspace_id = $1 AND h2.archived_at IS NULL AND f.kind = 'vulnerable_package'
                  AND f.status = 'open') AS distinct_vulns
        FROM hosts h
        LEFT JOIN LATERAL (
@@ -156,16 +156,16 @@ export async function getOverviewStats(userId: string): Promise<OverviewStats> {
          FROM findings f
          WHERE f.host_id = h.id AND f.status = 'open' AND f.kind = 'vulnerable_package'
        ) fc ON true
-       WHERE h.user_id = $1 AND h.archived_at IS NULL`,
-      [userId],
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL`,
+      [workspaceId],
     ),
     pool.query<SummaryRow>(
       `SELECT ${SUMMARY_COLUMNS}
        FROM hosts h
        JOIN findings f ON f.host_id = h.id AND f.kind = 'vulnerable_package'
-       WHERE h.user_id = $1 AND h.archived_at IS NULL
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL
        GROUP BY f.severity`,
-      [userId],
+      [workspaceId],
     ),
   ]);
   const h = hosts.rows[0];
@@ -282,7 +282,7 @@ export type HostFindingFilters = {
 };
 
 export async function getHostFindings(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   f: HostFindingFilters,
 ): Promise<{ rows: FindingRow[]; total: number }> {
@@ -301,7 +301,7 @@ export async function getHostFindings(
      FROM hosts h
      JOIN findings f ON f.host_id = h.id
      LEFT JOIN cves c ON c.id = f.vuln_key
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
        AND f.kind = 'vulnerable_package' AND f.status = $3
        AND ($4::text IS NULL
             OR strpos(lower(f.vuln_key), lower($4)) > 0
@@ -316,7 +316,7 @@ export async function getHostFindings(
      ORDER BY ${orderBy}
      LIMIT $8 OFFSET $9`,
     [
-      userId,
+      workspaceId,
       hostId,
       f.status,
       f.q,
@@ -433,9 +433,9 @@ export type HostFindingDetail = {
 };
 
 // Sheet on the host Vulnerabilities tab (?v=<vuln_key>). Null when this
-// host (owned by userId) has no finding for vulnKey.
+// host (owned by workspaceId) has no finding for vulnKey.
 export async function getHostFindingDetail(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   vulnKey: string,
 ): Promise<HostFindingDetail | null> {
@@ -444,10 +444,10 @@ export async function getHostFindingDetail(
     `SELECT ${FINDING_COLUMNS}, NULL::text AS description
      FROM hosts h
      JOIN findings f ON f.host_id = h.id
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
        AND f.kind = 'vulnerable_package' AND f.vuln_key = $3
      ORDER BY f.status, f.source_package`,
-    [userId, hostId, vulnKey],
+    [workspaceId, hostId, vulnKey],
   );
   if (rows.length === 0) return null;
   const ids = [...new Set(rows.flatMap((r) => r.advisory_ids))];
@@ -475,7 +475,10 @@ export type KernelPackage = {
   fixableCount: number;
 };
 
-export async function getHostKernels(userId: string, hostId: string): Promise<KernelPackage[]> {
+export async function getHostKernels(
+  workspaceId: string,
+  hostId: string,
+): Promise<KernelPackage[]> {
   if (!isUuid(hostId)) return [];
   const { rows } = await pool.query<{
     software_id: string;
@@ -494,9 +497,9 @@ export async function getHostKernels(userId: string, hostId: string): Promise<Ke
             k.fixable_count
      FROM hosts h
      JOIN host_kernel_packages k ON k.host_id = h.id
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      ORDER BY k.is_running DESC NULLS LAST, k.kernel_release DESC, k.name`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
   return rows.map((r) => ({
     softwareId: r.software_id,
@@ -547,9 +550,9 @@ export type PackageVulnSheet = {
 };
 
 // softwareId comes from the URL (?pkg=). It is only honoured when this
-// host (owned by userId) has, or had, that version installed.
+// host (owned by workspaceId) has, or had, that version installed.
 export async function getPackageVulns(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   softwareId: string,
 ): Promise<PackageVulnSheet | null> {
@@ -572,9 +575,9 @@ export async function getPackageVulns(
      FROM hosts h
      JOIN host_software hs ON hs.host_id = h.id
      JOIN software_versions sv ON sv.id = hs.software_id
-     WHERE h.id = $2 AND h.user_id = $1 AND hs.software_id = $3::bigint
+     WHERE h.id = $2 AND h.workspace_id = $1 AND hs.software_id = $3::bigint
      GROUP BY sv.id`,
-    [userId, hostId, softwareId],
+    [workspaceId, hostId, softwareId],
   );
   const p = pkg.rows[0];
   if (!p) return null;
@@ -608,10 +611,10 @@ export async function getPackageVulns(
      WHERE sw.software_id = $3::bigint
        AND EXISTS (SELECT 1 FROM hosts h
                    JOIN host_software hs ON hs.host_id = h.id
-                   WHERE h.id = $2 AND h.user_id = $1 AND hs.software_id = $3::bigint)
+                   WHERE h.id = $2 AND h.workspace_id = $1 AND hs.software_id = $3::bigint)
      ORDER BY f.severity_key DESC NULLS LAST, c.is_kev DESC NULLS LAST,
               c.epss_score DESC NULLS LAST, sw.vuln_key`,
-    [userId, hostId, softwareId],
+    [workspaceId, hostId, softwareId],
   );
   return {
     pkg: {
@@ -654,7 +657,7 @@ export type ChangeEffect = { fixed: number; fixedKev: number; introduced: number
 // (software_vulnerabilities as of now), not what was known at the time.
 // Pairs are kept only if both versions are in this host's history.
 export async function getChangeEffects(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   pairs: { from: string; to: string }[],
 ): Promise<Map<string, ChangeEffect>> {
@@ -667,7 +670,7 @@ export async function getChangeEffects(
     fixed_kev: string;
     introduced: string;
   }>(
-    `WITH owned AS (SELECT id FROM hosts WHERE id = $2 AND user_id = $1),
+    `WITH owned AS (SELECT id FROM hosts WHERE id = $2 AND workspace_id = $1),
      pairs AS (
        SELECT DISTINCT p.old_id, p.new_id
        FROM unnest($3::bigint[], $4::bigint[]) AS p(old_id, new_id)
@@ -691,7 +694,7 @@ export async function getChangeEffects(
              EXCEPT
              SELECT vuln_key FROM software_vulnerabilities WHERE software_id = p.old_id) d
      ) intro`,
-    [userId, hostId, pairs.map((p) => p.from), pairs.map((p) => p.to)],
+    [workspaceId, hostId, pairs.map((p) => p.from), pairs.map((p) => p.to)],
   );
   for (const r of rows) {
     out.set(`${r.old_id}>${r.new_id}`, {
@@ -735,7 +738,7 @@ export type FleetVulnFilters = {
 };
 
 export async function getFleetVulns(
-  userId: string,
+  workspaceId: string,
   f: FleetVulnFilters,
 ): Promise<{ rows: FleetVulnRow[]; total: number }> {
   const orderBy =
@@ -768,7 +771,7 @@ export async function getFleetVulns(
        SELECT f.*
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package'
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package'
      ),
      g AS (
        SELECT uf.vuln_key,
@@ -809,7 +812,7 @@ export async function getFleetVulns(
             OR ($6 = 'none' AND g.no_fix))
      ORDER BY ${orderBy}
      LIMIT $7 OFFSET $8`,
-    [userId, f.status, f.q, f.severity, f.kev, f.fix, f.pageSize, (f.page - 1) * f.pageSize],
+    [workspaceId, f.status, f.q, f.severity, f.kev, f.fix, f.pageSize, (f.page - 1) * f.pageSize],
   );
   return {
     rows: rows.map((r) => ({
@@ -877,7 +880,7 @@ const RELEASE_FIX_LIMIT = 200;
 // Null when nothing at all is known about vulnKey (no cves row, no
 // advisory, no finding of this user's): the page 404s.
 export async function getFleetVulnDetail(
-  userId: string,
+  workspaceId: string,
   vulnKey: string,
 ): Promise<FleetVulnDetail | null> {
   const [cve, adv, fnd, versions] = await Promise.all([
@@ -901,9 +904,9 @@ export async function getFleetVulnDetail(
               h.id AS host_id, h.hostname, h.label, h.os_id
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package' AND f.vuln_key = $2
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_package' AND f.vuln_key = $2
        ORDER BY f.severity_key DESC, h.hostname, h.id, f.source_package`,
-      [userId, vulnKey],
+      [workspaceId, vulnKey],
     ),
     // Versions matched for this vuln that are installed on the user's
     // hosts now. Reached through host_software, never software_versions
@@ -927,10 +930,10 @@ export async function getFleetVulnDetail(
        JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NULL
        JOIN software_vulnerabilities sw ON sw.software_id = hs.software_id AND sw.vuln_key = $2
        JOIN software_versions sv ON sv.id = hs.software_id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL
        GROUP BY sv.id, sw.fixed_version, sw.fix_channel
        ORDER BY hosts DESC, sv.release, sv.name, sv.arch`,
-      [userId, vulnKey],
+      [workspaceId, vulnKey],
     ),
   ]);
   if (!cve && adv.rows.length === 0 && fnd.rows.length === 0) return null;

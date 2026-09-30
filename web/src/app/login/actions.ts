@@ -29,7 +29,9 @@ export async function signInWithPassword(
         error:
           err.body?.code === "INVALID_USERNAME_OR_PASSWORD"
             ? "Wrong username or password."
-            : "Could not sign in. Please try again.",
+            : err.body?.code === "ACCOUNT_DISABLED"
+              ? "This account is disabled. Ask an administrator."
+              : "Could not sign in. Please try again.",
         username,
       };
     }

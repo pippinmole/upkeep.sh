@@ -40,7 +40,7 @@ func newSBOMFixture(t *testing.T) *sbomFixture {
 	tag := "swtest-" + hex.EncodeToString(b)
 	f := &sbomFixture{t: t, s: s, tag: tag, osr: purl.OSRelease{ID: tag, VersionID: "12"}}
 	for suffix, u := range map[string]*string{"a": &f.userA, "b": &f.userB} {
-		if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
+		if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
 			tag+"-"+suffix+"@test.invalid").Scan(u); err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func newSBOMFixture(t *testing.T) *sbomFixture {
 		ctx := context.Background()
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM image_sbom_state WHERE image_id LIKE $1`, "sha256:"+tag+"%")
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM container_images WHERE image_id LIKE $1`, "sha256:"+tag+"%")
-		_, _ = s.Pool.Exec(ctx, `DELETE FROM users WHERE id = ANY($1::uuid[])`, []string{f.userA, f.userB})
+		_, _ = s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = ANY($1::uuid[])`, []string{f.userA, f.userB})
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM river_job WHERE kind = 'match_versions' AND args->'ids' @> (
 			SELECT to_jsonb(array_agg(id)) FROM software_versions WHERE distro = $1)`, tag)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM software_versions WHERE distro = $1 OR name LIKE $2`, tag, "@"+tag+"/%")
@@ -88,7 +88,7 @@ func (f *sbomFixture) npm(name, version string, paths ...string) ImagePackage {
 func (f *sbomFixture) write(key ImageKey, owner, source string, pkgs ...ImagePackage) ImageSBOMResult {
 	f.t.Helper()
 	res, err := f.s.WriteImageSBOM(context.Background(), ImageSBOMInput{
-		Key: key, OwnerUserID: owner, Source: source, ToolName: "syft", ToolVersion: "1.20.0",
+		Key: key, OwnerWorkspaceID: owner, Source: source, ToolName: "syft", ToolVersion: "1.20.0",
 		GeneratedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), OS: f.osr, Release: "12", Packages: pkgs,
 	})
 	if err != nil {
@@ -204,7 +204,7 @@ func TestImageSBOMOwnerScoping(t *testing.T) {
 
 	// User A's agent sends a list: only A sees it.
 	agentA := f.write(key, f.userA, SBOMSourceAgentSyft, shared, f.npm("a-only", "1.0.0"))
-	if e := f.effective(f.userA, key); e == nil || e.SBOMID != agentA.SBOMID || e.OwnerUserID != f.userA {
+	if e := f.effective(f.userA, key); e == nil || e.SBOMID != agentA.SBOMID || e.OwnerWorkspaceID != f.userA {
 		t.Fatalf("A effective = %+v", e)
 	}
 	if e := f.effective(f.userB, key); e != nil {
@@ -222,7 +222,7 @@ func TestImageSBOMOwnerScoping(t *testing.T) {
 	// Server list becomes ok: it wins for everyone.
 	server := f.write(key, "", SBOMSourceServerSyft, shared)
 	for _, u := range []string{f.userA, f.userB, ""} {
-		if e := f.effective(u, key); e == nil || e.SBOMID != server.SBOMID || e.OwnerUserID != "" {
+		if e := f.effective(u, key); e == nil || e.SBOMID != server.SBOMID || e.OwnerWorkspaceID != "" {
 			t.Fatalf("user %q effective = %+v, want server list %d", u, e, server.SBOMID)
 		}
 	}
@@ -259,7 +259,7 @@ func TestImageSBOMOwnerScoping(t *testing.T) {
 	}
 
 	// Deleting a user drops its agent list, not the others.
-	if _, err := f.s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, f.userB); err != nil {
+	if _, err := f.s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, f.userB); err != nil {
 		t.Fatal(err)
 	}
 	if refs, _ := f.s.ImageSBOMsContaining(ctx, []int64{bashID}); len(refs) != 2 {
@@ -296,8 +296,8 @@ func TestImageSBOMValidation(t *testing.T) {
 	f := newSBOMFixture(t)
 	key := f.image("v")
 	for _, in := range []ImageSBOMInput{
-		{Key: key, Source: SBOMSourceAgentSyft},                         // agent list without owner
-		{Key: key, Source: SBOMSourceAttestation, OwnerUserID: f.userA}, // server list with owner
+		{Key: key, Source: SBOMSourceAgentSyft},                              // agent list without owner
+		{Key: key, Source: SBOMSourceAttestation, OwnerWorkspaceID: f.userA}, // server list with owner
 		{Key: key, Source: "scout"},
 	} {
 		if _, err := f.s.WriteImageSBOM(context.Background(), in); err == nil {

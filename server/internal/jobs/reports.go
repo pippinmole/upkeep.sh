@@ -79,7 +79,7 @@ func runReport(ctx context.Context, st *store.Store, sched store.ReportSchedule,
 	if err != nil {
 		return store.StoredReport{}, err
 	}
-	in, err := st.LoadReportInputs(ctx, tx, sched.UserID, period)
+	in, err := st.LoadReportInputs(ctx, tx, sched.WorkspaceID, period)
 	if err != nil {
 		return store.StoredReport{}, err
 	}

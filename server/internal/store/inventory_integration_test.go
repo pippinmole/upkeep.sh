@@ -45,17 +45,17 @@ func newFixture(t *testing.T) *fixture {
 	tag := "swtest-" + hex.EncodeToString(b)
 
 	f := &fixture{t: t, s: s, distro: tag, t0: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	var userID string
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-		tag+"@test.invalid").Scan(&userID); err != nil {
+	var workspaceID string
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+		tag+"@test.invalid").Scan(&workspaceID); err != nil {
 		t.Fatal(err)
 	}
-	if f.hostID, err = s.CreateHost(ctx, userID, tag); err != nil {
+	if f.hostID, err = s.CreateHost(ctx, workspaceID, tag); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID) // cascades host, snapshots, ranges
+		_, _ = s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, workspaceID) // cascades host, snapshots, ranges
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM software_versions WHERE distro = $1`, tag)
 		s.Close()
 	})

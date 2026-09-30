@@ -1,11 +1,11 @@
 import { ScanSearch } from "lucide-react";
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SegmentedLinks } from "@/components/vuln/links";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import {
   imageHref,
   imageIdParam,
@@ -30,10 +30,8 @@ import { PackagesTab, VulnsTab } from "./tabs";
 type Params = Promise<{ imageId: string }>;
 
 async function resolve(imageId: string, sp: SearchParams) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
-  const plats = await getImagePlatforms(userId, imageId, param(sp, "host"));
+  const { workspaceId } = await requireViewer();
+  const plats = await getImagePlatforms(workspaceId, imageId, param(sp, "host"));
   if (!plats) notFound();
   const want = parsePlatform(param(sp, "platform"));
   const key: ImageKey | undefined = want
@@ -42,7 +40,7 @@ async function resolve(imageId: string, sp: SearchParams) {
       )
     : plats.platforms[0];
   if (want && !key) notFound();
-  return { userId, plats, key: key ?? null };
+  return { workspaceId, plats, key: key ?? null };
 }
 
 export async function generateMetadata({
@@ -54,8 +52,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const [{ imageId: raw }, sp] = await Promise.all([params, searchParams]);
   const imageId = imageIdParam(raw);
-  const { userId, key } = await resolve(imageId, sp);
-  const o = key ? await getImageOverview(userId, key) : null;
+  const { workspaceId, key } = await resolve(imageId, sp);
+  const o = key ? await getImageOverview(workspaceId, key) : null;
   return { title: `${o ? imageTitle(o) : shortImageId(imageId)} · Images` };
 }
 
@@ -68,7 +66,7 @@ export default async function ImagePage({
 }) {
   const [{ imageId: raw }, sp] = await Promise.all([params, searchParams]);
   const imageId = imageIdParam(raw);
-  const { userId, plats, key } = await resolve(imageId, sp);
+  const { workspaceId, plats, key } = await resolve(imageId, sp);
 
   if (!key) {
     // Present on the user's hosts, but no host has inspected it yet, so the
@@ -96,7 +94,7 @@ export default async function ImagePage({
     );
   }
 
-  const overview = await getImageOverview(userId, key);
+  const overview = await getImageOverview(workspaceId, key);
   if (!overview) notFound();
   const tab: ImageTab = oneOf(sp, "tab", ["packages", "vulnerabilities"] as const) ?? "packages";
   const view = listView(overview);
@@ -129,9 +127,14 @@ export default async function ImagePage({
             ]}
           />
           {tab === "packages" ? (
-            <PackagesTab userId={userId} imageKey={key} sp={sp} />
+            <PackagesTab workspaceId={workspaceId} imageKey={key} sp={sp} />
           ) : (
-            <VulnsTab userId={userId} imageKey={key} sp={sp} notAssessed={s?.notAssessed ?? 0} />
+            <VulnsTab
+              workspaceId={workspaceId}
+              imageKey={key}
+              sp={sp}
+              notAssessed={s?.notAssessed ?? 0}
+            />
           )}
         </section>
       )}

@@ -1,7 +1,6 @@
 import { Plus, ShieldCheck } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/inventory/filter-bar";
@@ -25,7 +24,7 @@ import {
   SeverityBadge,
 } from "@/components/vuln/badges";
 import { SegmentedLinks, vulnHref } from "@/components/vuln/links";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { type FixFilter, getFleetVulns, getOverviewStats } from "@/lib/queries-vulns";
 import { oneOf, pageParam, param, type SearchParams, withParams } from "@/lib/search-params";
 import { SEVERITIES, SEVERITY_LABEL } from "@/lib/severity";
@@ -42,9 +41,7 @@ export default async function FleetVulnerabilitiesPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
   const sp = await searchParams;
 
   const status = oneOf(sp, "status", ["open", "resolved"] as const) ?? "open";
@@ -59,8 +56,8 @@ export default async function FleetVulnerabilitiesPage({
     pageSize: PAGE_SIZE,
   };
   const [{ rows, total }, stats] = await Promise.all([
-    getFleetVulns(userId, filters),
-    getOverviewStats(userId),
+    getFleetVulns(workspaceId, filters),
+    getOverviewStats(workspaceId),
   ]);
   const basePath = "/dashboard/vulnerabilities";
   const hasFilters = filters.q || filters.severity || filters.kev || filters.fix;

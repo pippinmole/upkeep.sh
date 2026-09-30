@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronsUpDown, LogOut } from "lucide-react";
+import { ChevronsUpDown, KeyRound, LogOut } from "lucide-react";
+import Link from "next/link";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -17,6 +18,8 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+
+import { ROLE_LABELS } from "@/lib/roles";
 
 import { logOut } from "./actions";
 import type { User } from "./types";
@@ -62,10 +65,19 @@ export function NavUser({ user }: { user: User }) {
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">{user.name}</span>
                   <span className="truncate text-xs">{user.email}</span>
+                  <span className="text-muted-foreground truncate text-xs">
+                    {ROLE_LABELS[user.role]}
+                  </span>
                 </div>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/change-password">
+                <KeyRound />
+                Change password
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <form action={logOut} className="w-full">
                 <button type="submit" className="flex w-full items-center gap-2">

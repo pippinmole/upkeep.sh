@@ -54,7 +54,7 @@ export default async function HostVulnerabilitiesPage({
 }) {
   const { hostId } = await params;
   const sp = await searchParams;
-  const { userId, host } = await requireHost(hostId);
+  const { workspaceId, host } = await requireHost(hostId);
 
   const status = oneOf(sp, "status", ["open", "resolved"] as const) ?? "open";
   const filters = {
@@ -69,10 +69,10 @@ export default async function HostVulnerabilitiesPage({
   };
   const rawV = param(sp, "v");
   const [{ rows, total }, summary, kernels, detail] = await Promise.all([
-    getHostFindings(userId, host.id, filters),
-    getHostVulnSummary(userId, host.id),
-    getHostKernels(userId, host.id),
-    rawV && isVulnKey(rawV) ? getHostFindingDetail(userId, host.id, rawV) : null,
+    getHostFindings(workspaceId, host.id, filters),
+    getHostVulnSummary(workspaceId, host.id),
+    getHostKernels(workspaceId, host.id),
+    rawV && isVulnKey(rawV) ? getHostFindingDetail(workspaceId, host.id, rawV) : null,
   ]);
   // A ?v= this host has no finding for (or another user's) is a 404, like
   // the host itself.

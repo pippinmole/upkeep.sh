@@ -92,7 +92,7 @@ r AS (
 )`;
 
 export async function getImagePackages(
-  userId: string,
+  workspaceId: string,
   key: ImageKey,
   f: ImagePackageFilters,
 ): Promise<{ rows: ImagePackageRow[]; total: number }> {
@@ -136,7 +136,7 @@ export async function getImagePackages(
      ORDER BY ${orderBy}
      LIMIT $9 OFFSET $10`,
     [
-      userId,
+      workspaceId,
       key.imageId,
       key.os,
       key.arch,
@@ -175,7 +175,7 @@ export async function getImagePackages(
 
 // Ecosystems in the image's list, most packages first (the facet options).
 export async function getImageEcosystems(
-  userId: string,
+  workspaceId: string,
   key: ImageKey,
 ): Promise<{ ecosystem: string; packages: number }[]> {
   const { rows } = await pool.query<{ ecosystem: string; n: string }>(
@@ -186,7 +186,7 @@ export async function getImageEcosystems(
      WHERE e.image_id = $2 AND e.os = $3 AND e.arch = $4 AND e.variant = $5
      GROUP BY 1
      ORDER BY 2 DESC, 1`,
-    [userId, key.imageId, key.os, key.arch, key.variant],
+    [workspaceId, key.imageId, key.os, key.arch, key.variant],
   );
   return rows.map((r) => ({ ecosystem: r.ecosystem, packages: Number(r.n) }));
 }
