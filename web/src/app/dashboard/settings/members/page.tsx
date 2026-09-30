@@ -20,8 +20,8 @@ export default async function MembersPage() {
       <SectionHeading
         description={
           viewer.isAdmin
-            ? "Everyone who can sign in. Administrators can change everything; members can see everything but change nothing. Sign-up is closed, so add people here."
-            : "Everyone who can sign in. Only administrators can add or change members."
+            ? "People who can sign in to this install. Administrators can change anything; members have read-only access."
+            : "People who can sign in to this install. You have read-only access; ask an administrator to add or change members."
         }
         actions={viewer.isAdmin && <AddMemberButton />}
       >
