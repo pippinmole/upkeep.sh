@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { requireViewer } from "@/lib/viewer";
 import { getAgentsWithHosts } from "@/lib/queries";
+import { param, type SearchParams } from "@/lib/search-params";
 
 import { AgentsTable } from "./agents-table";
 import { RegisterAgentDialog } from "./register-agent-dialog";
@@ -16,8 +17,14 @@ export const metadata: Metadata = {
 // Agents, each with the hosts it collects underneath (DOMAIN_MODEL.md §4).
 // The machine list is /dashboard/hosts; both pages open the same
 // enrollment dialog (Q15).
-export default async function AgentsPage() {
+export default async function AgentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const { workspaceId } = await requireViewer();
+  // ?q= prefills the table search (the command menu links agents here).
+  const q = param(await searchParams, "q") ?? "";
 
   const agents = await getAgentsWithHosts(workspaceId);
 
@@ -56,7 +63,7 @@ export default async function AgentsPage() {
           <AgentToHost />
         </EmptyState>
       ) : (
-        <AgentsTable agents={agents} />
+        <AgentsTable key={q} agents={agents} initialSearch={q} />
       )}
     </main>
   );

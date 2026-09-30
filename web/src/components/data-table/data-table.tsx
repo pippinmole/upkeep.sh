@@ -61,6 +61,9 @@ export interface DataTableProps<TData extends object> {
   // Client mode only: column filters applied on first render (e.g. a
   // facet that hides archived rows by default).
   initialColumnFilters?: ColumnFiltersState;
+  // Client mode only: the search box's text on first render (e.g. from a
+  // ?q= link out of the command menu).
+  initialGlobalFilter?: string;
   initialVisibility?: ColumnVisibilityState;
   pageSize?: number;
   // Shown when there are no rows and no filter is active; with a filter
@@ -85,7 +88,7 @@ function ariaSort<TData extends object>(
 export function DataTable<TData extends object>(props: DataTableProps<TData>) {
   const { columns, data, server, renderSubRows } = props;
   const [sorting, setSorting] = useState<SortingState>(props.initialSorting ?? []);
-  const [globalFilter, setGlobalFilter] = useState("");
+  const [globalFilter, setGlobalFilter] = useState(props.initialGlobalFilter ?? "");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
     props.initialColumnFilters ?? EMPTY_FILTERS,
   );

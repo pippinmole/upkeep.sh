@@ -30,7 +30,13 @@ const searchAgentsAndHosts: FilterFn<DataTableFeatures, AgentWithHosts> = (
 
 // Client-side mode: an account has few agents, so all of them (and their
 // hosts) are loaded by the page and sorted / filtered in the browser.
-export function AgentsTable({ agents }: { agents: AgentWithHosts[] }) {
+export function AgentsTable({
+  agents,
+  initialSearch,
+}: {
+  agents: AgentWithHosts[];
+  initialSearch?: string;
+}) {
   return (
     <DataTable
       columns={agentColumns}
@@ -39,6 +45,7 @@ export function AgentsTable({ agents }: { agents: AgentWithHosts[] }) {
       getRowCanExpand={() => true}
       renderSubRows={(row) => <AgentHosts agent={row.original} />}
       globalFilterFn={searchAgentsAndHosts}
+      initialGlobalFilter={initialSearch}
       searchPlaceholder="Search agents or hosts"
       facets={[{ columnId: "status", title: "Status", options: STATUS_OPTIONS }]}
       initialVisibility={{ createdAt: false }}

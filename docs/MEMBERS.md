@@ -68,8 +68,12 @@ deliveries and contact external endpoints, so they are admin-only.
   read from the `users` row on every request, not from the session, so a
   role change or a disable applies immediately. There are no mutating
   route handlers under `app/dashboard` today; any new one must call
-  `requireAdmin()` too. The Go API has no user-facing endpoints (only the
-  agent protocol), so it needs no role checks.
+  `requireAdmin()` too. The one user-facing route handler outside Better
+  Auth, `GET /api/search` (the command menu's search), only reads, so any
+  signed-in viewer may call it: 401 when signed out, 403 while on a
+  temporary password, results scoped to the workspace. The Go API has no
+  user-facing endpoints (only the agent protocol), so it needs no role
+  checks.
 - **Sign-up lockout**: `web/src/lib/auth.ts` refuses user creation once any
   user exists, in two places: a Better Auth `hooks.before` on
   `/sign-up/email` and a `databaseHooks.user.create.before` (which covers
