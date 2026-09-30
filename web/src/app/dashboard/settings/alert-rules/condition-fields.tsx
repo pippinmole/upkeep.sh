@@ -52,7 +52,10 @@ export function ConditionFields({
         {property && property.operators.length > 1 && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="cond-operator">Condition</Label>
+            {/* Keyed: Radix Select keeps showing the old item text when its
+                items change under a controlled value. */}
             <Select
+              key={draft.property}
               value={draft.operator}
               onValueChange={(k) => {
                 const next = property.operators.find((o) => o.key === k);
@@ -87,6 +90,7 @@ export function ConditionFields({
 
       {operator && operator.value.kind !== "none" && (
         <ValueField
+          key={`${draft.property}.${draft.operator}`}
           operator={operator}
           text={draft.valueText}
           onChange={(valueText) => onChange({ ...draft, valueText })}
@@ -100,6 +104,7 @@ export function ConditionFields({
             <div key={o.key} className="flex flex-col gap-1.5">
               <Label htmlFor={`cond-opt-${o.key}`}>{o.label}</Label>
               <Select
+                key={`${draft.property}.${o.key}`}
                 value={draft.options[o.key] ?? o.default}
                 onValueChange={(v) =>
                   onChange({ ...draft, options: { ...draft.options, [o.key]: v } })
@@ -150,7 +155,7 @@ function ValueField({
     <div className="flex flex-col gap-1.5">
       <Label htmlFor="cond-value">{v.label ?? "Value"}</Label>
       {v.kind === "enum" ? (
-        <Select value={text} onValueChange={onChange}>
+        <Select key={operator.key} value={text} onValueChange={onChange}>
           <SelectTrigger id="cond-value" className="w-full">
             <SelectValue />
           </SelectTrigger>

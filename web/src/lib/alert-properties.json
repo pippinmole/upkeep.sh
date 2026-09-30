@@ -251,14 +251,14 @@
       "operators": [
         {
           "key": "any",
-          "label": "any collector",
+          "label": "for any collector",
           "value": {
             "kind": "none"
           }
         },
         {
           "key": "in",
-          "label": "is one of",
+          "label": "for one of",
           "value": {
             "kind": "string_list",
             "label": "Collectors",

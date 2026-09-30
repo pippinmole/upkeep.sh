@@ -184,8 +184,8 @@ var Catalog = []Property{
 		Key: PropCollectorFailed, Label: "Collector failed", Subject: "collector",
 		Description: "A collector reported an error in the host's latest snapshot. One alert per collector.",
 		Operators: []Operator{
-			{Key: "any", Label: "any collector", Value: ValueSpec{Kind: ValueNone}},
-			{Key: "in", Label: anyOf, Value: ValueSpec{
+			{Key: "any", Label: "for any collector", Value: ValueSpec{Kind: ValueNone}},
+			{Key: "in", Label: "for one of", Value: ValueSpec{
 				Kind: ValueStrings, Label: "Collectors", Placeholder: "deb_packages, tcp_listeners",
 				MaxItems: 30, MaxLength: 64, Pattern: `^[a-z0-9_]+$`, Lower: true}},
 		},
