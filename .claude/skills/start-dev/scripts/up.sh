@@ -15,7 +15,7 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 echo "==> Waiting for postgres to report healthy..."
 for i in $(seq 1 30); do
-  status="$(docker inspect --format '{{.State.Health.Status}}' security-whatnot-dev-postgres-1 2>/dev/null || echo "starting")"
+  status="$(docker inspect --format '{{.State.Health.Status}}' upkeep-sh-dev-postgres-1 2>/dev/null || echo "starting")"
   if [ "$status" = "healthy" ]; then
     break
   fi

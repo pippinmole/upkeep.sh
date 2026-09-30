@@ -67,7 +67,7 @@ SW_TEST_USER_EMAIL=admin@admin.com bash .claude/skills/start-dev/scripts/test-ag
 Query the DB directly rather than guessing from the agent's log output alone — a `pushed snapshot: N packages, M sockets` log line only means the HTTP call returned success, not that the data is well-formed (the `snapshots.reboot_packages` `NOT NULL` constraint has bitten this exact flow before). Something like:
 
 ```
-docker exec security-whatnot-dev-postgres-1 psql -U swuser -d security_whatnot -c \
+docker exec upkeep-sh-dev-postgres-1 psql -U swuser -d security_whatnot -c \
   "SELECT h.hostname, h.last_seen_at, s.os_id, s.os_version_id, s.public_ipv4, s.public_ipv6 FROM hosts h JOIN snapshots s ON s.host_id = h.id ORDER BY s.collected_at DESC LIMIT 5;"
 ```
 

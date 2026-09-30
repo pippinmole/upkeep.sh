@@ -12,7 +12,7 @@
 # Usage: enroll-token.sh   (run by test-agent-*.sh; prints the token)
 set -euo pipefail
 
-PSQL=(docker exec -i security-whatnot-dev-postgres-1 psql -U swuser -d security_whatnot -Atq)
+PSQL=(docker exec -i upkeep-sh-dev-postgres-1 psql -U swuser -d security_whatnot -Atq)
 
 if [ -n "${SW_TEST_USER_EMAIL:-}" ]; then
   # Via stdin: psql only interpolates :'email' in script input, not -c.
