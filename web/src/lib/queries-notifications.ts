@@ -1,7 +1,7 @@
 import { pool } from "./db";
 
 // Dashboard reads for Notifications (migration 0009). Every query is
-// scoped by user_id. notification_channels.secrets is never selected:
+// scoped by workspace_id. notification_channels.secrets is never selected:
 // only which secret keys are set.
 
 export type ChannelRow = {
@@ -17,7 +17,7 @@ export type ChannelRow = {
   lastDeliveryAt: string | null;
 };
 
-export async function getChannels(userId: string): Promise<ChannelRow[]> {
+export async function getChannels(workspaceId: string): Promise<ChannelRow[]> {
   const { rows } = await pool.query<{
     id: string;
     name: string;
@@ -39,9 +39,9 @@ export async function getChannels(userId: string): Promise<ChannelRow[]> {
        SELECT d.status, d.updated_at FROM notification_deliveries d
        WHERE d.channel_id = c.id ORDER BY d.created_at DESC LIMIT 1
      ) ld ON true
-     WHERE c.user_id = $1
+     WHERE c.workspace_id = $1
      ORDER BY c.name, c.created_at`,
-    [userId],
+    [workspaceId],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -74,7 +74,7 @@ export type RuleRow = {
   channels: { id: string; name: string; type: string; enabled: boolean }[];
 };
 
-export async function getRules(userId: string): Promise<RuleRow[]> {
+export async function getRules(workspaceId: string): Promise<RuleRow[]> {
   const { rows } = await pool.query<{
     id: string;
     name: string;
@@ -99,9 +99,9 @@ export async function getRules(userId: string): Promise<RuleRow[]> {
                       FROM alert_rule_channels rc JOIN notification_channels c ON c.id = rc.channel_id
                       WHERE rc.rule_id = r.id), '[]') AS channels
      FROM alert_rules r
-     WHERE r.user_id = $1
+     WHERE r.workspace_id = $1
      ORDER BY r.name, r.created_at`,
-    [userId],
+    [workspaceId],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -126,11 +126,11 @@ export type ScopeHost = { id: string; hostname: string; label: string | null; ar
 // Archived hosts never alert (store/alerting.go), so the rule dialog only
 // offers them when a rule already has them in scope; they're still listed
 // here so existing rules show their names.
-export async function getScopeHosts(userId: string): Promise<ScopeHost[]> {
+export async function getScopeHosts(workspaceId: string): Promise<ScopeHost[]> {
   const { rows } = await pool.query<ScopeHost>(
     `SELECT id, hostname, label, archived_at IS NOT NULL AS archived
-     FROM hosts WHERE user_id = $1 ORDER BY hostname, id`,
-    [userId],
+     FROM hosts WHERE workspace_id = $1 ORDER BY hostname, id`,
+    [workspaceId],
   );
   return rows;
 }
@@ -167,7 +167,7 @@ export type DeliveryRow = {
 // newest `limit`), or only those of one notification (the report page links
 // here). notificationId must be a UUID; the caller checks.
 export async function getDeliveries(
-  userId: string,
+  workspaceId: string,
   limit = 500,
   notificationId: string | null = null,
 ): Promise<DeliveryRow[]> {
@@ -204,10 +204,10 @@ export async function getDeliveries(
      FROM notification_deliveries d
      JOIN notifications n ON n.id = d.notification_id
      LEFT JOIN alert_rules r ON r.id = n.rule_id
-     WHERE d.user_id = $1 AND ($3::uuid IS NULL OR d.notification_id = $3)
+     WHERE d.workspace_id = $1 AND ($3::uuid IS NULL OR d.notification_id = $3)
      ORDER BY d.created_at DESC, d.id
      LIMIT $2`,
-    [userId, limit, notificationId],
+    [workspaceId, limit, notificationId],
   );
   return rows.map((r) => ({
     id: r.id,

@@ -18,8 +18,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 // files and /proc cgroups by the agent, so state is running/stopped only
 // (no "failed"; DOMAIN_MODEL.md §4.8).
 export default async function HostServicesPage({ params }: { params: Params }) {
-  const { userId, host } = await requireHost((await params).hostId);
-  const { rows, freshness } = await getHostServices(userId, host.id);
+  const { workspaceId, host } = await requireHost((await params).hostId);
+  const { rows, freshness } = await getHostServices(workspaceId, host.id);
   const running = rows.filter((r) => r.state === "running").length;
 
   return (

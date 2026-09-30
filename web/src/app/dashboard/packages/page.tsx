@@ -1,6 +1,5 @@
 import { Package, Plus } from "lucide-react";
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 
 import { EcosystemIcon } from "@/components/brand";
@@ -19,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getFleetEcosystems, getFleetPackages } from "@/lib/queries-inventory";
 import { filterParam, pageParam, param, type SearchParams } from "@/lib/search-params";
 
@@ -35,9 +34,7 @@ export default async function FleetPackagesPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
   const sp = await searchParams;
 
   const filters = {
@@ -48,8 +45,8 @@ export default async function FleetPackagesPage({
     pageSize: PAGE_SIZE,
   };
   const [{ rows, total }, ecosystems] = await Promise.all([
-    getFleetPackages(userId, filters),
-    getFleetEcosystems(userId),
+    getFleetPackages(workspaceId, filters),
+    getFleetEcosystems(workspaceId),
   ]);
   const header = (
     <PageHeader

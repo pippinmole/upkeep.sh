@@ -1,7 +1,6 @@
 import { Bug, Flame, SearchX, TriangleAlert } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -18,7 +17,7 @@ import { LatestReportCard } from "@/components/overview/latest-report";
 import { attentionItems, NeedsAttention } from "@/components/overview/needs-attention";
 import { UrgentVulns } from "@/components/overview/urgent-vulns";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getOnboardingState } from "@/lib/queries-onboarding";
 import { getEstateHealth, getLatestReport } from "@/lib/queries-overview";
 import { getImageOverviewStats, getUrgentVulns } from "@/lib/queries-overview-images";
@@ -34,21 +33,19 @@ export const metadata: Metadata = {
 const VULNS = "/dashboard/vulnerabilities";
 
 export default async function DashboardPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
 
   // Host package and container image numbers are fetched and shown
   // separately, never summed: they are fixed differently (DOMAIN_MODEL.md
   // §3.6 "Overview").
   const [onboarding, agents, estate, stats, images, urgent, report] = await Promise.all([
-    getOnboardingState(userId),
-    getCollectorAgents(userId),
-    getEstateHealth(userId),
-    getOverviewStats(userId),
-    getImageOverviewStats(userId),
-    getUrgentVulns(userId),
-    getLatestReport(userId),
+    getOnboardingState(workspaceId),
+    getCollectorAgents(workspaceId),
+    getEstateHealth(workspaceId),
+    getOverviewStats(workspaceId),
+    getImageOverviewStats(workspaceId),
+    getUrgentVulns(workspaceId),
+    getLatestReport(workspaceId),
   ]);
   const serverUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   const v = stats.vulns;

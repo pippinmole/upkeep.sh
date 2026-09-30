@@ -1,7 +1,6 @@
 import { Container, X } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { RegistryLogo } from "@/components/brand";
 import { ContainerStateBadge, HostLink, shortId } from "@/components/docker-fleet/badges";
@@ -19,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { imageHref } from "@/lib/image-key";
 import {
   type RepoHostImage,
@@ -98,9 +97,7 @@ export default async function FleetImagePage({
   params: Params;
   searchParams: Promise<SearchParams>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
   const [repo, sp] = await Promise.all([repoName(params), searchParams]);
   const untagged = repo === UNTAGGED_REPO;
   const repoKey = untagged ? "" : repo;
@@ -111,8 +108,8 @@ export default async function FleetImagePage({
     image: param(sp, "image"),
   };
   const [rows, coverage] = await Promise.all([
-    getRepoImages(userId, repo),
-    getDockerCoverage(userId),
+    getRepoImages(workspaceId, repo),
+    getDockerCoverage(workspaceId),
   ]);
 
   const tags = untagged ? [] : summarizeTags(rows);

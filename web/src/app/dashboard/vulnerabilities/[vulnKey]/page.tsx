@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import { OsLogo } from "@/components/brand";
 import { PageHeader, SectionHeading } from "@/components/layout/page-header";
@@ -16,7 +16,7 @@ import {
 import { FixCell, KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { AdvisoryList, CveFacts } from "@/components/vuln/cve-facts";
 import { AdvisoryLinks } from "@/components/vuln/links";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { osName } from "@/lib/os";
 import { getFleetVulnDetail, type VulnHostRow } from "@/lib/queries-vulns";
 import { isVulnKey } from "@/lib/severity";
@@ -120,11 +120,10 @@ function HostsTable({ rows, resolved }: { rows: VulnHostRow[]; resolved: boolean
 }
 
 export default async function FleetVulnerabilityPage({ params }: { params: Params }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const { workspaceId } = await requireViewer();
   const vulnKey = await vulnKeyParam(params);
 
-  const d = await getFleetVulnDetail(session.user.id, vulnKey);
+  const d = await getFleetVulnDetail(workspaceId, vulnKey);
   if (!d) notFound();
 
   const affectedHosts = new Set(d.affected.map((r) => r.hostId)).size;

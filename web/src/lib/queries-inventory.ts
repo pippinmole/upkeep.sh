@@ -7,7 +7,7 @@ import { pool } from "./db";
 //
 // Tenancy: software_versions is shared fleet-wide ACROSS USERS (a version
 // row is interned once for everyone). Every query here therefore starts
-// from `hosts h ... WHERE h.user_id = $1` and only ever reaches
+// from `hosts h ... WHERE h.workspace_id = $1` and only ever reaches
 // software_versions through that user's host_software rows. Never select
 // from software_versions without that join.
 //
@@ -69,9 +69,9 @@ export type HostDetail = {
 
 // cache(): the host layout and each tab page both call this in the same
 // request; React dedupes it. Returns null when the host doesn't exist OR
-// isn't owned by userId: callers must notFound() either way.
+// isn't owned by workspaceId: callers must notFound() either way.
 export const getHost = cache(async function getHost(
-  userId: string,
+  workspaceId: string,
   hostId: string,
 ): Promise<HostDetail | null> {
   if (!isUuid(hostId)) return null;
@@ -110,8 +110,8 @@ export const getHost = cache(async function getHost(
        ORDER BY s2.collected_at DESC   -- snapshots_host_collected_idx
        LIMIT 1
      ) rk ON true
-     WHERE h.id = $2 AND h.user_id = $1`,
-    [userId, hostId],
+     WHERE h.id = $2 AND h.workspace_id = $1`,
+    [workspaceId, hostId],
   );
   const r = rows[0];
   if (!r) return null;
@@ -130,9 +130,9 @@ export const getHost = cache(async function getHost(
                AND sv.ecosystem = st.ecosystem) AS open_packages
      FROM hosts h
      JOIN host_inventory_state st ON st.host_id = h.id
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      ORDER BY st.ecosystem`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
 
   return {
@@ -217,7 +217,7 @@ export type HostPackageFilters = {
 };
 
 export async function getHostPackages(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   f: HostPackageFilters,
 ): Promise<{ rows: HostPackageRow[]; total: number }> {
@@ -269,7 +269,7 @@ export async function getHostPackages(
        SELECT hs.software_id, hs.first_seen_at, hs.removed_at
        FROM hosts h
        JOIN host_software hs ON hs.host_id = h.id
-       WHERE h.id = $2 AND h.user_id = $1
+       WHERE h.id = $2 AND h.workspace_id = $1
          AND ${rangePredicate}
      ),
      r AS (
@@ -316,7 +316,7 @@ export async function getHostPackages(
             OR ($8 = 'no-fix' AND r.nofix_n > 0))
      ORDER BY ${orderBy}
      LIMIT $6 OFFSET $7`,
-    [userId, hostId, f.at, f.ecosystem, f.q, f.pageSize, (f.page - 1) * f.pageSize, f.status],
+    [workspaceId, hostId, f.at, f.ecosystem, f.q, f.pageSize, (f.page - 1) * f.pageSize, f.status],
   );
   return {
     rows: rows.map((r) => ({
@@ -351,15 +351,15 @@ export async function getHostPackages(
 }
 
 // Ecosystems this host has ever had inventory for (filter options).
-export async function getHostEcosystems(userId: string, hostId: string): Promise<string[]> {
+export async function getHostEcosystems(workspaceId: string, hostId: string): Promise<string[]> {
   if (!isUuid(hostId)) return [];
   const { rows } = await pool.query<{ ecosystem: string }>(
     `SELECT st.ecosystem
      FROM hosts h
      JOIN host_inventory_state st ON st.host_id = h.id
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      ORDER BY st.ecosystem`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
   return rows.map((r) => r.ecosystem);
 }
@@ -394,7 +394,7 @@ export type HistoryPage = {
 };
 
 export async function getHostHistory(
-  userId: string,
+  workspaceId: string,
   hostId: string,
   opts: { before: string | null; limit: number },
 ): Promise<HistoryPage> {
@@ -404,7 +404,7 @@ export async function getHostHistory(
   //    older than the cursor. Each side is a host_software_opened_idx /
   //    host_software_removed_idx range scan.
   const b = await pool.query<{ at: string }>(
-    `WITH owned AS (SELECT id FROM hosts WHERE id = $2 AND user_id = $1)
+    `WITH owned AS (SELECT id FROM hosts WHERE id = $2 AND workspace_id = $1)
      SELECT ${utcKey("at")} AS at FROM (
        SELECT hs.first_seen_at AS at
        FROM host_software hs JOIN owned ON hs.host_id = owned.id
@@ -417,7 +417,7 @@ export async function getHostHistory(
      ) b
      ORDER BY at DESC
      LIMIT $4`,
-    [userId, hostId, opts.before, opts.limit + 1],
+    [workspaceId, hostId, opts.before, opts.limit + 1],
   );
   const all = b.rows.map((r) => r.at);
   // at strings are fixed-width UTC, so string order == time order.
@@ -439,7 +439,7 @@ export async function getHostHistory(
     arch: string;
     source_name: string | null;
   }>(
-    `WITH owned AS (SELECT id FROM hosts WHERE id = $2 AND user_id = $1)
+    `WITH owned AS (SELECT id FROM hosts WHERE id = $2 AND workspace_id = $1)
      SELECT 'open' AS kind, hs.software_id, ${utcKey("hs.first_seen_at")} AS at,
             hs.first_seen_snapshot_id AS snapshot_id,
             sv.ecosystem, sv.name, sv.version, sv.arch, sv.source_name
@@ -455,16 +455,16 @@ export async function getHostHistory(
      JOIN software_versions sv ON sv.id = hs.software_id
      WHERE hs.removed_at BETWEEN $3::timestamptz AND $4::timestamptz
      ORDER BY at DESC, name, arch, kind DESC`,
-    [userId, hostId, oldest, newest],
+    [workspaceId, hostId, oldest, newest],
   );
   const firsts = await pool.query<{ ecosystem: string; first_at: string }>(
     `SELECT sv.ecosystem, ${utcKey("min(hs.first_seen_at)")} AS first_at
      FROM hosts h
      JOIN host_software hs ON hs.host_id = h.id
      JOIN software_versions sv ON sv.id = hs.software_id
-     WHERE h.id = $2 AND h.user_id = $1
+     WHERE h.id = $2 AND h.workspace_id = $1
      GROUP BY sv.ecosystem`,
-    [userId, hostId],
+    [workspaceId, hostId],
   );
 
   const byAt = new Map<string, RangeEvent[]>();
@@ -506,7 +506,7 @@ export type FleetPackageRow = {
 };
 
 export async function getFleetPackages(
-  userId: string,
+  workspaceId: string,
   f: {
     q: string | null;
     ecosystem: string | null;
@@ -532,7 +532,7 @@ export async function getFleetPackages(
      FROM hosts h
      JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NULL
      JOIN software_versions sv ON sv.id = hs.software_id
-     WHERE h.user_id = $1 AND h.archived_at IS NULL
+     WHERE h.workspace_id = $1 AND h.archived_at IS NULL
        AND ($2::text IS NULL OR sv.ecosystem = $2)
        AND ($3::text IS NULL
             OR strpos(lower(sv.name), lower($3)) > 0
@@ -540,7 +540,7 @@ export async function getFleetPackages(
      GROUP BY sv.ecosystem, sv.name
      ORDER BY ${orderBy}
      LIMIT $4 OFFSET $5`,
-    [userId, f.ecosystem, f.q, f.pageSize, (f.page - 1) * f.pageSize],
+    [workspaceId, f.ecosystem, f.q, f.pageSize, (f.page - 1) * f.pageSize],
   );
   return {
     rows: rows.map((r) => ({
@@ -554,14 +554,14 @@ export async function getFleetPackages(
   };
 }
 
-export async function getFleetEcosystems(userId: string): Promise<string[]> {
+export async function getFleetEcosystems(workspaceId: string): Promise<string[]> {
   const { rows } = await pool.query<{ ecosystem: string }>(
     `SELECT DISTINCT st.ecosystem
      FROM hosts h
      JOIN host_inventory_state st ON st.host_id = h.id
-     WHERE h.user_id = $1 AND h.archived_at IS NULL
+     WHERE h.workspace_id = $1 AND h.archived_at IS NULL
      ORDER BY st.ecosystem`,
-    [userId],
+    [workspaceId],
   );
   return rows.map((r) => r.ecosystem);
 }
@@ -600,7 +600,7 @@ export type PackageFormerHostRow = {
 };
 
 export async function getFleetPackage(
-  userId: string,
+  workspaceId: string,
   name: string,
 ): Promise<{
   versions: PackageVersionRow[];
@@ -609,7 +609,7 @@ export async function getFleetPackage(
 }> {
   // Current installs of this name on the user's hosts. Planner can go
   // software_versions_name_idx (=) -> host_software_open_by_software_idx ->
-  // hosts pk, filtered by user_id.
+  // hosts pk, filtered by workspace_id.
   const current = await pool.query<{
     host_id: string;
     hostname: string;
@@ -629,9 +629,9 @@ export async function getFleetPackage(
      FROM hosts h
      JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NULL
      JOIN software_versions sv ON sv.id = hs.software_id
-     WHERE h.user_id = $1 AND h.archived_at IS NULL AND sv.name = $2
+     WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND sv.name = $2
      ORDER BY h.hostname, h.id, sv.arch`,
-    [userId, name],
+    [workspaceId, name],
   );
 
   // Hosts that had this name at some point but have no open range for it
@@ -652,7 +652,7 @@ export async function getFleetPackage(
        FROM hosts h
        JOIN host_software hs ON hs.host_id = h.id AND hs.removed_at IS NOT NULL
        JOIN software_versions sv ON sv.id = hs.software_id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL AND sv.name = $2
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND sv.name = $2
          AND NOT EXISTS (
            SELECT 1
            FROM host_software hs2
@@ -663,7 +663,7 @@ export async function getFleetPackage(
        ORDER BY h.id, hs.removed_at DESC
      ) f
      ORDER BY removed_at DESC`,
-    [userId, name],
+    [workspaceId, name],
   );
 
   // Versions table derived from the rows above: never read

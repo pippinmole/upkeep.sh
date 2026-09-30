@@ -1,12 +1,12 @@
 import { FileText } from "lucide-react";
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { REPORTS_URL } from "@/components/notifications/links";
 import { EnabledBadge } from "@/components/notifications/shared";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getReportSchedule, getScheduleReports } from "@/lib/queries-reports";
 import { cadenceSummary } from "@/lib/report-schedules";
 
@@ -24,13 +24,11 @@ export default async function PastReportsPage({
 }: {
   params: Promise<{ scheduleId: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
   const { scheduleId } = await params;
-  const schedule = await getReportSchedule(userId, scheduleId);
+  const schedule = await getReportSchedule(workspaceId, scheduleId);
   if (!schedule) notFound();
-  const reports = await getScheduleReports(userId, schedule.id, LIMIT);
+  const reports = await getScheduleReports(workspaceId, schedule.id, LIMIT);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">

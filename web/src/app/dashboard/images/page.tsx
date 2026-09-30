@@ -1,7 +1,6 @@
 import { Container, Plus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { RegistryLogo } from "@/components/brand";
 import { DockerCoverageNote } from "@/components/docker-fleet/coverage-note";
@@ -22,7 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ImageScoreCell } from "@/components/image/score-cell";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { imageHref } from "@/lib/image-key";
 import {
   getDockerCoverage,
@@ -75,9 +74,7 @@ export default async function FleetImagesPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
   const sp = await searchParams;
 
   const filters = {
@@ -87,11 +84,11 @@ export default async function FleetImagesPage({
     pageSize: PAGE_SIZE,
   };
   const [{ rows, total }, coverage] = await Promise.all([
-    getFleetImages(userId, filters),
-    getDockerCoverage(userId),
+    getFleetImages(workspaceId, filters),
+    getDockerCoverage(workspaceId),
   ]);
   const scores = await getRepoScores(
-    userId,
+    workspaceId,
     rows.map((r) => r.repo),
   );
 

@@ -11,7 +11,7 @@ export type OnboardingState = {
   report: boolean;
 };
 
-export async function getOnboardingState(userId: string): Promise<OnboardingState> {
+export async function getOnboardingState(workspaceId: string): Promise<OnboardingState> {
   const { rows } = await pool.query<{
     agent: boolean;
     host_reported: boolean;
@@ -20,17 +20,17 @@ export async function getOnboardingState(userId: string): Promise<OnboardingStat
     rule: boolean;
     report: boolean;
   }>(
-    `SELECT EXISTS (SELECT 1 FROM agents a WHERE a.user_id = $1) AS agent,
+    `SELECT EXISTS (SELECT 1 FROM agents a WHERE a.workspace_id = $1) AS agent,
             EXISTS (SELECT 1 FROM hosts h JOIN snapshots s ON s.host_id = h.id
-                    WHERE h.user_id = $1) AS host_reported,
+                    WHERE h.workspace_id = $1) AS host_reported,
             EXISTS (SELECT 1 FROM hosts h JOIN host_docker d ON d.host_id = h.id
-                    WHERE h.user_id = $1)
+                    WHERE h.workspace_id = $1)
               OR EXISTS (SELECT 1 FROM hosts h JOIN host_containers c ON c.host_id = h.id
-                         WHERE h.user_id = $1) AS docker,
-            EXISTS (SELECT 1 FROM notification_channels c WHERE c.user_id = $1) AS channel,
-            EXISTS (SELECT 1 FROM alert_rules r WHERE r.user_id = $1) AS rule,
-            EXISTS (SELECT 1 FROM report_schedules r WHERE r.user_id = $1) AS report`,
-    [userId],
+                         WHERE h.workspace_id = $1) AS docker,
+            EXISTS (SELECT 1 FROM notification_channels c WHERE c.workspace_id = $1) AS channel,
+            EXISTS (SELECT 1 FROM alert_rules r WHERE r.workspace_id = $1) AS rule,
+            EXISTS (SELECT 1 FROM report_schedules r WHERE r.workspace_id = $1) AS report`,
+    [workspaceId],
   );
   const r = rows[0];
   return {

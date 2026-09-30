@@ -1,7 +1,6 @@
 import { Boxes } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { HostLink } from "@/components/docker-fleet/badges";
 import { DockerCoverageNote } from "@/components/docker-fleet/coverage-note";
@@ -17,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import {
   getDockerCoverage,
   getSwarmClusters,
@@ -30,14 +29,12 @@ export const metadata: Metadata = {
 };
 
 export default async function SwarmClustersPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const userId = session.user.id;
+  const { workspaceId } = await requireViewer();
 
   const [clusters, unattributed, coverage] = await Promise.all([
-    getSwarmClusters(userId),
-    getUnattributedSwarmHosts(userId),
-    getDockerCoverage(userId),
+    getSwarmClusters(workspaceId),
+    getUnattributedSwarmHosts(workspaceId),
+    getDockerCoverage(workspaceId),
   ]);
 
   return (

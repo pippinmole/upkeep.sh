@@ -25,11 +25,11 @@ export default async function HostLayout({
   params: Promise<{ hostId: string }>;
 }) {
   const { hostId } = await params;
-  const { userId, host } = await requireHost(hostId);
+  const { workspaceId, host } = await requireHost(hostId);
   const [vulns, sys, collectors] = await Promise.all([
-    getHostVulnSummary(userId, host.id),
-    getHostSystem(userId, host.id),
-    getHostCollectors(userId, host.id),
+    getHostVulnSummary(workspaceId, host.id),
+    getHostSystem(workspaceId, host.id),
+    getHostCollectors(workspaceId, host.id),
   ]);
   const snap = host.latestSnapshot;
   const base = `/dashboard/hosts/${host.id}`;

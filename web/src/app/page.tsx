@@ -2,13 +2,15 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { auth } from "@/lib/auth";
+import { installHasUsers } from "@/lib/auth";
+import { getViewer } from "@/lib/viewer";
 
 import { BrandMark } from "./login/auth-shell";
 
 export default async function Home() {
-  const session = await auth();
-  if (session?.user?.id) redirect("/dashboard");
+  if (await getViewer()) redirect("/dashboard");
+  // Sign-up only creates the first (administrator) account.
+  const bootstrapping = !(await installHasUsers());
 
   return (
     <main className="bg-background flex min-h-screen flex-col items-center justify-center gap-8 px-4 py-12 text-center">
@@ -24,10 +26,12 @@ export default async function Home() {
         </p>
       </div>
       <div className="flex flex-wrap justify-center gap-3">
-        <Button asChild size="lg">
-          <Link href="/signup">Create account</Link>
-        </Button>
-        <Button asChild size="lg" variant="outline">
+        {bootstrapping && (
+          <Button asChild size="lg">
+            <Link href="/signup">Create account</Link>
+          </Button>
+        )}
+        <Button asChild size="lg" variant={bootstrapping ? "outline" : "default"}>
           <Link href="/login">Sign in</Link>
         </Button>
       </div>

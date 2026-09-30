@@ -17,8 +17,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 // Local accounts (open host_users ranges) from /etc/passwd + /etc/group.
 // Directory-service (LDAP/SSSD) accounts aren't visible to the agent.
 export default async function HostUsersPage({ params }: { params: Params }) {
-  const { userId, host } = await requireHost((await params).hostId);
-  const { rows, freshness } = await getHostUsers(userId, host.id);
+  const { workspaceId, host } = await requireHost((await params).hostId);
+  const { rows, freshness } = await getHostUsers(workspaceId, host.id);
   const interactive = rows.filter((r) => r.loginShell).length;
   const admins = rows.filter((r) => r.admin).length;
 

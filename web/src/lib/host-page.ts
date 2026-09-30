@@ -1,19 +1,20 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
-import { auth } from "./auth";
 import { osLabel as osNameVersion } from "./os";
 import { getHost, type HostDetail } from "./queries-inventory";
+import { requireViewer } from "./viewer";
 
 // Auth + ownership gate for every /dashboard/hosts/[hostId] layout and page.
 // Layouts don't re-render on client navigation between tabs, so each page
 // must call this itself rather than relying on the layout's check.
 // getHost is React-cached, so layout + page share one query per request.
-export async function requireHost(hostId: string): Promise<{ userId: string; host: HostDetail }> {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  const host = await getHost(session.user.id, hostId);
+export async function requireHost(
+  hostId: string,
+): Promise<{ workspaceId: string; host: HostDetail }> {
+  const { workspaceId } = await requireViewer();
+  const host = await getHost(workspaceId, hostId);
   if (!host) notFound();
-  return { userId: session.user.id, host };
+  return { workspaceId, host };
 }
 
 export function hostTitle(host: Pick<HostDetail, "hostname" | "label">) {

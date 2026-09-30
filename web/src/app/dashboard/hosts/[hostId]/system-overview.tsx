@@ -5,9 +5,15 @@ import { Muted, OverviewCard } from "./overview-card";
 
 // Overview sections for the Linux breadth facts: system (uptime, arch,
 // automatic updates) and "needs restart" (processes on deleted libraries).
-// Server component; getHostSystem is scoped by userId.
-export async function SystemOverview({ userId, hostId }: { userId: string; hostId: string }) {
-  const sys = await getHostSystem(userId, hostId);
+// Server component; getHostSystem is scoped by workspaceId.
+export async function SystemOverview({
+  workspaceId,
+  hostId,
+}: {
+  workspaceId: string;
+  hostId: string;
+}) {
+  const sys = await getHostSystem(workspaceId, hostId);
   if (!sys) return null;
   const uu = sys.unattendedUpgrades;
   const nr = sys.needsRestart;

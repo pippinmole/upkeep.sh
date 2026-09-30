@@ -19,8 +19,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 // the agent could read it. Whether a port is actually reachable from the
 // internet depends on firewalls and is not known here.
 export default async function HostListenersPage({ params }: { params: Params }) {
-  const { userId, host } = await requireHost((await params).hostId);
-  const { rows, freshness } = await getHostListeners(userId, host.id);
+  const { workspaceId, host } = await requireHost((await params).hostId);
+  const { rows, freshness } = await getHostListeners(workspaceId, host.id);
   const exposed = rows.filter((r) => r.wildcard).length;
   const latest =
     freshness.tcp && freshness.udp

@@ -16,8 +16,8 @@ import {
 //
 // Tenancy: container_images is interned fleet-wide ACROSS USERS, and
 // swarm cluster / service ids come from agents. Every query here starts
-// from the user's own rows: `hosts h WHERE h.user_id = $1` for
-// host_images / host_containers / host_docker, and `(user_id, cluster_id)`
+// from the user's own rows: `hosts h WHERE h.workspace_id = $1` for
+// host_images / host_containers / host_docker, and `(workspace_id, cluster_id)`
 // for swarm_clusters / swarm_services. Task containers are only joined to
 // services through hosts of the same user. Current rows are
 // `removed_at IS NULL`; archived hosts are left out, as on other fleet
@@ -45,7 +45,7 @@ imgs AS (
          concat_ws('/', nullif(hi.os, ''), nullif(hi.arch, ''), nullif(hi.variant, '')) AS platform
   FROM hosts h
   JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
-  WHERE h.user_id = $1 AND h.archived_at IS NULL
+  WHERE h.workspace_id = $1 AND h.archived_at IS NULL
 ),
 refs AS (
   SELECT i.host_id, i.image_id, i.os, i.arch, i.variant, i.platform, r.repo, r.tag,
@@ -98,7 +98,7 @@ export function tagDrifts(t: Pick<FleetImageTag, "digests" | "imageIds" | "platf
 }
 
 export async function getFleetImages(
-  userId: string,
+  workspaceId: string,
   f: {
     q: string | null;
     sort: "name" | "hosts";
@@ -159,7 +159,7 @@ export async function getFleetImages(
      LEFT JOIN running ru USING (repo)
      ORDER BY ${orderBy}
      LIMIT $3 OFFSET $4`,
-    [userId, f.q, f.pageSize, (f.page - 1) * f.pageSize],
+    [workspaceId, f.q, f.pageSize, (f.page - 1) * f.pageSize],
   );
   return {
     rows: rows.map((r) => ({
@@ -184,7 +184,7 @@ export type RepoScore = {
 };
 
 export async function getRepoScores(
-  userId: string,
+  workspaceId: string,
   repos: string[],
 ): Promise<Map<string, RepoScore>> {
   if (repos.length === 0) return new Map();
@@ -215,7 +215,7 @@ export async function getRepoScores(
      ${RELEASE_JOIN}
      ORDER BY k.repo, s.top_severity_key DESC NULLS LAST, s.vuln_count DESC NULLS LAST,
               s.list_status = 'ok' DESC, k.image_id`,
-    [userId, repos],
+    [workspaceId, repos],
   );
   return new Map(
     rows.map((r) => [
@@ -263,7 +263,7 @@ export type RepoHostImage = {
 // Every current host image that belongs to `repo` (UNTAGGED_REPO = images
 // with no tag and no digest). Filtering by tag / digest / image id is left
 // to the caller so the per-tag summary can be built from the same rows.
-export async function getRepoImages(userId: string, repo: string): Promise<RepoHostImage[]> {
+export async function getRepoImages(workspaceId: string, repo: string): Promise<RepoHostImage[]> {
   const repoKey = repo === UNTAGGED_REPO ? "" : repo;
   const { rows } = await pool.query<{
     host_id: string;
@@ -305,12 +305,12 @@ export async function getRepoImages(userId: string, repo: string): Promise<RepoH
               WHERE c.host_id = hi.host_id AND c.image_id = hi.image_id AND c.removed_at IS NULL
             ), '[]') AS containers
      FROM mine m
-     JOIN hosts h ON h.id = m.host_id AND h.user_id = $1
+     JOIN hosts h ON h.id = m.host_id AND h.workspace_id = $1
      JOIN host_images hi
        ON hi.host_id = m.host_id AND hi.image_id = m.image_id AND hi.removed_at IS NULL
      ORDER BY lower(coalesce(h.label, h.hostname)), h.id, hi.first_seen_at DESC
      LIMIT 2000`,
-    [userId, repoKey],
+    [workspaceId, repoKey],
   );
   return rows.map((r) => ({
     hostId: r.host_id,
@@ -347,7 +347,7 @@ export type DockerCoverage = {
 };
 
 export const getDockerCoverage = cache(async function getDockerCoverage(
-  userId: string,
+  workspaceId: string,
 ): Promise<DockerCoverage> {
   const { rows } = await pool.query<{
     status: string;
@@ -364,10 +364,10 @@ export const getDockerCoverage = cache(async function getDockerCoverage(
        ORDER BY s.received_at DESC   -- snapshots_host_id_received_at_idx
        LIMIT 1
      ) s ON true
-     WHERE h.user_id = $1 AND h.archived_at IS NULL
+     WHERE h.workspace_id = $1 AND h.archived_at IS NULL
      GROUP BY 1, 2
      ORDER BY 3 DESC`,
-    [userId],
+    [workspaceId],
   );
   let hosts = 0;
   let reporting = 0;
@@ -394,14 +394,14 @@ export function isClusterId(s: string): boolean {
 // Whether to show the Swarm nav item: a cluster with services reported,
 // or any of the user's hosts being a Swarm member (a worker, or a manager
 // whose service list hasn't come in yet).
-export const hasSwarm = cache(async function hasSwarm(userId: string): Promise<boolean> {
+export const hasSwarm = cache(async function hasSwarm(workspaceId: string): Promise<boolean> {
   const { rows } = await pool.query<{ any: boolean }>(
-    `SELECT EXISTS (SELECT 1 FROM swarm_clusters sc WHERE sc.user_id = $1)
+    `SELECT EXISTS (SELECT 1 FROM swarm_clusters sc WHERE sc.workspace_id = $1)
          OR EXISTS (SELECT 1 FROM hosts h
                     JOIN host_docker hd ON hd.host_id = h.id
-                    WHERE h.user_id = $1 AND h.archived_at IS NULL
+                    WHERE h.workspace_id = $1 AND h.archived_at IS NULL
                       AND hd.swarm_state IS NOT NULL) AS any`,
-    [userId],
+    [workspaceId],
   );
   return rows[0]?.any ?? false;
 });
@@ -427,10 +427,10 @@ export type SwarmClusterSummary = {
 const MY_CLUSTERS_CTE = `
 my_hosts AS (
   SELECT h.id, h.hostname, h.label FROM hosts h
-  WHERE h.user_id = $1 AND h.archived_at IS NULL
+  WHERE h.workspace_id = $1 AND h.archived_at IS NULL
 ),
 ids AS (
-  SELECT sc.cluster_id FROM swarm_clusters sc WHERE sc.user_id = $1
+  SELECT sc.cluster_id FROM swarm_clusters sc WHERE sc.workspace_id = $1
   UNION
   SELECT hd.swarm_cluster_id FROM host_docker hd
   JOIN my_hosts h ON h.id = hd.host_id
@@ -438,7 +438,7 @@ ids AS (
 ),
 svc AS (
   SELECT ss.* FROM swarm_services ss
-  WHERE ss.user_id = $1 AND ss.removed_at IS NULL
+  WHERE ss.workspace_id = $1 AND ss.removed_at IS NULL
 ),
 tasks AS (
   SELECT svc.cluster_id, svc.service_id, c.host_id, c.container_id, c.state
@@ -454,7 +454,7 @@ nodes AS (
   SELECT cluster_id, host_id FROM tasks
 )`;
 
-export async function getSwarmClusters(userId: string): Promise<SwarmClusterSummary[]> {
+export async function getSwarmClusters(workspaceId: string): Promise<SwarmClusterSummary[]> {
   const { rows } = await pool.query<{
     cluster_id: string;
     first_seen_at: Date | null;
@@ -480,10 +480,10 @@ export async function getSwarmClusters(userId: string): Promise<SwarmClusterSumm
              WHERE hd.swarm_cluster_id = ids.cluster_id AND hd.swarm_state = 'locked') AS locked,
             (SELECT count(DISTINCT host_id) FROM nodes WHERE nodes.cluster_id = ids.cluster_id) AS nodes
      FROM ids
-     LEFT JOIN swarm_clusters sc ON sc.user_id = $1 AND sc.cluster_id = ids.cluster_id
+     LEFT JOIN swarm_clusters sc ON sc.workspace_id = $1 AND sc.cluster_id = ids.cluster_id
      LEFT JOIN my_hosts lm ON lm.id = sc.last_manager_host_id
      ORDER BY sc.first_seen_at NULLS LAST, ids.cluster_id`,
-    [userId],
+    [workspaceId],
   );
   return rows.map((r) => ({
     clusterId: r.cluster_id,
@@ -503,7 +503,7 @@ export async function getSwarmClusters(userId: string): Promise<SwarmClusterSumm
 // Swarm members that can't be placed in a cluster: workers aren't told the
 // cluster id, so a worker is only attributed through its task containers.
 export async function getUnattributedSwarmHosts(
-  userId: string,
+  workspaceId: string,
 ): Promise<(HostRef & { role: string | null; state: string | null })[]> {
   const { rows } = await pool.query<{
     host_id: string;
@@ -519,7 +519,7 @@ export async function getUnattributedSwarmHosts(
      WHERE hd.swarm_state IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.host_id = h.id)
      ORDER BY lower(coalesce(h.label, h.hostname))`,
-    [userId],
+    [workspaceId],
   );
   return rows.map((r) => ({
     hostId: r.host_id,
@@ -576,11 +576,11 @@ export type SwarmClusterDetail = {
 };
 
 export async function getSwarmCluster(
-  userId: string,
+  workspaceId: string,
   clusterId: string,
 ): Promise<SwarmClusterDetail | null> {
   if (!isClusterId(clusterId)) return null;
-  const summary = (await getSwarmClusters(userId)).find((c) => c.clusterId === clusterId);
+  const summary = (await getSwarmClusters(workspaceId)).find((c) => c.clusterId === clusterId);
   if (!summary) return null;
 
   const [services, tasks, nodes] = await Promise.all([
@@ -599,9 +599,9 @@ export async function getSwarmCluster(
       `SELECT ss.service_id, ss.name, ss.swarm_stack, ss.image, ss.mode, ss.replicas,
               ss.running_tasks, ss.desired_tasks, ss.ports, ss.first_seen_at
        FROM swarm_services ss
-       WHERE ss.user_id = $1 AND ss.cluster_id = $2 AND ss.removed_at IS NULL
+       WHERE ss.workspace_id = $1 AND ss.cluster_id = $2 AND ss.removed_at IS NULL
        ORDER BY ss.swarm_stack NULLS LAST, ss.name`,
-      [userId, clusterId],
+      [workspaceId, clusterId],
     ),
     pool.query<{
       service_id: string;
@@ -618,10 +618,10 @@ export async function getSwarmCluster(
               c.container_id, c.name, c.state, c.swarm_task_id, c.started_at
        FROM swarm_services ss
        JOIN host_containers c ON c.swarm_service_id = ss.service_id AND c.removed_at IS NULL
-       JOIN hosts h ON h.id = c.host_id AND h.user_id = ss.user_id AND h.archived_at IS NULL
-       WHERE ss.user_id = $1 AND ss.cluster_id = $2 AND ss.removed_at IS NULL
+       JOIN hosts h ON h.id = c.host_id AND h.workspace_id = ss.workspace_id AND h.archived_at IS NULL
+       WHERE ss.workspace_id = $1 AND ss.cluster_id = $2 AND ss.removed_at IS NULL
        ORDER BY c.state = 'running' DESC, lower(coalesce(h.label, h.hostname)), c.name`,
-      [userId, clusterId],
+      [workspaceId, clusterId],
     ),
     pool.query<{
       host_id: string;
@@ -645,7 +645,7 @@ export async function getSwarmCluster(
        LEFT JOIN host_docker hd ON hd.host_id = h.id
        WHERE h.id IN (SELECT host_id FROM nodes WHERE cluster_id = $2)
        ORDER BY hd.swarm_role = 'manager' DESC NULLS LAST, lower(coalesce(h.label, h.hostname))`,
-      [userId, clusterId],
+      [workspaceId, clusterId],
     ),
   ]);
 

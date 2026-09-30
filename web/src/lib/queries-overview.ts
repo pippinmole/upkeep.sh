@@ -34,7 +34,7 @@ export type EstateHealth = { hosts: HostHealth[]; signals: EstateSignals };
 // Overview and the Agents page agree: a host is stale when none of its
 // enabled, non-revoked agents is online. Reboot comes from the newest
 // snapshot, as in getOverviewStats.
-export async function getEstateHealth(userId: string): Promise<EstateHealth> {
+export async function getEstateHealth(workspaceId: string): Promise<EstateHealth> {
   const [hosts, signals] = await Promise.all([
     pool.query<{
       id: string;
@@ -51,7 +51,7 @@ export async function getEstateHealth(userId: string): Promise<EstateHealth> {
               NOT EXISTS (
                 SELECT 1
                 FROM agent_hosts ah
-                JOIN agents a ON a.id = ah.agent_id AND a.user_id = h.user_id
+                JOIN agents a ON a.id = ah.agent_id AND a.workspace_id = h.workspace_id
                 WHERE ah.host_id = h.id AND ah.enabled AND a.revoked_at IS NULL
                   AND now() - a.last_seen_at <=
                       make_interval(secs => greatest(3 * coalesce(a.push_interval_seconds, 900), 120))
@@ -69,9 +69,9 @@ export async function getEstateHealth(userId: string): Promise<EstateHealth> {
          FROM findings fi
          WHERE fi.host_id = h.id AND fi.status = 'open' AND fi.kind = 'vulnerable_package'
        ) f ON true
-       WHERE h.user_id = $1 AND h.archived_at IS NULL
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL
        ORDER BY lower(coalesce(h.label, h.hostname)), h.id`,
-      [userId],
+      [workspaceId],
     ),
     pool.query<{
       containers: string;
@@ -83,21 +83,21 @@ export async function getEstateHealth(userId: string): Promise<EstateHealth> {
       `SELECT
          (SELECT count(*) FROM hosts h
           JOIN host_containers c ON c.host_id = h.id AND c.removed_at IS NULL
-          WHERE h.user_id = $1 AND h.archived_at IS NULL) AS containers,
+          WHERE h.workspace_id = $1 AND h.archived_at IS NULL) AS containers,
          (SELECT count(DISTINCT hi.image_id) FROM hosts h
           JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
-          WHERE h.user_id = $1 AND h.archived_at IS NULL) AS images,
+          WHERE h.workspace_id = $1 AND h.archived_at IS NULL) AS images,
          (SELECT count(DISTINCT concat_ws('|', f.image_id, f.image_os, f.image_arch, f.image_variant))
           FROM hosts h
           JOIN findings f ON f.host_id = h.id
-          WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_image'
+          WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_image'
             AND f.status = 'open' AND f.severity = 'critical') AS critical_images,
          (SELECT count(*) FROM notification_deliveries d
-          WHERE d.user_id = $1 AND d.status = 'failed'
+          WHERE d.workspace_id = $1 AND d.status = 'failed'
             AND d.created_at > now() - interval '7 days') AS failed_deliveries,
          (SELECT array_agg(a.name ORDER BY a.created_at) FROM agents a
-          WHERE a.user_id = $1 AND a.revoked_at IS NULL AND a.last_seen_at IS NULL) AS never_agents`,
-      [userId],
+          WHERE a.workspace_id = $1 AND a.revoked_at IS NULL AND a.last_seen_at IS NULL) AS never_agents`,
+      [workspaceId],
     ),
   ]);
 
@@ -149,7 +149,7 @@ export type LatestReport = {
 
 // The user's newest report of any schedule, reading only the snapshot parts
 // the card shows (as the report listings do).
-export async function getLatestReport(userId: string): Promise<LatestReport | null> {
+export async function getLatestReport(workspaceId: string): Promise<LatestReport | null> {
   const { rows } = await pool.query<{
     id: string;
     name: string;
@@ -162,11 +162,11 @@ export async function getLatestReport(userId: string): Promise<LatestReport | nu
             r.snapshot->'headline' AS headline,
             r.snapshot->'coverage'->'stale_agents' AS stale_agents
      FROM reports r
-     JOIN report_schedules s ON s.id = r.schedule_id AND s.user_id = r.user_id
-     WHERE r.user_id = $1
+     JOIN report_schedules s ON s.id = r.schedule_id AND s.workspace_id = r.workspace_id
+     WHERE r.workspace_id = $1
      ORDER BY r.generated_at DESC, r.id
-     LIMIT 1   -- reports_user_idx`,
-    [userId],
+     LIMIT 1   -- reports_workspace_idx`,
+    [workspaceId],
   );
   const r = rows[0];
   if (!r) return null;

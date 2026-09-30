@@ -189,7 +189,7 @@ export default async function HostPackagesPage({
 }) {
   const { hostId } = await params;
   const sp = await searchParams;
-  const { userId, host } = await requireHost(hostId);
+  const { workspaceId, host } = await requireHost(hostId);
 
   const rawAt = param(sp, "at");
   const at = parseAt(rawAt);
@@ -204,9 +204,9 @@ export default async function HostPackagesPage({
   };
   const pkgParam = param(sp, "pkg");
   const [{ rows, total }, ecosystems, sheet] = await Promise.all([
-    getHostPackages(userId, host.id, filters),
-    getHostEcosystems(userId, host.id),
-    pkgParam ? getPackageVulns(userId, host.id, pkgParam) : null,
+    getHostPackages(workspaceId, host.id, filters),
+    getHostEcosystems(workspaceId, host.id),
+    pkgParam ? getPackageVulns(workspaceId, host.id, pkgParam) : null,
   ]);
   // ?pkg= for a version this host never had (or another user's) is a 404.
   if (pkgParam && !sheet) notFound();

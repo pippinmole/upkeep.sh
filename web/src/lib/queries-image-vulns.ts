@@ -103,7 +103,7 @@ g AS (
 )`;
 
 export async function getImageVulns(
-  userId: string,
+  workspaceId: string,
   key: ImageKey,
   f: ImageVulnFilters,
 ): Promise<{ rows: ImageVulnRow[]; total: number }> {
@@ -145,7 +145,7 @@ export async function getImageVulns(
                 'reopenedAt', f.reopened_at)
               ORDER BY f.status = 'open' DESC, lower(coalesce(h.label, h.hostname))) AS findings
        FROM findings f
-       JOIN hosts h ON h.id = f.host_id AND h.user_id = $1
+       JOIN hosts h ON h.id = f.host_id AND h.workspace_id = $1
        WHERE f.kind = 'vulnerable_image' AND f.image_id = $2 AND f.image_os = $3
          AND f.image_arch = $4 AND f.image_variant = $5
          AND f.source_package = g.source AND f.vuln_key = g.vuln_key
@@ -163,7 +163,7 @@ export async function getImageVulns(
      ORDER BY ${orderBy}
      LIMIT $10 OFFSET $11`,
     [
-      userId,
+      workspaceId,
       key.imageId,
       key.os,
       key.arch,

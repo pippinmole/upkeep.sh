@@ -1,11 +1,10 @@
 import { ScrollText } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { NotificationSettingsLink } from "@/components/notifications/links";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getDeliveries } from "@/lib/queries-notifications";
 
 import { DeliveriesTable } from "./deliveries-table";
@@ -23,11 +22,10 @@ export default async function DeliveryLogPage({
 }: {
   searchParams: Promise<{ notification?: string | string[] }>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const { workspaceId } = await requireViewer();
   const raw = (await searchParams).notification;
   const notificationId = typeof raw === "string" && UUID_RE.test(raw) ? raw : null;
-  const deliveries = await getDeliveries(session.user.id, LIMIT, notificationId);
+  const deliveries = await getDeliveries(workspaceId, LIMIT, notificationId);
 
   return (
     <div className="flex flex-col gap-4">

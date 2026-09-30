@@ -19,10 +19,10 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 // with the engine / Swarm facts above. Why the list is empty or stale comes
 // from the newest snapshot's collector status (DockerCollectionState).
 export default async function HostContainersPage({ params }: { params: Params }) {
-  const { userId, host } = await requireHost((await params).hostId);
+  const { workspaceId, host } = await requireHost((await params).hostId);
   const [{ rows, freshness }, engine] = await Promise.all([
-    getHostContainers(userId, host.id),
-    getHostDockerEngine(userId, host.id),
+    getHostContainers(workspaceId, host.id),
+    getHostDockerEngine(workspaceId, host.id),
   ]);
   const running = rows.filter((r) => r.state === "running").length;
 
@@ -40,7 +40,7 @@ export default async function HostContainersPage({ params }: { params: Params })
         {freshness && <FactFreshnessNote label="containers" freshness={freshness} />}
       </div>
       <DockerCollectionState
-        userId={userId}
+        workspaceId={workspaceId}
         hostId={host.id}
         what="containers"
         collectorStatus={host.latestSnapshot?.collectorStatus}

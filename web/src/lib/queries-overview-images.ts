@@ -31,7 +31,7 @@ k AS (
          )) AS in_use
   FROM hosts h
   JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
-  WHERE h.user_id = $1 AND h.archived_at IS NULL AND hi.os IS NOT NULL
+  WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND hi.os IS NOT NULL
   GROUP BY 1, 2, 3, 4
 )`;
 
@@ -78,18 +78,21 @@ type KeyRow = ImageScoreDbRow & {
   top_severity_key: string | null;
 };
 
-export async function getImageOverviewStats(userId: string, topN = 5): Promise<ImageOverviewStats> {
+export async function getImageOverviewStats(
+  workspaceId: string,
+  topN = 5,
+): Promise<ImageOverviewStats> {
   const [docker, keys, sev, totals] = await Promise.all([
     pool.query<{ has: boolean }>(
       `SELECT EXISTS (
                 SELECT 1 FROM hosts h
                 JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
-                WHERE h.user_id = $1 AND h.archived_at IS NULL)
+                WHERE h.workspace_id = $1 AND h.archived_at IS NULL)
            OR EXISTS (
                 SELECT 1 FROM hosts h
                 JOIN host_containers c ON c.host_id = h.id AND c.removed_at IS NULL
-                WHERE h.user_id = $1 AND h.archived_at IS NULL) AS has`,
-      [userId],
+                WHERE h.workspace_id = $1 AND h.archived_at IS NULL) AS has`,
+      [workspaceId],
     ),
     pool.query<KeyRow>(
       `WITH ${KEYS_CTE}
@@ -99,16 +102,16 @@ export async function getImageOverviewStats(userId: string, topN = 5): Promise<I
        LEFT JOIN image_scores($1) s
          ON s.image_id = k.image_id AND s.os = k.os AND s.arch = k.arch AND s.variant = k.variant
        ${RELEASE_JOIN}`,
-      [userId],
+      [workspaceId],
     ),
     pool.query<{ severity: string | null; open: string }>(
       `SELECT f.severity, count(*) AS open
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL
          AND f.kind = 'vulnerable_image' AND f.status = 'open'
        GROUP BY f.severity`,
-      [userId],
+      [workspaceId],
     ),
     pool.query<{ kev: string; fixable: string; hosts: string; images: string }>(
       `SELECT count(*) FILTER (WHERE f.is_kev) AS kev,
@@ -118,9 +121,9 @@ export async function getImageOverviewStats(userId: string, topN = 5): Promise<I
                 AS images
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL
          AND f.kind = 'vulnerable_image' AND f.status = 'open'`,
-      [userId],
+      [workspaceId],
     ),
   ]);
 
@@ -195,7 +198,7 @@ export async function getImageOverviewStats(userId: string, topN = 5): Promise<I
       bySeverity,
     },
     top: await withUsage(
-      userId,
+      workspaceId,
       top.map(({ row, score }) => ({
         key: { imageId: row.image_id, os: row.os, arch: row.arch, variant: row.variant },
         hasRepoDigest: row.has_digest,
@@ -208,7 +211,7 @@ export async function getImageOverviewStats(userId: string, topN = 5): Promise<I
 }
 
 // Tags and the hosts / containers using each image, for the few top images.
-async function withUsage(userId: string, images: OverviewImage[]): Promise<OverviewImage[]> {
+async function withUsage(workspaceId: string, images: OverviewImage[]): Promise<OverviewImage[]> {
   if (images.length === 0) return images;
   const { rows } = await pool.query<{
     image_id: string;
@@ -231,10 +234,10 @@ async function withUsage(userId: string, images: OverviewImage[]): Promise<Overv
        ON hi.image_id = key.image_id AND hi.os = key.os AND hi.arch = key.arch
       AND hi.variant = key.variant AND hi.removed_at IS NULL
      JOIN hosts h ON h.id = hi.host_id
-     WHERE h.user_id = $1 AND h.archived_at IS NULL
+     WHERE h.workspace_id = $1 AND h.archived_at IS NULL
      ORDER BY lower(coalesce(h.label, h.hostname)), h.id`,
     [
-      userId,
+      workspaceId,
       images.map((i) => i.key.imageId),
       images.map((i) => i.key.os),
       images.map((i) => i.key.arch),
@@ -285,7 +288,7 @@ export type UrgentVulnRow = {
 // urgent first (severity keys are the same ranking for both kinds). Where
 // the CVE is stays visible per row: host packages and images are fixed
 // differently.
-export async function getUrgentVulns(userId: string, limit = 5): Promise<UrgentVulnRow[]> {
+export async function getUrgentVulns(workspaceId: string, limit = 5): Promise<UrgentVulnRow[]> {
   const { rows } = await pool.query<{
     vuln_key: string;
     severity: string | null;
@@ -307,7 +310,7 @@ export async function getUrgentVulns(userId: string, limit = 5): Promise<UrgentV
        SELECT f.*
        FROM hosts h
        JOIN findings f ON f.host_id = h.id
-       WHERE h.user_id = $1 AND h.archived_at IS NULL AND f.status = 'open'
+       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.status = 'open'
          AND f.kind IN ('vulnerable_package', 'vulnerable_image')
      )
      SELECT uf.vuln_key,
@@ -331,7 +334,7 @@ export async function getUrgentVulns(userId: string, limit = 5): Promise<UrgentV
      GROUP BY uf.vuln_key
      ORDER BY max(uf.severity_key) DESC, count(DISTINCT uf.host_id) DESC, uf.vuln_key
      LIMIT $2`,
-    [userId, limit],
+    [workspaceId, limit],
   );
   const pkgs = (xs: (string | null)[] | null) => (xs ?? []).filter((p): p is string => p !== null);
   return rows.map((r) => ({

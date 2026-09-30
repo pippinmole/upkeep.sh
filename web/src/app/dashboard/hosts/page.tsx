@@ -1,12 +1,11 @@
 import { Server } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { getHosts } from "@/lib/queries";
 import { getCollectorAgents } from "@/lib/queries-remote";
 
@@ -23,12 +22,11 @@ export const metadata: Metadata = {
 // as "Register agent" there, Q15) or has an existing agent reach it over
 // SSH (§4.2).
 export default async function HostsPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
+  const { workspaceId } = await requireViewer();
 
   const [hosts, remoteAgents] = await Promise.all([
-    getHosts(session.user.id),
-    getCollectorAgents(session.user.id),
+    getHosts(workspaceId),
+    getCollectorAgents(workspaceId),
   ]);
   const serverUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   const active = hosts.filter((h) => !h.archivedAt).length;

@@ -1,7 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { cache } from "react";
 
 import { ChannelIcon } from "@/components/brand/channel-icon";
@@ -15,7 +15,7 @@ import { DeliveryStatusBadge } from "@/components/notifications/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { reportEmailModel } from "@/emails/report-content";
-import { auth } from "@/lib/auth";
+import { requireViewer } from "@/lib/viewer";
 import { channelType } from "@/lib/notifiers";
 import { getReport, type ReportDetail } from "@/lib/queries-reports";
 import { formatRunAt } from "@/lib/report-schedules";
@@ -31,9 +31,8 @@ type Params = Promise<{ id: string }>;
 // the Reports page and a schedule's past reports.
 
 const loadReport = cache(async (id: string): Promise<ReportDetail | null> => {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  return getReport(session.user.id, id);
+  const { workspaceId } = await requireViewer();
+  return getReport(workspaceId, id);
 });
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {

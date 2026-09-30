@@ -9,7 +9,7 @@ import type { ScheduleTiming } from "./report-schedules";
 import type { ReportSummaryInput } from "./report-summary";
 
 // Dashboard reads for scheduled reports (migration 0017). Every query is
-// scoped by user_id. notification_channels.secrets is never selected.
+// scoped by workspace_id. notification_channels.secrets is never selected.
 // Listings read only the parts of reports.snapshot they show (headline and
 // stale agents, for reportSummary); the report page reads the whole
 // snapshot.
@@ -30,7 +30,7 @@ export type ScheduleRow = ScheduleTiming & {
   reportCount: number;
 };
 
-export async function getReportSchedules(userId: string): Promise<ScheduleRow[]> {
+export async function getReportSchedules(workspaceId: string): Promise<ScheduleRow[]> {
   const { rows } = await pool.query<{
     id: string;
     name: string;
@@ -57,9 +57,9 @@ export async function getReportSchedules(userId: string): Promise<ScheduleRow[]>
              ORDER BY r.generated_at DESC LIMIT 1) AS latest_report_id,
             (SELECT count(*) FROM reports r WHERE r.schedule_id = s.id) AS report_count
      FROM report_schedules s
-     WHERE s.user_id = $1
+     WHERE s.workspace_id = $1
      ORDER BY s.name, s.created_at`,
-    [userId],
+    [workspaceId],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -80,12 +80,12 @@ export async function getReportSchedules(userId: string): Promise<ScheduleRow[]>
 }
 
 export async function getReportSchedule(
-  userId: string,
+  workspaceId: string,
   scheduleId: string,
 ): Promise<ScheduleRow | null> {
   if (!UUID_RE.test(scheduleId)) return null;
   // One user's schedules are a handful; reuse the listing's shape.
-  const all = await getReportSchedules(userId);
+  const all = await getReportSchedules(workspaceId);
   return all.find((s) => s.id === scheduleId) ?? null;
 }
 
@@ -105,11 +105,11 @@ const DELIVERY_COUNTS_SQL = `
             'delivered', count(*) FILTER (WHERE d.status = 'delivered'),
             'failed', count(*) FILTER (WHERE d.status = 'failed'))
    FROM notifications n JOIN notification_deliveries d ON d.notification_id = n.id
-   WHERE n.report_id = r.id AND n.user_id = r.user_id)`;
+   WHERE n.report_id = r.id AND n.workspace_id = r.workspace_id)`;
 
 // Past reports of one schedule, newest first (reports are kept a year).
 export async function getScheduleReports(
-  userId: string,
+  workspaceId: string,
   scheduleId: string,
   limit = 200,
 ): Promise<PastReportRow[]> {
@@ -128,10 +128,10 @@ export async function getScheduleReports(
             r.snapshot->'coverage'->'stale_agents' AS stale_agents,
             ${DELIVERY_COUNTS_SQL} AS deliveries
      FROM reports r
-     WHERE r.user_id = $1 AND r.schedule_id = $2
+     WHERE r.workspace_id = $1 AND r.schedule_id = $2
      ORDER BY r.generated_at DESC, r.id
      LIMIT $3`,
-    [userId, scheduleId, limit],
+    [workspaceId, scheduleId, limit],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -150,7 +150,10 @@ export type RecentReportRow = PastReportRow & {
 };
 
 // The newest reports across all of the user's schedules (the Reports page).
-export async function getRecentReports(userId: string, limit = 10): Promise<RecentReportRow[]> {
+export async function getRecentReports(
+  workspaceId: string,
+  limit = 10,
+): Promise<RecentReportRow[]> {
   const { rows } = await pool.query<{
     id: string;
     schedule_id: string;
@@ -169,11 +172,11 @@ export async function getRecentReports(userId: string, limit = 10): Promise<Rece
             r.snapshot->'coverage'->'stale_agents' AS stale_agents,
             ${DELIVERY_COUNTS_SQL} AS deliveries
      FROM reports r
-     JOIN report_schedules s ON s.id = r.schedule_id AND s.user_id = r.user_id
-     WHERE r.user_id = $1
+     JOIN report_schedules s ON s.id = r.schedule_id AND s.workspace_id = r.workspace_id
+     WHERE r.workspace_id = $1
      ORDER BY r.generated_at DESC, r.id
      LIMIT $2`,
-    [userId, limit],
+    [workspaceId, limit],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -213,7 +216,10 @@ export type ReportDetail = {
 };
 
 // One report, or null when it doesn't exist or isn't the user's.
-export async function getReport(userId: string, reportId: string): Promise<ReportDetail | null> {
+export async function getReport(
+  workspaceId: string,
+  reportId: string,
+): Promise<ReportDetail | null> {
   if (!UUID_RE.test(reportId)) return null;
   const { rows } = await pool.query<{
     id: string;
@@ -241,11 +247,11 @@ export async function getReport(userId: string, reportId: string): Promise<Repor
                         'channel_type', d.channel_type, 'status', d.status, 'attempts', d.attempts,
                         'updated_at', d.updated_at) ORDER BY d.channel_name, d.created_at)
                       FROM notifications n JOIN notification_deliveries d ON d.notification_id = n.id
-                      WHERE n.report_id = r.id AND n.user_id = r.user_id), '[]') AS deliveries
+                      WHERE n.report_id = r.id AND n.workspace_id = r.workspace_id), '[]') AS deliveries
      FROM reports r
-     JOIN report_schedules s ON s.id = r.schedule_id AND s.user_id = r.user_id
-     WHERE r.id = $1 AND r.user_id = $2`,
-    [reportId, userId],
+     JOIN report_schedules s ON s.id = r.schedule_id AND s.workspace_id = r.workspace_id
+     WHERE r.id = $1 AND r.workspace_id = $2`,
+    [reportId, workspaceId],
   );
   const r = rows[0];
   if (!r) return null;

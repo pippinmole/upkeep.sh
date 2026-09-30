@@ -17,8 +17,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 // Current Docker images on the host (open host_images ranges) with how many
 // of the host's containers run each one.
 export default async function HostImagesPage({ params }: { params: Params }) {
-  const { userId, host } = await requireHost((await params).hostId);
-  const { rows, freshness } = await getHostImages(userId, host.id);
+  const { workspaceId, host } = await requireHost((await params).hostId);
+  const { rows, freshness } = await getHostImages(workspaceId, host.id);
   const used = rows.filter((r) => r.containers > 0).length;
 
   return (
@@ -35,7 +35,7 @@ export default async function HostImagesPage({ params }: { params: Params }) {
         {freshness && <FactFreshnessNote label="images" freshness={freshness} />}
       </div>
       <DockerCollectionState
-        userId={userId}
+        workspaceId={workspaceId}
         hostId={host.id}
         what="images"
         collectorStatus={host.latestSnapshot?.collectorStatus}
