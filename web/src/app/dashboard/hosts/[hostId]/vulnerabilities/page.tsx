@@ -34,6 +34,8 @@ import { oneOf, pageParam, param, type SearchParams, withParams } from "@/lib/se
 import { isVulnKey, SEVERITIES, SEVERITY_LABEL } from "@/lib/severity";
 import { formatDate, formatDateTime } from "@/lib/time";
 
+import { ExportButton } from "./export-button";
+
 const PAGE_SIZE = 50;
 
 type Params = Promise<{ hostId: string }>;
@@ -134,57 +136,67 @@ export default async function HostVulnerabilitiesPage({
         )}
       </div>
 
-      <FilterBar
-        action={basePath}
-        q={filters.q}
-        qPlaceholder="Filter by CVE or package…"
-        qLabel="Search vulnerabilities"
-        hidden={{ status: status === "resolved" ? "resolved" : null }}
-        selects={[
-          {
-            name: "severity",
-            label: "Severity",
-            value: filters.severity,
-            allLabel: "All severities",
-            options: SEVERITIES.map((s) => ({
-              value: s,
-              label: SEVERITY_LABEL[s],
-            })),
-          },
-          {
-            name: "kev",
-            label: "Known exploited",
-            value: filters.kev ? "1" : null,
-            allLabel: "KEV: any",
-            options: [{ value: "1", label: "KEV only" }],
-            className: "w-32",
-          },
-          {
-            name: "fix",
-            label: "Fix availability",
-            value: filters.fix,
-            allLabel: "Any fix status",
-            options: [
-              { value: "available", label: "Fix available" },
-              { value: "pro", label: "Fix requires Pro" },
-              { value: "none", label: "No fix yet" },
-            ],
-          },
-          ...(status === "open"
-            ? [
-                {
-                  name: "sort",
-                  label: "Sort",
-                  value: filters.sort,
-                  options: [
-                    { value: "severity", label: "Most urgent" },
-                    { value: "recent", label: "Newest detected" },
-                  ],
-                },
-              ]
-            : []),
-        ]}
-      />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <FilterBar
+          action={basePath}
+          q={filters.q}
+          qPlaceholder="Filter by CVE or package…"
+          qLabel="Search vulnerabilities"
+          hidden={{ status: status === "resolved" ? "resolved" : null }}
+          selects={[
+            {
+              name: "severity",
+              label: "Severity",
+              value: filters.severity,
+              allLabel: "All severities",
+              options: SEVERITIES.map((s) => ({
+                value: s,
+                label: SEVERITY_LABEL[s],
+              })),
+            },
+            {
+              name: "kev",
+              label: "Known exploited",
+              value: filters.kev ? "1" : null,
+              allLabel: "KEV: any",
+              options: [{ value: "1", label: "KEV only" }],
+              className: "w-32",
+            },
+            {
+              name: "fix",
+              label: "Fix availability",
+              value: filters.fix,
+              allLabel: "Any fix status",
+              options: [
+                { value: "available", label: "Fix available" },
+                { value: "pro", label: "Fix requires Pro" },
+                { value: "none", label: "No fix yet" },
+              ],
+            },
+            ...(status === "open"
+              ? [
+                  {
+                    name: "sort",
+                    label: "Sort",
+                    value: filters.sort,
+                    options: [
+                      { value: "severity", label: "Most urgent" },
+                      { value: "recent", label: "Newest detected" },
+                    ],
+                  },
+                ]
+              : []),
+          ]}
+        />
+        {total > 0 && (
+          <ExportButton
+            href={`${basePath}/export${withParams(sp, { page: null, v: null })}`}
+            total={total}
+            status={status}
+            filtered={!!hasFilters}
+          />
+        )}
+      </div>
 
       {rows.length === 0 && !hasFilters && status === "open" ? (
         host.inventory.length === 0 ? (
