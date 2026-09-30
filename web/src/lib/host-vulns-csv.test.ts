@@ -7,6 +7,10 @@ import { hasHostVulnFilters, parseHostVulnFilters, searchParamsOf } from "./host
 import type { ExportFindingRow } from "./queries-host-vulns-export";
 
 const base: ExportFindingRow = {
+  kind: "package",
+  image: null,
+  imageRefs: [],
+  containers: [],
   vulnKey: "CVE-2026-35189",
   aliases: ["GHSA-aaaa-bbbb-cccc"],
   advisoryIds: ["UBUNTU-CVE-2026-35189", "USN-8847-1"],
@@ -84,11 +88,40 @@ describe("hostVulnsCsv", () => {
       Severity: "high",
       "CVSS v3 score": "7.5",
       "Known exploited (KEV)": "yes",
+      Kind: "host package",
+      Image: "",
+      "Image ID": "",
+      Platform: "",
+      Containers: "",
       "Binary packages": "libssl3; openssl",
       "Fix status": "available",
       "Reopen count": "0",
       Resolved: "",
       Description: 'A "crafted" packet, sent twice,\ncrashes the server.',
+    });
+  });
+
+  test("image findings name the image, platform and containers", () => {
+    const [, rec] = parseCsv(
+      hostVulnsCsv([
+        {
+          ...base,
+          kind: "image",
+          image: { imageId: "sha256:abc", os: "linux", arch: "arm64", variant: "v8" },
+          imageRefs: ["nginx:1.27", "nginx:latest"],
+          containers: ["web", "proxy"],
+          kernelRelease: null,
+        },
+      ]),
+    );
+    const byHeader = Object.fromEntries(HOST_VULNS_CSV_HEADER.map((h, i) => [h, rec[i]]));
+    expect(byHeader).toMatchObject({
+      Kind: "container image",
+      Image: "nginx:1.27; nginx:latest",
+      "Image ID": "sha256:abc",
+      Platform: "linux/arm64/v8",
+      Containers: "web; proxy",
+      "Source package": "openssl",
     });
   });
 
@@ -136,35 +169,48 @@ describe("hostVulnsCsvFilename", () => {
 });
 
 describe("parseHostVulnFilters", () => {
-  test("defaults to every open finding", () => {
-    const f = parseHostVulnFilters({});
-    expect(f).toEqual({
+  const parse = (qs: string) => parseHostVulnFilters(searchParamsOf(new URLSearchParams(qs)));
+
+  test("defaults to every open finding of both kinds, most urgent first", () => {
+    const { filters } = parse("");
+    expect(filters).toEqual({
       status: "open",
       q: null,
-      severity: null,
+      kinds: null,
+      severities: null,
       kev: false,
       fix: null,
-      sort: "severity",
+      sort: { id: "severity", desc: true },
     });
-    expect(hasHostVulnFilters(f)).toBe(false);
+    expect(hasHostVulnFilters(filters)).toBe(false);
   });
 
-  test("reads the page's params and ignores page/v and bad values", () => {
-    const sp = searchParamsOf(
-      new URLSearchParams(
-        "status=resolved&q=ssl&severity=high&kev=1&fix=pro&sort=recent&page=3&v=CVE-1",
-      ),
+  test("resolved defaults to the most recently resolved", () => {
+    expect(parse("status=resolved").filters.sort).toEqual({ id: "seen", desc: true });
+  });
+
+  test("reads the table's params (multi-value facets, signed sort) and ignores page/v", () => {
+    const { filters, state } = parse(
+      "status=resolved&q=ssl&kind=image&severity=critical,high&kev=1&fix=pro,none&sort=vuln&page=3&size=100&v=CVE-1",
     );
-    const f = parseHostVulnFilters(sp);
-    expect(f).toEqual({
+    expect(filters).toEqual({
       status: "resolved",
       q: "ssl",
-      severity: "high",
+      kinds: ["image"],
+      severities: ["critical", "high"],
       kev: true,
-      fix: "pro",
-      sort: "recent",
+      fix: ["pro", "none"],
+      sort: { id: "vuln", desc: false },
     });
-    expect(hasHostVulnFilters(f)).toBe(true);
-    expect(parseHostVulnFilters({ severity: "bogus", fix: "all" }).severity).toBeNull();
+    expect(hasHostVulnFilters(filters)).toBe(true);
+    expect(state.pagination).toEqual({ pageIndex: 2, pageSize: 100 });
+  });
+
+  test("drops values outside the allowlists", () => {
+    const { filters } = parse("kind=vm&severity=bogus,low&fix=all&sort=-hosts");
+    expect(filters.kinds).toBeNull();
+    expect(filters.severities).toEqual(["low"]);
+    expect(filters.fix).toBeNull();
+    expect(filters.sort).toEqual({ id: "severity", desc: true });
   });
 });

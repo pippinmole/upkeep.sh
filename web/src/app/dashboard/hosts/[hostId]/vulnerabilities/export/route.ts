@@ -1,7 +1,8 @@
 // CSV download of a host's vulnerabilities: every finding the
 // Vulnerabilities tab would list for the same URL params (status tab,
-// search, severity, KEV, fix, sort), across all pages. With no filter that
-// is every open finding (or every resolved one with ?status=resolved).
+// search, kind, severity, KEV, fix, sort), across all pages: host package
+// and container image findings alike. With no filter that is every open
+// finding (or every resolved one with ?status=resolved).
 //
 // Auth and scoping match requireHost (lib/host-page.ts), answered as
 // status codes rather than redirects since this is a download. It only
@@ -35,7 +36,7 @@ export async function GET(
   const host = await getHost(workspaceId, hostId);
   if (!host) return new Response("Not Found", { status: 404 });
 
-  const filters = parseHostVulnFilters(searchParamsOf(request.nextUrl.searchParams));
+  const { filters } = parseHostVulnFilters(searchParamsOf(request.nextUrl.searchParams));
   const rows = await getHostFindingsForExport(workspaceId, host.id, filters);
   const filename = hostVulnsCsvFilename(host.hostname);
 

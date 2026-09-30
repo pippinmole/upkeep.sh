@@ -55,12 +55,15 @@ export type HostVulnListFilters = {
   pageSize: number;
 };
 
-export async function getHostVulnList(
+// The host tab's WHERE (over `hosts h JOIN findings f`) and ORDER BY,
+// with its parameters as $1-$8. Shared with the CSV export
+// (queries-host-vulns-export.ts) so it selects exactly the rows the table
+// lists, minus pagination.
+export function hostVulnListSql(
   workspaceId: string,
   hostId: string,
-  f: HostVulnListFilters,
-): Promise<{ rows: FindingRow[]; total: number }> {
-  if (!isUuid(hostId)) return { rows: [], total: 0 };
+  f: Omit<HostVulnListFilters, "page" | "pageSize">,
+): { where: string; orderBy: string; params: unknown[] } {
   const dir = f.sort.desc ? "DESC" : "ASC";
   const seen = f.status === "resolved" ? "f.resolved_at" : "f.first_seen_at";
   // Static ORDER BY variants; the open + severity form walks
@@ -70,13 +73,7 @@ export async function getHostVulnList(
     vuln: `f.vuln_key ${dir}, f.severity_key DESC, f.source_package`,
     seen: `${seen} ${dir}, f.severity_key DESC, f.vuln_key`,
   }[f.sort.id];
-  const { rows } = await pool.query<FindingDbRow & { total: string }>(
-    `SELECT ${FINDING_COLUMNS}, left(c.description, 240) AS description,
-            count(*) OVER () AS total
-     FROM hosts h
-     JOIN findings f ON f.host_id = h.id
-     LEFT JOIN cves c ON c.id = f.vuln_key
-     WHERE h.id = $2 AND h.workspace_id = $1
+  const where = `h.id = $2 AND h.workspace_id = $1
        AND f.kind = ANY($3::text[]) AND f.status = $4
        AND ${qMatchSql(5)}
        AND ($6::text[] IS NULL OR f.severity = ANY($6))
@@ -84,21 +81,37 @@ export async function getHostVulnList(
        AND ($8::text[] IS NULL
             OR ('available' = ANY($8) AND f.fix_channel = 'standard')
             OR ('pro' = ANY($8) AND f.requires_pro)
-            OR ('none' = ANY($8) AND f.fixed_version IS NULL))
+            OR ('none' = ANY($8) AND f.fixed_version IS NULL))`;
+  const params = [
+    workspaceId,
+    hostId,
+    findingKinds(f.kinds),
+    f.status,
+    f.q,
+    f.severities,
+    f.kev,
+    f.fix,
+  ];
+  return { where, orderBy, params };
+}
+
+export async function getHostVulnList(
+  workspaceId: string,
+  hostId: string,
+  f: HostVulnListFilters,
+): Promise<{ rows: FindingRow[]; total: number }> {
+  if (!isUuid(hostId)) return { rows: [], total: 0 };
+  const { where, orderBy, params } = hostVulnListSql(workspaceId, hostId, f);
+  const { rows } = await pool.query<FindingDbRow & { total: string }>(
+    `SELECT ${FINDING_COLUMNS}, left(c.description, 240) AS description,
+            count(*) OVER () AS total
+     FROM hosts h
+     JOIN findings f ON f.host_id = h.id
+     LEFT JOIN cves c ON c.id = f.vuln_key
+     WHERE ${where}
      ORDER BY ${orderBy}
      LIMIT $9 OFFSET $10`,
-    [
-      workspaceId,
-      hostId,
-      findingKinds(f.kinds),
-      f.status,
-      f.q,
-      f.severities,
-      f.kev,
-      f.fix,
-      f.pageSize,
-      (f.page - 1) * f.pageSize,
-    ],
+    [...params, f.pageSize, (f.page - 1) * f.pageSize],
   );
   return { rows: rows.map(mapFinding), total: rows[0] ? Number(rows[0].total) : 0 };
 }

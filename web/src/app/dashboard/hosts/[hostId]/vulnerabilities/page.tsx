@@ -3,11 +3,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { tableFacet, tableSort, tableStateFromParams } from "@/components/data-table/url-params";
 import { EmptyState } from "@/components/empty-state";
 import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { SegmentedLinks } from "@/components/vuln/links";
 import { hostTitle, requireHost } from "@/lib/host-page";
+import { hasHostVulnFilters, parseHostVulnFilters } from "@/lib/host-vulns-filters";
 import { getHostVulnList } from "@/lib/queries-vuln-list";
 import {
   getHostFindingDetail,
@@ -16,16 +16,9 @@ import {
   getHostVulnSummary,
   type VulnSummary,
 } from "@/lib/queries-vulns";
-import { param, type SearchParams, oneOf, withParams } from "@/lib/search-params";
+import { param, type SearchParams, withParams } from "@/lib/search-params";
 import { isVulnKey, SEVERITIES, SEVERITY_LABEL } from "@/lib/severity";
-import {
-  HOST_VULN_SORTS,
-  hostVulnsTable,
-  VULN_FIXES,
-  VULN_KIND_LABEL,
-  VULN_KINDS,
-  type VulnKind,
-} from "@/lib/vuln-tables";
+import { VULN_KIND_LABEL, type VulnKind } from "@/lib/vuln-tables";
 
 import { ExportButton } from "./export-button";
 import { FindingSheet } from "./finding-sheet";
@@ -53,16 +46,10 @@ export default async function HostVulnerabilitiesPage({
   const sp = await searchParams;
   const { workspaceId, host } = await requireHost(hostId);
 
-  const status = oneOf(sp, "status", ["open", "resolved"] as const) ?? "open";
-  const state = tableStateFromParams(sp, hostVulnsTable(status));
+  const { state, filters: parsed } = parseHostVulnFilters(sp);
+  const { status } = parsed;
   const filters = {
-    status,
-    q: state.globalFilter || null,
-    kinds: tableFacet(state, "kind", VULN_KINDS),
-    severities: tableFacet(state, "severity", SEVERITIES),
-    kev: tableFacet(state, "kev", ["1"]) !== null,
-    fix: tableFacet(state, "fix", VULN_FIXES),
-    sort: tableSort(state, HOST_VULN_SORTS, status === "resolved" ? "seen" : "severity"),
+    ...parsed,
     page: state.pagination.pageIndex + 1,
     pageSize: state.pagination.pageSize,
   };
@@ -79,7 +66,7 @@ export default async function HostVulnerabilitiesPage({
   if (rawV && !detail) notFound();
 
   const basePath = `/dashboard/hosts/${host.id}/vulnerabilities`;
-  const filtered = filters.q || filters.kinds || filters.severities || filters.kev || filters.fix;
+  const filtered = hasHostVulnFilters(filters);
   const noneOpen = pkgSummary.open === 0 && imageSummary.open === 0;
   const statusHref = (s: "open" | "resolved") =>
     `${basePath}${withParams(sp, { status: s === "open" ? null : s, page: null, v: null, sort: null })}`;
@@ -106,7 +93,7 @@ export default async function HostVulnerabilitiesPage({
             href={`${basePath}/export${withParams(sp, { page: null, v: null })}`}
             total={total}
             status={status}
-            filtered={!!filtered}
+            filtered={filtered}
           />
         )}
       </div>

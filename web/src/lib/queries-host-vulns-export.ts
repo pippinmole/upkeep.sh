@@ -1,10 +1,13 @@
 import { pool } from "./db";
 import type { HostVulnFilters } from "./host-vulns-filters";
 import { isUuid } from "./queries-inventory";
+import { hostVulnListSql } from "./queries-vuln-list";
+import type { VulnKind } from "./vuln-tables";
 
-// Every finding on one host's Vulnerabilities tab for the CSV export: the
-// same WHERE and ORDER BY as getHostFindings (queries-vulns.ts), without
-// LIMIT/OFFSET, plus the CVE and advisory fields a spreadsheet wants.
+// Every finding on one host's Vulnerabilities tab for the CSV export, host
+// packages and container images alike: the same WHERE and ORDER BY as
+// getHostVulnList (queries-vuln-list.ts), without LIMIT/OFFSET, plus the
+// CVE and advisory fields a spreadsheet wants.
 //
 // Tenancy as in queries-vulns.ts: the read starts from
 // `hosts h WHERE h.id = $2 AND h.workspace_id = $1`, so a host outside the
@@ -12,6 +15,12 @@ import { isUuid } from "./queries-inventory";
 // through this host's findings.
 
 export type ExportFindingRow = {
+  kind: VulnKind;
+  // Image findings: the image, its refs (repo:tag, else repo@digest) and
+  // the containers using it on this host. Null / empty for host packages.
+  image: { imageId: string; os: string; arch: string; variant: string } | null;
+  imageRefs: string[];
+  containers: string[];
   vulnKey: string;
   // Other ids for the same vulnerability: aliases and CVE ids of the
   // finding's advisories that are about this vuln_key (e.g. UBUNTU-CVE-*).
@@ -46,6 +55,13 @@ export type ExportFindingRow = {
 };
 
 type DbRow = {
+  kind: string;
+  image_id: string | null;
+  image_os: string | null;
+  image_arch: string | null;
+  image_variant: string | null;
+  image_refs: string[];
+  container_names: string[];
   vuln_key: string;
   aliases: string[];
   advisory_ids: string[];
@@ -85,14 +101,11 @@ export async function getHostFindingsForExport(
   f: HostVulnFilters,
 ): Promise<ExportFindingRow[]> {
   if (!isUuid(hostId)) return [];
-  const orderBy =
-    f.status === "resolved"
-      ? "f.resolved_at DESC, f.vuln_key"
-      : f.sort === "recent"
-        ? "f.first_seen_at DESC, f.severity_key DESC, f.vuln_key"
-        : "f.severity_key DESC, f.vuln_key";
+  const { where, orderBy, params } = hostVulnListSql(workspaceId, hostId, f);
   const { rows } = await pool.query<DbRow>(
-    `SELECT f.vuln_key, coalesce(a.aliases, '{}') AS aliases, f.advisory_ids,
+    `SELECT f.kind, f.image_id, f.image_os, f.image_arch, f.image_variant,
+            f.image_refs, f.container_names,
+            f.vuln_key, coalesce(a.aliases, '{}') AS aliases, f.advisory_ids,
             f.status, f.severity, f.distro_severity,
             f.cvss_v3_score, c.cvss_v3_vector,
             f.epss_score, f.epss_percentile, f.is_kev,
@@ -114,49 +127,52 @@ export async function getHostFindingsForExport(
        FROM advisories a
        WHERE a.id = ANY(f.advisory_ids)
      ) a ON true
-     WHERE h.id = $2 AND h.workspace_id = $1
-       AND f.kind = 'vulnerable_package' AND f.status = $3
-       AND ($4::text IS NULL
-            OR strpos(lower(f.vuln_key), lower($4)) > 0
-            OR strpos(lower(coalesce(f.source_package, '')), lower($4)) > 0
-            OR EXISTS (SELECT 1 FROM unnest(f.packages) p WHERE strpos(lower(p), lower($4)) > 0))
-       AND ($5::text IS NULL OR f.severity = $5)
-       AND (NOT $6::boolean OR f.is_kev)
-       AND ($7::text IS NULL
-            OR ($7 = 'available' AND f.fix_channel = 'standard')
-            OR ($7 = 'pro' AND f.requires_pro)
-            OR ($7 = 'none' AND f.fixed_version IS NULL))
+     WHERE ${where}
      ORDER BY ${orderBy}`,
-    [workspaceId, hostId, f.status, f.q, f.severity, f.kev, f.fix],
+    params,
   );
-  return rows.map((r) => ({
-    vulnKey: r.vuln_key,
-    aliases: r.aliases,
-    advisoryIds: r.advisory_ids,
-    status: r.status,
-    severity: r.severity,
-    distroSeverity: r.distro_severity,
-    cvssV3Score: num(r.cvss_v3_score),
-    cvssV3Vector: r.cvss_v3_vector,
-    epssScore: num(r.epss_score),
-    epssPercentile: num(r.epss_percentile),
-    isKev: r.is_kev,
-    kevAddedAt: r.kev_added_at,
-    kevDueDate: r.kev_due_date,
-    sourcePackage: r.source_package,
-    packages: r.packages,
-    installedVersion: r.installed_version,
-    fixedVersion: r.fixed_version,
-    fixChannel: r.fix_channel,
-    requiresPro: r.requires_pro,
-    fixAdvisoryId: r.fix_advisory_id,
-    kernelRelease: r.kernel_release,
-    runningKernelUnknown: r.running_kernel_unknown,
-    publishedAt: iso(r.published_at),
-    firstSeenAt: r.first_seen_at.toISOString(),
-    reopenedAt: iso(r.reopened_at),
-    reopenCount: r.reopen_count,
-    resolvedAt: iso(r.resolved_at),
-    description: r.description,
-  }));
+  return rows.map((r) => {
+    const image = r.kind === "vulnerable_image" && r.image_id !== null;
+    return {
+      kind: image ? "image" : "package",
+      image: image
+        ? {
+            imageId: r.image_id!,
+            os: r.image_os ?? "",
+            arch: r.image_arch ?? "",
+            variant: r.image_variant ?? "",
+          }
+        : null,
+      imageRefs: r.image_refs,
+      containers: r.container_names,
+      vulnKey: r.vuln_key,
+      aliases: r.aliases,
+      advisoryIds: r.advisory_ids,
+      status: r.status,
+      severity: r.severity,
+      distroSeverity: r.distro_severity,
+      cvssV3Score: num(r.cvss_v3_score),
+      cvssV3Vector: r.cvss_v3_vector,
+      epssScore: num(r.epss_score),
+      epssPercentile: num(r.epss_percentile),
+      isKev: r.is_kev,
+      kevAddedAt: r.kev_added_at,
+      kevDueDate: r.kev_due_date,
+      sourcePackage: r.source_package,
+      packages: r.packages,
+      installedVersion: r.installed_version,
+      fixedVersion: r.fixed_version,
+      fixChannel: r.fix_channel,
+      requiresPro: r.requires_pro,
+      fixAdvisoryId: r.fix_advisory_id,
+      kernelRelease: r.kernel_release,
+      runningKernelUnknown: r.running_kernel_unknown,
+      publishedAt: iso(r.published_at),
+      firstSeenAt: r.first_seen_at.toISOString(),
+      reopenedAt: iso(r.reopened_at),
+      reopenCount: r.reopen_count,
+      resolvedAt: iso(r.resolved_at),
+      description: r.description,
+    };
+  });
 }
