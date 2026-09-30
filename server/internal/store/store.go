@@ -33,9 +33,9 @@ func (s *Store) Close() {
 // and returns its id. Ingest never calls it: hosts are created by
 // resolveHost on an agent's first push. Tests use it to get a host whose
 // snapshots are inserted with SnapshotInput.HostID.
-func (s *Store) CreateHost(ctx context.Context, userID, hostname string) (hostID string, err error) {
+func (s *Store) CreateHost(ctx context.Context, workspaceID, hostname string) (hostID string, err error) {
 	err = s.Pool.QueryRow(ctx, `
-		INSERT INTO hosts (user_id, hostname) VALUES ($1, $2) RETURNING id
-	`, userID, hostname).Scan(&hostID)
+		INSERT INTO hosts (workspace_id, hostname) VALUES ($1, $2) RETURNING id
+	`, workspaceID, hostname).Scan(&hostID)
 	return hostID, err
 }

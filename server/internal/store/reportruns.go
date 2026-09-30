@@ -25,15 +25,15 @@ const reportsLock = alertingLock + 2
 
 // ReportSchedule is a report_schedules row.
 type ReportSchedule struct {
-	ID, UserID, Name string
-	Enabled          bool
-	Cadence          string // reports.CadenceWeekly | CadenceMonthly
-	Weekday          *int   // weekly: 0 = Sunday
-	DayOfMonth       *int   // monthly: 1-28
-	Hour             int
-	Timezone         string // IANA name
-	NextRunAt        *time.Time
-	LastRunAt        *time.Time
+	ID, WorkspaceID, Name string
+	Enabled               bool
+	Cadence               string // reports.CadenceWeekly | CadenceMonthly
+	Weekday               *int   // weekly: 0 = Sunday
+	DayOfMonth            *int   // monthly: 1-28
+	Hour                  int
+	Timezone              string // IANA name
+	NextRunAt             *time.Time
+	LastRunAt             *time.Time
 }
 
 // Ref is the schedule as a snapshot records it.
@@ -47,12 +47,12 @@ func (r ReportSchedule) NextRun(after time.Time) (time.Time, error) {
 	return reports.NextRun(r.Cadence, r.Weekday, r.DayOfMonth, r.Hour, r.Timezone, after)
 }
 
-const reportScheduleCols = `s.id::text, s.user_id::text, s.name, s.enabled, s.cadence, s.weekday, s.day_of_month,
+const reportScheduleCols = `s.id::text, s.workspace_id::text, s.name, s.enabled, s.cadence, s.weekday, s.day_of_month,
 	s.hour, s.timezone, s.next_run_at, s.last_run_at`
 
 func scanReportSchedule(row pgx.CollectableRow) (ReportSchedule, error) {
 	var r ReportSchedule
-	err := row.Scan(&r.ID, &r.UserID, &r.Name, &r.Enabled, &r.Cadence, &r.Weekday, &r.DayOfMonth,
+	err := row.Scan(&r.ID, &r.WorkspaceID, &r.Name, &r.Enabled, &r.Cadence, &r.Weekday, &r.DayOfMonth,
 		&r.Hour, &r.Timezone, &r.NextRunAt, &r.LastRunAt)
 	return r, err
 }
@@ -243,10 +243,10 @@ func (s *Store) StoreReport(ctx context.Context, r NewReport, enqueue EnqueueDel
 		return res, err
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO reports (schedule_id, user_id, generated_at, period_start, period_end, ranking_version,
+		INSERT INTO reports (schedule_id, workspace_id, generated_at, period_start, period_end, ranking_version,
 		                     snapshot, previous_report_id, trigger)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id::text
-	`, r.Schedule.ID, r.Schedule.UserID, r.Now, r.Snapshot.Period.Start, r.Snapshot.Period.End,
+	`, r.Schedule.ID, r.Schedule.WorkspaceID, r.Now, r.Snapshot.Period.Start, r.Snapshot.Period.End,
 		r.Snapshot.RankingVersion, snap, r.PreviousID, r.Trigger).Scan(&res.ReportID); err != nil {
 		return res, fmt.Errorf("insert report: %w", err)
 	}
@@ -275,15 +275,15 @@ func (s *Store) StoreReport(ctx context.Context, r NewReport, enqueue EnqueueDel
 		return res, err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO notifications (id, user_id, kind, event_count, summary, payload, report_id, created_at)
+		INSERT INTO notifications (id, workspace_id, kind, event_count, summary, payload, report_id, created_at)
 		VALUES ($1, $2, $3, 0, $4, $5, $6, $7)
-	`, n.ID, r.Schedule.UserID, notify.KindReport, n.Summary, payload, res.ReportID, r.Now); err != nil {
+	`, n.ID, r.Schedule.WorkspaceID, notify.KindReport, n.Summary, payload, res.ReportID, r.Now); err != nil {
 		return res, fmt.Errorf("insert report notification: %w", err)
 	}
 	res.NotificationID = n.ID
 	rows, err := tx.Query(ctx, `
-		INSERT INTO notification_deliveries (user_id, notification_id, channel_id, channel_name, channel_type, created_at, updated_at)
-		SELECT c.user_id, $2, c.id, c.name, c.type, $3, $3
+		INSERT INTO notification_deliveries (workspace_id, notification_id, channel_id, channel_name, channel_type, created_at, updated_at)
+		SELECT c.workspace_id, $2, c.id, c.name, c.type, $3, $3
 		FROM report_schedule_channels sc
 		JOIN notification_channels c ON c.id = sc.channel_id AND c.enabled
 		WHERE sc.schedule_id = $1

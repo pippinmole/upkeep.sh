@@ -93,15 +93,15 @@ func TestPreviousSecretExpiresAfterGrace(t *testing.T) {
 	}
 
 	// Cleanup clears the expired previous hash (and expired tokens only).
-	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, user_id, expires_at) VALUES
-		($1 || '-old', $2, now() - interval '1 minute'), ($1 || '-new', $2, now() + interval '1 hour')`, f.tag, f.userID); err != nil {
+	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, workspace_id, expires_at) VALUES
+		($1 || '-old', $2, now() - interval '1 minute'), ($1 || '-new', $2, now() + interval '1 hour')`, f.tag, f.workspaceID); err != nil {
 		t.Fatal(err)
 	}
 	r, err := f.s.CleanupCredentials(ctx)
 	if err != nil || r.EnrollmentTokens < 1 || r.PreviousSecrets < 1 {
 		t.Fatalf("cleanup: %+v, %v", r, err)
 	}
-	if n := f.count(`SELECT count(*) FROM enrollment_tokens WHERE user_id = $1`, f.userID); n != 1 {
+	if n := f.count(`SELECT count(*) FROM enrollment_tokens WHERE workspace_id = $1`, f.workspaceID); n != 1 {
 		t.Errorf("tokens left = %d, want the unexpired one", n)
 	}
 	if n := f.count(`SELECT count(*) FROM agent_credentials WHERE agent_id = $1 AND previous_secret_hash IS NULL`, id); n != 1 {
@@ -113,7 +113,7 @@ func TestRotateRevokedAgent(t *testing.T) {
 	f := newAgentFixture(t)
 	ctx := context.Background()
 	id := f.enroll("")
-	if st := f.mgmt(`SELECT mgmt_revoke_agent($1, $2)`, f.userID, id); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_revoke_agent($1, $2)`, f.workspaceID, id); st != "ok" {
 		t.Fatalf("revoke: %s", st)
 	}
 	if err := f.s.RotateAgentCredential(ctx, id, "hash", "h1", time.Hour); !errors.Is(err, ErrAgentRevoked) {

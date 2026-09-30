@@ -104,7 +104,7 @@ func TestImageFindingsPipeline(t *testing.T) {
 			"?host="+f.hostID+"&q="+cve+"&tab=vulnerabilities" {
 		t.Fatalf("image finding event: %+v / %+v", ev, ev.Finding)
 	}
-	sc, err := f.s.ImageScoreOf(ctx, f.userID, key)
+	sc, err := f.s.ImageScoreOf(ctx, f.workspaceID, key)
 	if err != nil || sc == nil || !sc.Scored || *sc.Vulns != 1 || *sc.WorstSeverity != "high" {
 		t.Fatalf("score after the chain: %+v %v", sc, err)
 	}

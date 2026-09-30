@@ -70,16 +70,16 @@ func scanImageScore(r pgx.CollectableRow) (ImageScore, error) {
 // FleetImageScores returns every image key currently on one of the user's
 // (not archived) hosts, most urgent first (top severity key, then image
 // id). The fleet Images page's score columns.
-func (s *Store) FleetImageScores(ctx context.Context, userID string) ([]ImageScore, error) {
+func (s *Store) FleetImageScores(ctx context.Context, workspaceID string) ([]ImageScore, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT `+imageScoreCols+`
 		FROM image_scores($1) s
 		WHERE (s.image_id, s.os, s.arch, s.variant) IN (
 			SELECT hi.image_id, hi.os, hi.arch, hi.variant
 			FROM host_images hi JOIN hosts h ON h.id = hi.host_id
-			WHERE h.user_id = $1 AND h.archived_at IS NULL AND hi.removed_at IS NULL)
+			WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND hi.removed_at IS NULL)
 		ORDER BY s.top_severity_key DESC NULLS LAST, s.image_id, s.os, s.arch, s.variant
-	`, userID)
+	`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (s *Store) HostImageScores(ctx context.Context, hostID string) ([]ImageScor
 		SELECT `+imageScoreCols+`
 		FROM hosts h
 		JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL
-		CROSS JOIN LATERAL image_scores(h.user_id) s
+		CROSS JOIN LATERAL image_scores(h.workspace_id) s
 		WHERE h.id = $1
 		  AND s.image_id = hi.image_id AND s.os = hi.os AND s.arch = hi.arch AND s.variant = hi.variant
 		ORDER BY s.top_severity_key DESC NULLS LAST, s.image_id
@@ -106,14 +106,14 @@ func (s *Store) HostImageScores(ctx context.Context, hostID string) ([]ImageScor
 	return pgx.CollectRows(rows, scanImageScore)
 }
 
-// ImageScoreOf returns one image key's score as userID sees it; nil when
+// ImageScoreOf returns one image key's score as workspaceID sees it; nil when
 // the key is not in container_images.
-func (s *Store) ImageScoreOf(ctx context.Context, userID string, key ImageKey) (*ImageScore, error) {
+func (s *Store) ImageScoreOf(ctx context.Context, workspaceID string, key ImageKey) (*ImageScore, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT `+imageScoreCols+`
 		FROM image_scores($1) s
 		WHERE s.image_id = $2 AND s.os = $3 AND s.arch = $4 AND s.variant = $5
-	`, userID, key.ImageID, key.OS, key.Arch, key.Variant)
+	`, workspaceID, key.ImageID, key.OS, key.Arch, key.Variant)
 	if err != nil {
 		return nil, err
 	}

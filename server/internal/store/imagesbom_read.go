@@ -11,10 +11,10 @@ import (
 
 // ImageSBOMRef is one stored package list.
 type ImageSBOMRef struct {
-	SBOMID      int64
-	Key         ImageKey
-	OwnerUserID string // "" = fleet-wide server list
-	Source      string
+	SBOMID           int64
+	Key              ImageKey
+	OwnerWorkspaceID string // "" = fleet-wide server list
+	Source           string
 }
 
 // ImageSoftwareRow is one package of an image list.
@@ -25,27 +25,27 @@ type ImageSoftwareRow struct {
 	Paths                      []string
 }
 
-// EffectiveImageSBOM returns the list user userID sees for key: the
+// EffectiveImageSBOM returns the list user workspaceID sees for key: the
 // server's list if it is ok, else the user's agent list if that is ok
 // (image_sbom_effective, migration 0014). nil when neither exists; why is
-// then read from image_sbom_state. userID "" sees server lists only.
-func (s *Store) EffectiveImageSBOM(ctx context.Context, userID string, key ImageKey) (*ImageSBOMRef, error) {
+// then read from image_sbom_state. workspaceID "" sees server lists only.
+func (s *Store) EffectiveImageSBOM(ctx context.Context, workspaceID string, key ImageKey) (*ImageSBOMRef, error) {
 	var (
 		r     = ImageSBOMRef{Key: key}
 		owner *string
 	)
 	err := s.Pool.QueryRow(ctx, `
-		SELECT e.sbom_id, e.owner_user_id::text, e.source
+		SELECT e.sbom_id, e.owner_workspace_id::text, e.source
 		FROM image_sbom_effective($1) e
 		WHERE e.image_id = $2 AND e.os = $3 AND e.arch = $4 AND e.variant = $5
-	`, nilIfEmpty(userID), key.ImageID, key.OS, key.Arch, key.Variant).Scan(&r.SBOMID, &owner, &r.Source)
+	`, nilIfEmpty(workspaceID), key.ImageID, key.OS, key.Arch, key.Variant).Scan(&r.SBOMID, &owner, &r.Source)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	r.OwnerUserID = deref(owner)
+	r.OwnerWorkspaceID = deref(owner)
 	return &r, nil
 }
 
@@ -75,7 +75,7 @@ func (s *Store) ImageSoftware(ctx context.Context, sbomID int64) ([]ImageSoftwar
 // image findings when a version's matches change. Ordered by list id.
 func (s *Store) ImageSBOMsContaining(ctx context.Context, softwareIDs []int64) ([]ImageSBOMRef, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT st.id, st.image_id, st.os, st.arch, st.variant, st.owner_user_id::text, st.source
+		SELECT st.id, st.image_id, st.os, st.arch, st.variant, st.owner_workspace_id::text, st.source
 		FROM image_sbom_state st
 		WHERE st.status = 'ok'
 		  AND st.id IN (SELECT sbom_id FROM image_software WHERE software_id = ANY($1))
@@ -90,7 +90,7 @@ func (s *Store) ImageSBOMsContaining(ctx context.Context, softwareIDs []int64) (
 			owner *string
 		)
 		err := row.Scan(&r.SBOMID, &r.Key.ImageID, &r.Key.OS, &r.Key.Arch, &r.Key.Variant, &owner, &r.Source)
-		r.OwnerUserID = deref(owner)
+		r.OwnerWorkspaceID = deref(owner)
 		return r, err
 	})
 }

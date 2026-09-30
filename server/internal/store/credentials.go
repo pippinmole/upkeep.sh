@@ -29,8 +29,8 @@ var ErrAgentRevoked = errors.New("agent revoked")
 
 // AgentCredential is what agent authentication needs.
 type AgentCredential struct {
-	UserID     string
-	SecretHash string
+	WorkspaceID string
+	SecretHash  string
 	// PreviousSecretHash is the pre-rotation secret's hash while its grace
 	// window is open, else "".
 	PreviousSecretHash string
@@ -47,13 +47,13 @@ type AgentCredential struct {
 func (s *Store) AgentCredential(ctx context.Context, agentID string) (c AgentCredential, err error) {
 	var prev *string
 	err = s.Pool.QueryRow(ctx, `
-		SELECT a.user_id, c.secret_hash,
+		SELECT a.workspace_id, c.secret_hash,
 		       CASE WHEN c.previous_expires_at > now() THEN c.previous_secret_hash END,
 		       a.revoked_at IS NOT NULL, c.rotate_requested_at IS NOT NULL,
 		       COALESCE(c.rotated_at, c.created_at)
 		FROM agent_credentials c JOIN agents a ON a.id = c.agent_id
 		WHERE c.agent_id = $1
-	`, agentID).Scan(&c.UserID, &c.SecretHash, &prev, &c.Revoked, &c.RotateRequested, &c.IssuedAt)
+	`, agentID).Scan(&c.WorkspaceID, &c.SecretHash, &prev, &c.Revoked, &c.RotateRequested, &c.IssuedAt)
 	if prev != nil {
 		c.PreviousSecretHash = *prev
 	}

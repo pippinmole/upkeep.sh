@@ -57,8 +57,8 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 	}
 	defer tx.Rollback(ctx)
 
-	var userID string
-	err = tx.QueryRow(ctx, `SELECT user_id FROM hosts WHERE id = $1 FOR NO KEY UPDATE`, hostID).Scan(&userID)
+	var workspaceID string
+	err = tx.QueryRow(ctx, `SELECT workspace_id FROM hosts WHERE id = $1 FOR NO KEY UPDATE`, hostID).Scan(&workspaceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return res, nil // host deleted since the job was queued
 	}
@@ -69,7 +69,7 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 
 	// Images in the vulnerable_image scope, with the owner's effective
 	// package list (imagefindings.go).
-	images, err := loadHostImages(ctx, tx, hostID, userID)
+	images, err := loadHostImages(ctx, tx, hostID, workspaceID)
 	if err != nil {
 		return res, err
 	}

@@ -58,8 +58,8 @@ func (s *Store) LatestReport(ctx context.Context, q pgx.Tx, scheduleID string) (
 	return &p, nil
 }
 
-// userHostsSQL restricts to the user's ($1) non-archived hosts, aliased h.
-const userHostsSQL = `h.user_id = $1 AND h.archived_at IS NULL`
+// workspaceHostsSQL restricts to the user's ($1) non-archived hosts, aliased h.
+const workspaceHostsSQL = `h.workspace_id = $1 AND h.archived_at IS NULL`
 
 // LoadReportInputs reads one user's estate (non-archived hosts) for
 // reports.Build, in tx (see BeginReportRead). period bounds the opened /
@@ -74,28 +74,28 @@ const userHostsSQL = `h.user_id = $1 AND h.archived_at IS NULL`
 // resolved_at (cleared on reopen). Each column keeps only the latest
 // transition, so a finding that flaps several times within one period
 // counts at most one open, one reopen and one resolution.
-func (s *Store) LoadReportInputs(ctx context.Context, tx pgx.Tx, userID string, period reports.Period) (reports.Inputs, error) {
+func (s *Store) LoadReportInputs(ctx context.Context, tx pgx.Tx, workspaceID string, period reports.Period) (reports.Inputs, error) {
 	var in reports.Inputs
 	var err error
-	if in.Hosts, err = loadReportHosts(ctx, tx, userID); err != nil {
+	if in.Hosts, err = loadReportHosts(ctx, tx, workspaceID); err != nil {
 		return in, fmt.Errorf("report hosts: %w", err)
 	}
-	if in.Findings, err = loadReportFindings(ctx, tx, userID); err != nil {
+	if in.Findings, err = loadReportFindings(ctx, tx, workspaceID); err != nil {
 		return in, fmt.Errorf("report findings: %w", err)
 	}
-	if in.Containers, err = loadReportContainers(ctx, tx, userID); err != nil {
+	if in.Containers, err = loadReportContainers(ctx, tx, workspaceID); err != nil {
 		return in, fmt.Errorf("report containers: %w", err)
 	}
-	if in.Images, err = loadReportImages(ctx, tx, userID); err != nil {
+	if in.Images, err = loadReportImages(ctx, tx, workspaceID); err != nil {
 		return in, fmt.Errorf("report images: %w", err)
 	}
-	if in.Reboots, err = loadReportReboots(ctx, tx, userID); err != nil {
+	if in.Reboots, err = loadReportReboots(ctx, tx, workspaceID); err != nil {
 		return in, fmt.Errorf("report reboots: %w", err)
 	}
-	if in.StaleAgents, err = loadReportStaleAgents(ctx, tx, userID, period.End); err != nil {
+	if in.StaleAgents, err = loadReportStaleAgents(ctx, tx, workspaceID, period.End); err != nil {
 		return in, fmt.Errorf("report stale agents: %w", err)
 	}
-	if in.HostsWithoutDocker, err = loadReportHostsWithoutDocker(ctx, tx, userID); err != nil {
+	if in.HostsWithoutDocker, err = loadReportHostsWithoutDocker(ctx, tx, workspaceID); err != nil {
 		return in, fmt.Errorf("report docker coverage: %w", err)
 	}
 	if err := tx.QueryRow(ctx, `
@@ -103,19 +103,19 @@ func (s *Store) LoadReportInputs(ctx context.Context, tx pgx.Tx, userID string, 
 		     + count(*) FILTER (WHERE f.reopened_at >= $3 AND f.reopened_at < $4),
 		       count(*) FILTER (WHERE f.status = 'resolved' AND f.resolved_at >= $3 AND f.resolved_at < $4)
 		FROM hosts h JOIN findings f ON f.host_id = h.id
-		WHERE `+userHostsSQL+` AND f.kind = ANY($2)
+		WHERE `+workspaceHostsSQL+` AND f.kind = ANY($2)
 		  AND (f.first_seen_at >= $3 OR f.reopened_at >= $3 OR f.resolved_at >= $3)
-	`, userID, findings.VulnKinds, period.Start, period.End).Scan(&in.Opened, &in.Resolved); err != nil {
+	`, workspaceID, findings.VulnKinds, period.Start, period.End).Scan(&in.Opened, &in.Resolved); err != nil {
 		return in, fmt.Errorf("report transitions: %w", err)
 	}
 	return in, nil
 }
 
-func loadReportHosts(ctx context.Context, tx pgx.Tx, userID string) ([]reports.InputHost, error) {
+func loadReportHosts(ctx context.Context, tx pgx.Tx, workspaceID string) ([]reports.InputHost, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT h.id::text, COALESCE(NULLIF(h.label, ''), h.hostname)
-		FROM hosts h WHERE `+userHostsSQL+` ORDER BY h.id
-	`, userID)
+		FROM hosts h WHERE `+workspaceHostsSQL+` ORDER BY h.id
+	`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func loadReportHosts(ctx context.Context, tx pgx.Tx, userID string) ([]reports.I
 // loadReportFindings: open findings of both kinds. The ecosystem, distro
 // and release are those of the finding's first binary version (every
 // binary of one source package on a host shares them).
-func loadReportFindings(ctx context.Context, tx pgx.Tx, userID string) ([]reports.InputFinding, error) {
+func loadReportFindings(ctx context.Context, tx pgx.Tx, workspaceID string) ([]reports.InputFinding, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT f.host_id::text, f.kind, COALESCE(f.vuln_key, ''), COALESCE(f.source_package, ''),
 		       COALESCE(sv.ecosystem, ''), COALESCE(sv.distro, ''), COALESCE(sv.release, ''),
@@ -139,9 +139,9 @@ func loadReportFindings(ctx context.Context, tx pgx.Tx, userID string) ([]report
 		FROM hosts h
 		JOIN findings f ON f.host_id = h.id
 		LEFT JOIN software_versions sv ON sv.id = f.software_ids[1]
-		WHERE `+userHostsSQL+` AND f.status = 'open' AND f.kind = ANY($2)
+		WHERE `+workspaceHostsSQL+` AND f.status = 'open' AND f.kind = ANY($2)
 		ORDER BY f.host_id, f.dedup_key
-	`, userID, findings.VulnKinds)
+	`, workspaceID, findings.VulnKinds)
 	if err != nil {
 		return nil, err
 	}
@@ -165,16 +165,16 @@ func loadReportFindings(ctx context.Context, tx pgx.Tx, userID string) ([]report
 
 // loadReportContainers: current containers with the image key they run
 // (the host's current host_images row for the image, once inspected).
-func loadReportContainers(ctx context.Context, tx pgx.Tx, userID string) ([]reports.InputContainer, error) {
+func loadReportContainers(ctx context.Context, tx pgx.Tx, workspaceID string) ([]reports.InputContainer, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT c.host_id::text, c.name, hi.image_id, hi.os, hi.arch, hi.variant
 		FROM hosts h
 		JOIN host_containers c ON c.host_id = h.id AND c.removed_at IS NULL
 		LEFT JOIN host_images hi ON hi.host_id = c.host_id AND hi.image_id = c.image_id
 		                        AND hi.removed_at IS NULL AND hi.os IS NOT NULL
-		WHERE `+userHostsSQL+`
+		WHERE `+workspaceHostsSQL+`
 		ORDER BY c.host_id, c.name, c.container_id
-	`, userID)
+	`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func loadReportContainers(ctx context.Context, tx pgx.Tx, userID string) ([]repo
 // refs across the user's hosts (repo tags, else repo digests) and why
 // their findings are unknown, from image_scores(user): no ok package list
 // (its list_status), or an ok list not scored yet ("pending").
-func loadReportImages(ctx context.Context, tx pgx.Tx, userID string) ([]reports.InputImage, error) {
+func loadReportImages(ctx context.Context, tx pgx.Tx, workspaceID string) ([]reports.InputImage, error) {
 	rows, err := tx.Query(ctx, `
 		WITH k AS (
 			SELECT hi.image_id, hi.os, hi.arch, hi.variant,
@@ -209,7 +209,7 @@ func loadReportImages(ctx context.Context, tx pgx.Tx, userID string) ([]reports.
 			JOIN host_images hi ON hi.host_id = h.id AND hi.removed_at IS NULL AND hi.os IS NOT NULL
 			LEFT JOIN LATERAL unnest(hi.repo_tags) t ON true
 			LEFT JOIN LATERAL unnest(hi.repo_digests) d ON true
-			WHERE `+userHostsSQL+`
+			WHERE `+workspaceHostsSQL+`
 			GROUP BY 1, 2, 3, 4
 		)
 		SELECT k.image_id, k.os, k.arch, k.variant, COALESCE(k.tags, '{}'), COALESCE(k.digests, '{}'),
@@ -222,7 +222,7 @@ func loadReportImages(ctx context.Context, tx pgx.Tx, userID string) ([]reports.
 		       ON s.image_id = k.image_id AND s.os = k.os AND s.arch = k.arch AND s.variant = k.variant
 		WHERE k.in_use
 		ORDER BY 1, 2, 3, 4
-	`, userID)
+	`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func loadReportImages(ctx context.Context, tx pgx.Tx, userID string) ([]reports.
 // loadReportReboots: hosts whose newest snapshot (by collected_at, as the
 // overview reads it) has reboot_required, with since = the first snapshot
 // of the current run of reboot_required ones.
-func loadReportReboots(ctx context.Context, tx pgx.Tx, userID string) ([]reports.InputReboot, error) {
+func loadReportReboots(ctx context.Context, tx pgx.Tx, workspaceID string) ([]reports.InputReboot, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT h.id::text, s.reboot_packages,
 		       (SELECT min(s2.collected_at) FROM snapshots s2
@@ -258,9 +258,9 @@ func loadReportReboots(ctx context.Context, tx pgx.Tx, userID string) ([]reports
 			WHERE s.host_id = h.id
 			ORDER BY s.collected_at DESC, s.received_at DESC LIMIT 1 -- snapshots_host_collected_idx
 		) s ON true
-		WHERE `+userHostsSQL+` AND s.reboot_required
+		WHERE `+workspaceHostsSQL+` AND s.reboot_required
 		ORDER BY h.id
-	`, userID)
+	`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,17 +275,17 @@ func loadReportReboots(ctx context.Context, tx pgx.Tx, userID string) ([]reports
 // revoked, seen, silent past the active window), with the non-archived
 // hosts they collect. Agents with none are left out: nothing in the
 // report is missing because of them.
-func loadReportStaleAgents(ctx context.Context, tx pgx.Tx, userID string, at time.Time) ([]reports.InputAgent, error) {
+func loadReportStaleAgents(ctx context.Context, tx pgx.Tx, workspaceID string, at time.Time) ([]reports.InputAgent, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT a.id::text, a.name, a.last_seen_at, array_agg(h.id::text ORDER BY h.id)
 		FROM agents a
 		JOIN agent_hosts ah ON ah.agent_id = a.id
 		JOIN hosts h ON h.id = ah.host_id
-		WHERE a.user_id = $1 AND `+userHostsSQL+`
+		WHERE a.workspace_id = $1 AND `+workspaceHostsSQL+`
 		  AND a.revoked_at IS NULL AND a.last_seen_at IS NOT NULL AND `+staleAgentSQL("$2::timestamptz")+`
 		GROUP BY a.id
 		ORDER BY a.id
-	`, userID, at)
+	`, workspaceID, at)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +300,7 @@ func loadReportStaleAgents(ctx context.Context, tx pgx.Tx, userID string, at tim
 // received_at, as the dashboard's Docker coverage reads it) doesn't have
 // docker_images ok: not enabled, engine unavailable, failed, remote, or
 // not reported at all.
-func loadReportHostsWithoutDocker(ctx context.Context, tx pgx.Tx, userID string) ([]string, error) {
+func loadReportHostsWithoutDocker(ctx context.Context, tx pgx.Tx, workspaceID string) ([]string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT h.id::text
 		FROM hosts h
@@ -309,10 +309,10 @@ func loadReportHostsWithoutDocker(ctx context.Context, tx pgx.Tx, userID string)
 			WHERE s.host_id = h.id
 			ORDER BY s.received_at DESC LIMIT 1 -- snapshots_host_id_received_at_idx
 		) s ON true
-		WHERE `+userHostsSQL+`
+		WHERE `+workspaceHostsSQL+`
 		  AND COALESCE(s.collector_status->'docker_images'->>'status', 'missing') <> 'ok'
 		ORDER BY h.id
-	`, userID)
+	`, workspaceID)
 	if err != nil {
 		return nil, err
 	}

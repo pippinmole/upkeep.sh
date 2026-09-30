@@ -92,7 +92,7 @@ func applyFactSet(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, at 
 }
 
 // rangeOwner names the columns a range table's rows belong to: host_id
-// for the host tables, (user_id, cluster_id) for swarm_services.
+// for the host tables, (workspace_id, cluster_id) for swarm_services.
 type rangeOwner struct {
 	cols []string
 	vals []any

@@ -26,11 +26,11 @@ func (f *agentFixture) mgmt(q string, args ...any) string {
 func (f *agentFixture) otherUser() string {
 	f.t.Helper()
 	var id string
-	if err := f.s.Pool.QueryRow(context.Background(), `INSERT INTO users (email) VALUES ($1) RETURNING id`,
+	if err := f.s.Pool.QueryRow(context.Background(), `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
 		f.tag+"-b@test.invalid").Scan(&id); err != nil {
 		f.t.Fatal(err)
 	}
-	f.t.Cleanup(func() { _, _ = f.s.Pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, id) })
+	f.t.Cleanup(func() { _, _ = f.s.Pool.Exec(context.Background(), `DELETE FROM workspaces WHERE id = $1`, id) })
 	return id
 }
 
@@ -57,7 +57,7 @@ func (f *agentFixture) pushInv(agentID string, claim HostClaim, at time.Time, na
 func (f *agentFixture) cleanSoftware() {
 	f.t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, f.userID)
+		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, f.workspaceID)
 		_, _ = f.s.Pool.Exec(ctx, `DELETE FROM software_versions WHERE distro = $1`, f.tag)
 	})
 }
@@ -114,7 +114,7 @@ func TestMgmtCrossTenant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.userID, dup, otherHost); st != "not_found" {
+	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.workspaceID, dup, otherHost); st != "not_found" {
 		t.Errorf("merge into another tenant's host = %q", st)
 	}
 }
@@ -122,19 +122,19 @@ func TestMgmtCrossTenant(t *testing.T) {
 func TestMgmtAgentActions(t *testing.T) {
 	f := newAgentFixture(t)
 	id := f.enroll("")
-	if st := f.mgmt(`SELECT mgmt_request_rotation($1, $2)`, f.userID, id); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_request_rotation($1, $2)`, f.workspaceID, id); st != "ok" {
 		t.Fatalf("request rotation: %s", st)
 	}
 	if c := f.cred(id); !c.RotateRequested {
 		t.Error("rotate_requested_at not set")
 	}
-	if st := f.mgmt(`SELECT mgmt_revoke_agent($1, $2)`, f.userID, id); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_revoke_agent($1, $2)`, f.workspaceID, id); st != "ok" {
 		t.Fatalf("revoke: %s", st)
 	}
 	if c := f.cred(id); !c.Revoked || c.RotateRequested {
 		t.Errorf("after revoke: %+v", c)
 	}
-	if st := f.mgmt(`SELECT mgmt_request_rotation($1, $2)`, f.userID, id); st != "revoked" {
+	if st := f.mgmt(`SELECT mgmt_request_rotation($1, $2)`, f.workspaceID, id); st != "revoked" {
 		t.Errorf("rotate revoked agent: %s", st)
 	}
 	// Ingest refuses the revoked agent's pushes before touching anything
@@ -146,18 +146,18 @@ func TestMgmtRenameArchiveDelete(t *testing.T) {
 	a := f.enroll("")
 	h := f.push(a, HostClaim{MachineID: f.machineID(), Hostname: "web-1"}).HostID
 
-	if st := f.mgmt(`SELECT mgmt_rename_host($1, $2, $3)`, f.userID, h, "  Primary web  "); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_rename_host($1, $2, $3)`, f.workspaceID, h, "  Primary web  "); st != "ok" {
 		t.Fatal(st)
 	}
 	if n := f.count(`SELECT count(*) FROM hosts WHERE id = $1 AND label = 'Primary web' AND hostname = 'web-1'`, h); n != 1 {
 		t.Error("label not trimmed/set")
 	}
-	f.mgmt(`SELECT mgmt_rename_host($1, $2, $3)`, f.userID, h, "   ")
+	f.mgmt(`SELECT mgmt_rename_host($1, $2, $3)`, f.workspaceID, h, "   ")
 	if n := f.count(`SELECT count(*) FROM hosts WHERE id = $1 AND label IS NULL`, h); n != 1 {
 		t.Error("blank label not cleared")
 	}
 
-	if st := f.mgmt(`SELECT mgmt_set_host_archived($1, $2, true)`, f.userID, h); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_set_host_archived($1, $2, true)`, f.workspaceID, h); st != "ok" {
 		t.Fatal(st)
 	}
 	// An agent that still collects an archived host keeps recording it,
@@ -166,15 +166,15 @@ func TestMgmtRenameArchiveDelete(t *testing.T) {
 	if n := f.count(`SELECT count(*) FROM hosts WHERE id = $1 AND archived_at IS NOT NULL`, h); n != 1 {
 		t.Error("sticky push unarchived the host")
 	}
-	f.mgmt(`SELECT mgmt_set_host_archived($1, $2, false)`, f.userID, h)
+	f.mgmt(`SELECT mgmt_set_host_archived($1, $2, false)`, f.workspaceID, h)
 	if n := f.count(`SELECT count(*) FROM hosts WHERE id = $1 AND archived_at IS NULL`, h); n != 1 {
 		t.Error("not unarchived")
 	}
 
-	if st := f.mgmt(`SELECT mgmt_delete_host($1, $2, $3)`, f.userID, h, "web-2"); st != "confirmation_mismatch" {
+	if st := f.mgmt(`SELECT mgmt_delete_host($1, $2, $3)`, f.workspaceID, h, "web-2"); st != "confirmation_mismatch" {
 		t.Errorf("delete with wrong confirmation: %s", st)
 	}
-	if st := f.mgmt(`SELECT mgmt_delete_host($1, $2, $3)`, f.userID, h, "web-1"); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_delete_host($1, $2, $3)`, f.workspaceID, h, "web-1"); st != "ok" {
 		t.Fatalf("delete: %s", st)
 	}
 	for _, q := range []string{
@@ -199,8 +199,8 @@ func TestReattachUnarchives(t *testing.T) {
 	old := f.enroll("")
 	mid := f.machineID()
 	h := f.push(old, HostClaim{MachineID: mid}).HostID
-	f.mgmt(`SELECT mgmt_set_host_archived($1, $2, true)`, f.userID, h)
-	f.mgmt(`SELECT mgmt_revoke_agent($1, $2)`, f.userID, old)
+	f.mgmt(`SELECT mgmt_set_host_archived($1, $2, true)`, f.workspaceID, h)
+	f.mgmt(`SELECT mgmt_revoke_agent($1, $2)`, f.workspaceID, old)
 
 	res := f.push(f.enroll(""), HostClaim{MachineID: mid})
 	if !res.Host.Reattached || res.HostID != h {
@@ -220,10 +220,10 @@ func TestDismissDuplicateSticks(t *testing.T) {
 	ha := f.push(a, HostClaim{MachineID: mid}).HostID
 	hb := f.push(b, HostClaim{MachineID: mid}).HostID
 
-	if st := f.mgmt(`SELECT mgmt_dismiss_duplicate($1, $2)`, f.userID, ha); st != "not_flagged" {
+	if st := f.mgmt(`SELECT mgmt_dismiss_duplicate($1, $2)`, f.workspaceID, ha); st != "not_flagged" {
 		t.Errorf("dismiss unflagged host: %s", st)
 	}
-	if st := f.mgmt(`SELECT mgmt_dismiss_duplicate($1, $2)`, f.userID, hb); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_dismiss_duplicate($1, $2)`, f.workspaceID, hb); st != "ok" {
 		t.Fatalf("dismiss: %s", st)
 	}
 	for range 2 {
@@ -234,7 +234,7 @@ func TestDismissDuplicateSticks(t *testing.T) {
 	if n := f.count(`SELECT count(*) FROM hosts WHERE id = $1 AND duplicate_of IS NULL AND duplicate_dismissed_of = $2`, hb, ha); n != 1 {
 		t.Error("flag came back")
 	}
-	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.userID, hb, ha); st != "not_flagged" {
+	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.workspaceID, hb, ha); st != "not_flagged" {
 		t.Errorf("merge after dismiss: %s", st)
 	}
 }
@@ -259,15 +259,15 @@ func TestMergeDuplicateIntoOriginal(t *testing.T) {
 		t.Fatalf("not flagged: %+v", res.Host)
 	}
 	// An extra identity recorded on the duplicate moves with it.
-	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO host_identities (user_id, kind, value, host_id) VALUES ($1, 'smbios_uuid', $2, $3)`,
-		f.userID, f.tag, dup); err != nil {
+	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO host_identities (workspace_id, kind, value, host_id) VALUES ($1, 'smbios_uuid', $2, $3)`,
+		f.workspaceID, f.tag, dup); err != nil {
 		t.Fatal(err)
 	}
 
-	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.userID, orig, dup); st != "not_flagged" {
+	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.workspaceID, orig, dup); st != "not_flagged" {
 		t.Errorf("merge the wrong way round: %s", st)
 	}
-	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.userID, dup, orig); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_merge_host($1, $2, $3)`, f.workspaceID, dup, orig); st != "ok" {
 		t.Fatalf("merge: %s", st)
 	}
 
@@ -329,25 +329,25 @@ func TestMergeDuplicateIntoOriginal(t *testing.T) {
 	}
 
 	// Merged hosts stay archived; a second merge is refused.
-	if st := f.mgmt(`SELECT mgmt_set_host_archived($1, $2, false)`, f.userID, dup); st != "merged" {
+	if st := f.mgmt(`SELECT mgmt_set_host_archived($1, $2, false)`, f.workspaceID, dup); st != "merged" {
 		t.Errorf("unarchive merged host: %s", st)
 	}
 
 	// The old agent still has the original as its local host too. It can't
 	// be detached while active; once silent (or revoked) it can.
-	if st := f.mgmt(`SELECT mgmt_detach_host($1, $2, $3)`, f.userID, oldAgent, orig); st != "agent_active" {
+	if st := f.mgmt(`SELECT mgmt_detach_host($1, $2, $3)`, f.workspaceID, oldAgent, orig); st != "agent_active" {
 		t.Errorf("detach active agent: %s", st)
 	}
 	if _, err := f.s.Pool.Exec(ctx, `UPDATE agents SET last_seen_at = now() - interval '1 hour' WHERE id = $1`, oldAgent); err != nil {
 		t.Fatal(err)
 	}
-	if st := f.mgmt(`SELECT mgmt_detach_host($1, $2, $3)`, f.userID, oldAgent, orig); st != "ok" {
+	if st := f.mgmt(`SELECT mgmt_detach_host($1, $2, $3)`, f.workspaceID, oldAgent, orig); st != "ok" {
 		t.Errorf("detach inactive agent: %s", st)
 	}
 	if n := f.count(`SELECT count(*) FROM agent_hosts WHERE host_id = $1`, orig); n != 1 {
 		t.Errorf("original assignments = %d, want 1 (the new agent)", n)
 	}
-	if st := f.mgmt(`SELECT mgmt_detach_host($1, $2, $3)`, f.userID, oldAgent, orig); st != "not_found" {
+	if st := f.mgmt(`SELECT mgmt_detach_host($1, $2, $3)`, f.workspaceID, oldAgent, orig); st != "not_found" {
 		t.Errorf("detach twice: %s", st)
 	}
 }

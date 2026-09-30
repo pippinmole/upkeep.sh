@@ -48,17 +48,17 @@ func (e *dockerEnv) user() string {
 	_, _ = rand.Read(b)
 	ctx := context.Background()
 	var id string
-	if err := e.s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
+	if err := e.s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
 		"swtest-"+hex.EncodeToString(b)+"@test.invalid").Scan(&id); err != nil {
 		e.t.Fatal(err)
 	}
-	e.t.Cleanup(func() { _, _ = e.s.Pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, id) })
+	e.t.Cleanup(func() { _, _ = e.s.Pool.Exec(context.Background(), `DELETE FROM workspaces WHERE id = $1`, id) })
 	return id
 }
 
-func (e *dockerEnv) host(userID, name string) string {
+func (e *dockerEnv) host(workspaceID, name string) string {
 	e.t.Helper()
-	id, err := e.s.CreateHost(context.Background(), userID, name)
+	id, err := e.s.CreateHost(context.Background(), workspaceID, name)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -382,11 +382,11 @@ type svcRange struct {
 	Running        int
 }
 
-func (e *dockerEnv) services(userID, clusterID string) []svcRange {
+func (e *dockerEnv) services(workspaceID, clusterID string) []svcRange {
 	e.t.Helper()
 	rows, err := e.s.Pool.Query(context.Background(), `
 		SELECT row_key, first_seen_at, removed_at, coalesce(running_tasks, -1) FROM swarm_services
-		WHERE user_id = $1 AND cluster_id = $2 ORDER BY row_key, first_seen_at`, userID, clusterID)
+		WHERE workspace_id = $1 AND cluster_id = $2 ORDER BY row_key, first_seen_at`, workspaceID, clusterID)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -481,7 +481,7 @@ func TestDockerIngestSwarm(t *testing.T) {
 		t.Errorf("other user's push touched this cluster: %+v", got)
 	}
 	var clusters int
-	if err := e.s.Pool.QueryRow(ctx, `SELECT count(*) FROM swarm_clusters WHERE cluster_id = 'C' AND user_id IN ($1, $2)`, u, u2).
+	if err := e.s.Pool.QueryRow(ctx, `SELECT count(*) FROM swarm_clusters WHERE cluster_id = 'C' AND workspace_id IN ($1, $2)`, u, u2).
 		Scan(&clusters); err != nil || clusters != 2 {
 		t.Errorf("clusters = %d, %v", clusters, err)
 	}

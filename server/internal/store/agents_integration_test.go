@@ -16,11 +16,11 @@ import (
 )
 
 type agentFixture struct {
-	t      *testing.T
-	s      *Store
-	userID string
-	tag    string
-	n      int
+	t           *testing.T
+	s           *Store
+	workspaceID string
+	tag         string
+	n           int
 }
 
 func newAgentFixture(t *testing.T) *agentFixture {
@@ -37,12 +37,12 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	f := &agentFixture{t: t, s: s, tag: "swtest-" + hex.EncodeToString(b)}
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-		f.tag+"@test.invalid").Scan(&f.userID); err != nil {
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+		f.tag+"@test.invalid").Scan(&f.workspaceID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = s.Pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, f.userID) // cascades agents, hosts, ...
+		_, _ = s.Pool.Exec(context.Background(), `DELETE FROM workspaces WHERE id = $1`, f.workspaceID) // cascades agents, hosts, ...
 		s.Close()
 	})
 	return f
@@ -58,8 +58,8 @@ func (f *agentFixture) enroll(tokenName string) string {
 	if tokenName != "" {
 		name = tokenName
 	}
-	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, user_id, expires_at, agent_name)
-		VALUES ($1, $2, now() + interval '1 hour', $3)`, token, f.userID, name); err != nil {
+	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, workspace_id, expires_at, agent_name)
+		VALUES ($1, $2, now() + interval '1 hour', $3)`, token, f.workspaceID, name); err != nil {
 		f.t.Fatal(err)
 	}
 	id, err := f.s.EnrollAgent(ctx, EnrollInput{Token: token, Hostname: "container-" + f.tag,
@@ -99,8 +99,8 @@ func (f *agentFixture) count(q string, args ...any) int {
 	return n
 }
 
-func (f *agentFixture) hostsOfUser() int {
-	return f.count(`SELECT count(*) FROM hosts WHERE user_id = $1`, f.userID)
+func (f *agentFixture) hostsOfWorkspace() int {
+	return f.count(`SELECT count(*) FROM hosts WHERE workspace_id = $1`, f.workspaceID)
 }
 
 func (f *agentFixture) localHost(agentID string) string {
@@ -126,21 +126,21 @@ func TestEnrollCreatesAgentNotHost(t *testing.T) {
 
 	var name, version, platform string
 	var lastSeen *time.Time
-	if err := f.s.Pool.QueryRow(ctx, `SELECT name, agent_version, platform, last_seen_at FROM agents WHERE id = $1 AND user_id = $2`,
-		id, f.userID).Scan(&name, &version, &platform, &lastSeen); err != nil {
+	if err := f.s.Pool.QueryRow(ctx, `SELECT name, agent_version, platform, last_seen_at FROM agents WHERE id = $1 AND workspace_id = $2`,
+		id, f.workspaceID).Scan(&name, &version, &platform, &lastSeen); err != nil {
 		t.Fatal(err)
 	}
 	if name != "container-"+f.tag || version != "0.9.0" || platform != "linux/amd64" || lastSeen != nil {
 		t.Errorf("agent = %q %q %q %v", name, version, platform, lastSeen)
 	}
-	if n := f.hostsOfUser(); n != 0 {
+	if n := f.hostsOfWorkspace(); n != 0 {
 		t.Errorf("enrollment created %d hosts, want 0", n)
 	}
 	cred, err := f.s.AgentCredential(ctx, id)
-	if err != nil || cred.SecretHash != "hash" || cred.UserID != f.userID || cred.Revoked {
+	if err != nil || cred.SecretHash != "hash" || cred.WorkspaceID != f.workspaceID || cred.Revoked {
 		t.Errorf("credential = %+v, %v", cred, err)
 	}
-	if n := f.count(`SELECT count(*) FROM enrollment_tokens WHERE user_id = $1`, f.userID); n != 0 {
+	if n := f.count(`SELECT count(*) FROM enrollment_tokens WHERE workspace_id = $1`, f.workspaceID); n != 0 {
 		t.Errorf("token not consumed")
 	}
 	// Replaying the consumed token fails.
@@ -151,6 +151,39 @@ func TestEnrollCreatesAgentNotHost(t *testing.T) {
 	named := f.enroll("db-box")
 	if err := f.s.Pool.QueryRow(ctx, `SELECT name FROM agents WHERE id = $1`, named).Scan(&name); err != nil || name != "db-box" {
 		t.Errorf("named agent = %q, %v", name, err)
+	}
+}
+
+// Tokens belong to the workspace; the issuing user is recorded on the token
+// (created_by) and carried to the agent (enrolled_by). Removing that user
+// keeps the agent and clears enrolled_by.
+func TestEnrollRecordsIssuer(t *testing.T) {
+	f := newAgentFixture(t)
+	ctx := context.Background()
+	var userID string
+	if err := f.s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
+		f.tag+"@test.invalid").Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = f.s.Pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID) })
+	token := f.tag + "-issued"
+	if _, err := f.s.Pool.Exec(ctx, `INSERT INTO enrollment_tokens (token, workspace_id, created_by, expires_at)
+		VALUES ($1, $2, $3, now() + interval '1 hour')`, token, f.workspaceID, userID); err != nil {
+		t.Fatal(err)
+	}
+	id, err := f.s.EnrollAgent(ctx, EnrollInput{Token: token, Hostname: "h", SecretHash: "hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var by *string
+	if err := f.s.Pool.QueryRow(ctx, `SELECT enrolled_by::text FROM agents WHERE id = $1`, id).Scan(&by); err != nil || by == nil || *by != userID {
+		t.Fatalf("enrolled_by = %v, %v; want %s", by, err, userID)
+	}
+	if _, err := f.s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.Pool.QueryRow(ctx, `SELECT enrolled_by::text FROM agents WHERE id = $1`, id).Scan(&by); err != nil || by != nil {
+		t.Fatalf("after removing the user: enrolled_by = %v, %v; want NULL", by, err)
 	}
 }
 
@@ -175,8 +208,8 @@ func TestFirstPushCreatesHostAndAssignment(t *testing.T) {
 	if hostname != "web-1" || fam != "linux" || osID != "ubuntu" || osVer != "22.04" || codename != "jammy" || kernel != "6.8.0-45-generic" {
 		t.Errorf("host summary = %s %s %s %s %s %s", hostname, fam, osID, osVer, codename, kernel)
 	}
-	if n := f.count(`SELECT count(*) FROM host_identities WHERE user_id = $1 AND kind = 'machine_id' AND value = $2 AND host_id = $3`,
-		f.userID, mid, res.HostID); n != 1 {
+	if n := f.count(`SELECT count(*) FROM host_identities WHERE workspace_id = $1 AND kind = 'machine_id' AND value = $2 AND host_id = $3`,
+		f.workspaceID, mid, res.HostID); n != 1 {
 		t.Errorf("identity rows = %d", n)
 	}
 	if n := f.count(`SELECT count(*) FROM snapshots WHERE id = $1 AND agent_id = $2 AND host_id = $3`, res.SnapshotID, a, res.HostID); n != 1 {
@@ -203,7 +236,7 @@ func TestFirstPushCreatesHostAndAssignment(t *testing.T) {
 	if err := f.s.Pool.QueryRow(ctx, `SELECT hostname FROM hosts WHERE id = $1`, res.HostID).Scan(&hostname); err != nil || hostname != "web-1-renamed" {
 		t.Errorf("hostname = %q, %v", hostname, err)
 	}
-	if n := f.hostsOfUser(); n != 1 {
+	if n := f.hostsOfWorkspace(); n != 1 {
 		t.Errorf("hosts = %d, want 1", n)
 	}
 }
@@ -234,10 +267,10 @@ func TestDuplicateIdentityWithActiveAgentIsFlagged(t *testing.T) {
 			t.Errorf("A moved to %s", got)
 		}
 	}
-	if n := f.count(`SELECT count(*) FROM host_identities WHERE user_id = $1 AND value = $2 AND host_id = $3`, f.userID, mid, ha); n != 1 {
+	if n := f.count(`SELECT count(*) FROM host_identities WHERE workspace_id = $1 AND value = $2 AND host_id = $3`, f.workspaceID, mid, ha); n != 1 {
 		t.Errorf("identity no longer A's host")
 	}
-	if n := f.hostsOfUser(); n != 2 {
+	if n := f.hostsOfWorkspace(); n != 2 {
 		t.Errorf("hosts = %d, want 2", n)
 	}
 }
@@ -276,7 +309,7 @@ func TestReinstallReattaches(t *testing.T) {
 			if n := f.count(`SELECT count(*) FROM snapshots WHERE host_id = $1`, host); n != 3 {
 				t.Errorf("host history = %d snapshots, want 3", n)
 			}
-			if n := f.hostsOfUser(); n != 1 {
+			if n := f.hostsOfWorkspace(); n != 1 {
 				t.Errorf("hosts = %d, want 1", n)
 			}
 		})
@@ -315,7 +348,7 @@ func TestNoIdentityFallbackIsStable(t *testing.T) {
 	if n := f.count(`SELECT count(*) FROM host_identities WHERE host_id = $1 AND value = $2`, first.HostID, mid); n != 1 {
 		t.Errorf("late identity not attached")
 	}
-	if n := f.hostsOfUser(); n != 1 {
+	if n := f.hostsOfWorkspace(); n != 1 {
 		t.Errorf("hosts = %d, want 1", n)
 	}
 	// Two agents without identity never share a host.
@@ -330,13 +363,13 @@ func TestNoIdentityFallbackIsStable(t *testing.T) {
 func TestBackfilledAgentKeepsItsHost(t *testing.T) {
 	f := newAgentFixture(t)
 	ctx := context.Background()
-	hostID, err := f.s.CreateHost(ctx, f.userID, "legacy")
+	hostID, err := f.s.CreateHost(ctx, f.workspaceID, "legacy")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// What 0008's backfill does for every pre-existing host.
 	for _, q := range []string{
-		`INSERT INTO agents (id, user_id, name) SELECT id, user_id, hostname FROM hosts WHERE id = $1`,
+		`INSERT INTO agents (id, workspace_id, name) SELECT id, workspace_id, hostname FROM hosts WHERE id = $1`,
 		`INSERT INTO agent_credentials (agent_id, secret_hash) VALUES ($1, 'legacy-hash')`,
 		`INSERT INTO agent_hosts (agent_id, host_id, mode, target_ref) VALUES ($1, $1, 'local', 'local')`,
 	} {
@@ -354,7 +387,7 @@ func TestBackfilledAgentKeepsItsHost(t *testing.T) {
 	if n := f.count(`SELECT count(*) FROM host_identities WHERE host_id = $1`, hostID); n != 1 {
 		t.Errorf("identity not attached to legacy host")
 	}
-	if n := f.hostsOfUser(); n != 1 {
+	if n := f.hostsOfWorkspace(); n != 1 {
 		t.Errorf("hosts = %d, want 1", n)
 	}
 }
@@ -365,7 +398,7 @@ func TestUnknownRemoteRefIsRejected(t *testing.T) {
 	if _, err := f.tryPush(a, HostClaim{Ref: "db-01"}); !errors.Is(err, ErrUnknownHostRef) {
 		t.Fatalf("err = %v, want ErrUnknownHostRef", err)
 	}
-	if n := f.hostsOfUser(); n != 0 {
+	if n := f.hostsOfWorkspace(); n != 0 {
 		t.Errorf("remote ref created %d hosts", n)
 	}
 }

@@ -11,9 +11,9 @@ import (
 func ip(n int) *int { return &n }
 
 func TestMatch(t *testing.T) {
-	base := Rule{ID: "r", UserID: "u", EventTypes: []string{notify.EventFindingOpened, notify.EventAgentStale}}
-	opened := EventMeta{UserID: "u", Type: notify.EventFindingOpened, HostIDs: []string{"h1"}, SeverityRank: ip(4)}
-	stale := EventMeta{UserID: "u", Type: notify.EventAgentStale, HostIDs: []string{"h1", "h2"}}
+	base := Rule{ID: "r", WorkspaceID: "u", EventTypes: []string{notify.EventFindingOpened, notify.EventAgentStale}}
+	opened := EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, HostIDs: []string{"h1"}, SeverityRank: ip(4)}
+	stale := EventMeta{WorkspaceID: "u", Type: notify.EventAgentStale, HostIDs: []string{"h1", "h2"}}
 
 	with := func(f func(*Rule)) Rule { r := base; f(&r); return r }
 	cases := []struct {
@@ -23,26 +23,26 @@ func TestMatch(t *testing.T) {
 		want bool
 	}{
 		{"type selected", base, opened, true},
-		{"type not selected", base, EventMeta{UserID: "u", Type: notify.EventFindingResolved, SeverityRank: ip(6)}, false},
-		{"other user", base, EventMeta{UserID: "v", Type: notify.EventFindingOpened, SeverityRank: ip(6)}, false},
+		{"type not selected", base, EventMeta{WorkspaceID: "u", Type: notify.EventFindingResolved, SeverityRank: ip(6)}, false},
+		{"other user", base, EventMeta{WorkspaceID: "v", Type: notify.EventFindingOpened, SeverityRank: ip(6)}, false},
 		{"severity floor met", with(func(r *Rule) { r.MinSeverityRank = 4 }), opened, true},
 		{"severity below floor", with(func(r *Rule) { r.MinSeverityRank = 5 }), opened, false},
 		{"severity unknown with floor", with(func(r *Rule) { r.MinSeverityRank = 1 }),
-			EventMeta{UserID: "u", Type: notify.EventFindingOpened}, false},
+			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened}, false},
 		{"kev only, not kev", with(func(r *Rule) { r.KEVOnly = true }), opened, false},
 		{"kev only, kev", with(func(r *Rule) { r.KEVOnly = true }),
-			EventMeta{UserID: "u", Type: notify.EventFindingOpened, KEV: true, SeverityRank: ip(6)}, true},
+			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, KEV: true, SeverityRank: ip(6)}, true},
 		{"severity/kev don't apply to agent events", with(func(r *Rule) { r.MinSeverityRank = 6; r.KEVOnly = true }), stale, true},
 		{"host scope hit", with(func(r *Rule) { r.HostIDs = []string{"h1"} }), opened, true},
 		{"host scope miss", with(func(r *Rule) { r.HostIDs = []string{"h9"} }), opened, false},
 		{"host scope, agent with a selected host", with(func(r *Rule) { r.HostIDs = []string{"h2"} }), stale, true},
 		{"host scope, event without hosts", with(func(r *Rule) { r.HostIDs = []string{"h1"} }),
-			EventMeta{UserID: "u", Type: notify.EventAgentStale}, false},
+			EventMeta{WorkspaceID: "u", Type: notify.EventAgentStale}, false},
 		{"empty (non-nil) scope matches nothing", with(func(r *Rule) { r.HostIDs = []string{} }), opened, false},
 		{"finding kind selected", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_image"} }),
-			EventMeta{UserID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, true},
+			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, true},
 		{"finding kind not selected", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_package"} }),
-			EventMeta{UserID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, false},
+			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, false},
 		{"finding kind unknown on the event", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_package"} }),
 			opened, true},
 		{"finding kinds don't apply to agent events", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_image"} }),

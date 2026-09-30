@@ -48,13 +48,13 @@ type ImagePackage struct {
 // ImageSBOMInput is one complete package list for an image key.
 type ImageSBOMInput struct {
 	Key ImageKey
-	// OwnerUserID is "" for a list the server obtained itself
+	// OwnerWorkspaceID is "" for a list the server obtained itself
 	// (attestation, server-syft: fleet-wide) and the user's id for an
 	// agent's list (agent-syft).
-	OwnerUserID string
-	Source      string
-	ToolName    string
-	ToolVersion string
+	OwnerWorkspaceID string
+	Source           string
+	ToolName         string
+	ToolVersion      string
 	// GeneratedAt is the SBOM's creation time; zero = now.
 	GeneratedAt time.Time
 	// OS is the image's os-release (zero when none), Release the key its
@@ -91,11 +91,11 @@ func (r ImageSBOMResult) RematchSoftwareIDs() []int64 {
 func (in ImageSBOMInput) validate() error {
 	switch in.Source {
 	case SBOMSourceAttestation, SBOMSourceServerSyft:
-		if in.OwnerUserID != "" {
+		if in.OwnerWorkspaceID != "" {
 			return fmt.Errorf("image sbom: source %s is fleet-wide, owner must be empty", in.Source)
 		}
 	case SBOMSourceAgentSyft:
-		if in.OwnerUserID == "" {
+		if in.OwnerWorkspaceID == "" {
 			return errors.New("image sbom: an agent list needs its owner")
 		}
 	default:
@@ -137,7 +137,7 @@ func (s *Store) WriteImageSBOM(ctx context.Context, in ImageSBOMInput) (res Imag
 	// one list serialise.
 	err = tx.QueryRow(ctx, `
 		INSERT INTO image_sbom_state
-			(image_id, os, arch, variant, owner_user_id, status, source, tool_name, tool_version,
+			(image_id, os, arch, variant, owner_workspace_id, status, source, tool_name, tool_version,
 			 generated_at, package_count, distro, distro_version, release, distro_name,
 			 attempts, last_attempt_at)
 		VALUES ($1, $2, $3, $4, $5, 'ok', $6, $7, $8, $9, $10, $11, $12, $13, $14, 0, now())
@@ -149,7 +149,7 @@ func (s *Store) WriteImageSBOM(ctx context.Context, in ImageSBOMInput) (res Imag
 			release = EXCLUDED.release, distro_name = EXCLUDED.distro_name,
 			attempts = 0, last_attempt_at = now(), next_attempt_at = NULL, updated_at = now()
 		RETURNING id
-	`, in.Key.ImageID, in.Key.OS, in.Key.Arch, in.Key.Variant, nilIfEmpty(in.OwnerUserID),
+	`, in.Key.ImageID, in.Key.OS, in.Key.Arch, in.Key.Variant, nilIfEmpty(in.OwnerWorkspaceID),
 		in.Source, nilIfEmpty(in.ToolName), nilIfEmpty(in.ToolVersion), generated, res.Packages,
 		nilIfEmpty(in.OS.ID), nilIfEmpty(in.OS.VersionID), nilIfEmpty(in.Release), nilIfEmpty(in.OS.PrettyName),
 	).Scan(&res.SBOMID)
@@ -270,10 +270,10 @@ func replaceImageSoftware(ctx context.Context, tx pgx.Tx, sbomID int64, paths ma
 
 // ImageSBOMFailure records a failed or impossible attempt at a list.
 type ImageSBOMFailure struct {
-	Key         ImageKey
-	OwnerUserID string // "" = the server's own attempt
-	Status      string // SBOMStatusUnavailable | SBOMStatusError
-	Reason      string // shown to users as is
+	Key              ImageKey
+	OwnerWorkspaceID string // "" = the server's own attempt
+	Status           string // SBOMStatusUnavailable | SBOMStatusError
+	Reason           string // shown to users as is
 	// NextAttemptAt is when to try again; nil = not on a timer.
 	NextAttemptAt *time.Time
 }
@@ -291,7 +291,7 @@ func (s *Store) RecordImageSBOMFailure(ctx context.Context, f ImageSBOMFailure) 
 	var id int64
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO image_sbom_state
-			(image_id, os, arch, variant, owner_user_id, status, reason, attempts, last_attempt_at, next_attempt_at)
+			(image_id, os, arch, variant, owner_workspace_id, status, reason, attempts, last_attempt_at, next_attempt_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 1, now(), $8)
 		ON CONFLICT ON CONSTRAINT image_sbom_state_key DO UPDATE SET
 			status = EXCLUDED.status, reason = EXCLUDED.reason,
@@ -299,7 +299,7 @@ func (s *Store) RecordImageSBOMFailure(ctx context.Context, f ImageSBOMFailure) 
 			next_attempt_at = EXCLUDED.next_attempt_at, updated_at = now()
 		WHERE image_sbom_state.status <> 'ok'
 		RETURNING id
-	`, f.Key.ImageID, f.Key.OS, f.Key.Arch, f.Key.Variant, nilIfEmpty(f.OwnerUserID),
+	`, f.Key.ImageID, f.Key.OS, f.Key.Arch, f.Key.Variant, nilIfEmpty(f.OwnerWorkspaceID),
 		f.Status, f.Reason, f.NextAttemptAt).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil

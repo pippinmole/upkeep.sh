@@ -31,12 +31,12 @@ func TestEnqueueAfterIngestIsTransactional(t *testing.T) {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	tag := "swtest-" + hex.EncodeToString(b)
-	var userID string
-	if err := s.Pool.QueryRow(ctx, `INSERT INTO users (email) VALUES ($1) RETURNING id`,
-		tag+"@test.invalid").Scan(&userID); err != nil {
+	var workspaceID string
+	if err := s.Pool.QueryRow(ctx, `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+		tag+"@test.invalid").Scan(&workspaceID); err != nil {
 		t.Fatal(err)
 	}
-	hostID, err := s.CreateHost(ctx, userID, tag)
+	hostID, err := s.CreateHost(ctx, workspaceID, tag)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestEnqueueAfterIngestIsTransactional(t *testing.T) {
 		ctx := context.Background()
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM river_job WHERE args->>'host_id' = $1 OR kind = 'match_versions' AND args->'ids' @> (
 			SELECT to_jsonb(array_agg(id)) FROM software_versions WHERE distro = $2)`, hostID, tag)
-		_, _ = s.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		_, _ = s.Pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, workspaceID)
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM software_versions WHERE distro = $1`, tag)
 	})
 	client, err := NewInserter(s.Pool)

@@ -47,8 +47,8 @@ type hostImage struct {
 }
 
 // loadHostImages returns the images in the host's findings scope that have
-// an effective package list for userID, ordered by image id.
-func loadHostImages(ctx context.Context, tx pgx.Tx, hostID, userID string) ([]hostImage, error) {
+// an effective package list for workspaceID, ordered by image id.
+func loadHostImages(ctx context.Context, tx pgx.Tx, hostID, workspaceID string) ([]hostImage, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT hi.image_id, hi.os, hi.arch, hi.variant,
 		       CASE WHEN cardinality(hi.repo_tags) > 0 THEN hi.repo_tags ELSE hi.repo_digests END,
@@ -63,7 +63,7 @@ func loadHostImages(ctx context.Context, tx pgx.Tx, hostID, userID string) ([]ho
 		  ON e.image_id = hi.image_id AND e.os = hi.os AND e.arch = hi.arch AND e.variant = hi.variant
 		WHERE hi.host_id = $1 AND hi.removed_at IS NULL
 		ORDER BY hi.image_id
-	`, hostID, userID)
+	`, hostID, workspaceID)
 	if err != nil {
 		return nil, err
 	}
