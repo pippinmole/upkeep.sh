@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { CollectorAgent } from "@/lib/queries-remote";
+import { adminOnly } from "@/components/viewer-context";
 
 import { EnrollAgentPanel } from "../agents/register-agent-dialog";
 import { addRemoteHost } from "../manage-actions";
@@ -47,7 +48,7 @@ const TITLES: Record<Step["kind"], [string, string]> = {
 // agent on the machine itself, or have an existing agent reach it over
 // SSH. State lives in the content, which unmounts on close, so every open
 // starts at the choice.
-export function AddHostDialog({
+function AddHostDialogControl({
   serverUrl,
   agents,
 }: {
@@ -325,3 +326,6 @@ function RemoteHostForm({
     </form>
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+export const AddHostDialog = adminOnly(AddHostDialogControl);

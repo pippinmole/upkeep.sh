@@ -42,6 +42,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { HostListRow } from "@/lib/queries";
+import { adminOnly } from "@/components/viewer-context";
 
 type DialogKind = "rename" | "archive" | "unarchive" | "merge" | "dismiss" | "delete";
 
@@ -51,7 +52,7 @@ const display = (h: { hostname: string; label: string | null }) =>
 // Per-host management (DOMAIN_MODEL.md §4.3 "Management"): rename,
 // archive / unarchive, resolve a duplicate flag (merge / not a duplicate),
 // delete. Every action is a server action re-checking ownership.
-export function HostRowActions({ host }: { host: HostListRow }) {
+function HostRowActionsControl({ host }: { host: HostListRow }) {
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const set = (d: DialogKind) => (open: boolean) => setDialog(open ? d : null);
   const archived = !!host.archivedAt;
@@ -292,3 +293,6 @@ function RenameDialog({
     </Dialog>
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+export const HostRowActions = adminOnly(HostRowActionsControl);

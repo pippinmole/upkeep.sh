@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { adminOnly } from "@/components/viewer-context";
 
 const POLL_MS = 3000;
 
@@ -279,7 +280,7 @@ function DockerCollectionOption({
 // "Install an agent" on the Agents page. The Hosts page's "Add host" offers
 // the same panel as its "install the agent on this machine" option, and a
 // remote host's Containers / Images tabs open it to install an agent there.
-export function RegisterAgentDialog({
+function RegisterAgentDialogControl({
   serverUrl,
   triggerLabel = "Install an agent",
   triggerVariant = "default",
@@ -305,3 +306,6 @@ export function RegisterAgentDialog({
     </Dialog>
   );
 }
+
+// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
+export const RegisterAgentDialog = adminOnly(RegisterAgentDialogControl);

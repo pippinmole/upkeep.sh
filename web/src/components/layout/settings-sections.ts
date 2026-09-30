@@ -1,4 +1,4 @@
-import { Send } from "lucide-react";
+import { Send, Users } from "lucide-react";
 
 import { NOTIFICATION_SETTINGS_URL } from "@/components/notifications/links";
 
@@ -13,5 +13,11 @@ export const settingsSections = [
     url: NOTIFICATION_SETTINGS_URL,
     icon: Send,
     keywords: ["notifications", "email", "slack", "discord", "ntfy", "webhook"],
+  },
+  {
+    title: "Members",
+    url: `${SETTINGS_URL}/members`,
+    icon: Users,
+    keywords: ["users", "team", "roles", "administrator", "invite", "accounts", "password"],
   },
 ];
