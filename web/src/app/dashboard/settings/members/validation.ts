@@ -78,3 +78,29 @@ export function generateTemporaryPassword(length = 16): string {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]).join("");
 }
+
+// The dialog fields in the order they're shown, for focusing the first
+// invalid one after a failed submit.
+export const NEW_MEMBER_FIELDS = ["username", "email", "name", "role", "password"] as const;
+
+export function firstInvalidField(fieldErrors: Record<string, string>): string | null {
+  return NEW_MEMBER_FIELDS.find((k) => fieldErrors[k]) ?? null;
+}
+
+// What an administrator passes on after adding a member or resetting a
+// password (the "Copy sign-in details" button). No email is sent.
+export function signInDetailsText(d: {
+  loginUrl: string;
+  username: string;
+  password: string;
+  // A reset password rather than a new account.
+  reset?: boolean;
+}): string {
+  return [
+    "Sign in to upkeep.sh",
+    `Page: ${d.loginUrl}`,
+    `Username: ${d.username}`,
+    `Temporary password: ${d.password}`,
+    `You'll choose your own password when you ${d.reset ? "next" : "first"} sign in.`,
+  ].join("\n");
+}

@@ -1,9 +1,8 @@
 "use client";
 
-import { AlertTriangle, Loader2, UserPlus } from "lucide-react";
+import { AlertTriangle, Loader2, Plus } from "lucide-react";
 import { useState, useTransition } from "react";
 
-import { FieldError } from "@/components/notifications/shared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,18 +13,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import type { Role } from "@/lib/roles";
 
 import { createMember } from "./actions";
-import { TemporaryPasswordField } from "./password-field";
-import { RoleSelect } from "./role-select";
-import { generateTemporaryPassword } from "./validation";
+import { AddMemberFields, fieldInputId, type NewMemberForm } from "./add-member-fields";
+import { SignInDetails } from "./sign-in-details";
+import { firstInvalidField, generateTemporaryPassword, validateNewMember } from "./validation";
 
-type Form = { username: string; email: string; name: string; role: Role; password: string };
-
-const empty = (): Form => ({
+const empty = (): NewMemberForm => ({
   username: "",
   email: "",
   name: "",
@@ -33,106 +27,130 @@ const empty = (): Form => ({
   password: generateTemporaryPassword(),
 });
 
-const TEXT_FIELDS = [
-  { key: "username", label: "Username", hint: "Used to sign in.", autoComplete: "off" },
-  { key: "email", label: "Email", hint: null, autoComplete: "off" },
-  { key: "name", label: "Name (optional)", hint: null, autoComplete: "off" },
-] as const;
+type Created = { username: string; password: string };
 
+function focusField(fieldErrors: Record<string, string>) {
+  const key = firstInvalidField(fieldErrors);
+  if (key) document.getElementById(fieldInputId(key))?.focus();
+}
+
+// Two steps: the form, then the sign-in details to pass on (shown once).
+// The same checks run here, before the round trip, and on the server.
 export function AddMemberButton() {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<Form>(empty);
+  const [form, setForm] = useState<NewMemberForm>(empty);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<Created | null>(null);
+  const [again, setAgain] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  function reset(addingAnother: boolean) {
+    setForm(empty());
+    setErrors({});
+    setError(null);
+    setCreated(null);
+    setAgain(addingAnother);
+  }
 
   function change(next: boolean) {
     if (pending) return;
     setOpen(next);
-    if (next) {
-      setForm(empty());
-      setErrors({});
-      setError(null);
-    }
+    if (next) reset(false);
   }
 
-  const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
+  function set<K extends keyof NewMemberForm>(key: K, value: NewMemberForm[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+    if (errors[key]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const { member, fieldErrors } = validateNewMember(form);
+    if (!member) {
+      setErrors(fieldErrors);
+      focusField(fieldErrors);
+      return;
+    }
     startTransition(async () => {
       const res = await createMember(form);
       if (res.ok) {
-        setOpen(false);
+        setCreated({ username: member.username, password: member.password });
         return;
       }
-      setErrors(res.fieldErrors ?? {});
-      setError(res.error);
+      const serverFieldErrors = res.fieldErrors ?? {};
+      setErrors(serverFieldErrors);
+      // A field's problem shows on the field; the banner is for the rest.
+      if (Object.keys(serverFieldErrors).length > 0) focusField(serverFieldErrors);
+      else setError(res.error);
     });
   }
 
   return (
     <>
       <Button onClick={() => change(true)}>
-        <UserPlus />
+        <Plus />
         Add member
       </Button>
       <Dialog open={open} onOpenChange={change}>
-        <DialogContent className="sm:max-w-lg">
-          <form onSubmit={submit} className="flex flex-col gap-4">
-            <DialogHeader>
-              <DialogTitle>Add member</DialogTitle>
-              <DialogDescription>
-                Create an account with a temporary password, then share the username and password
-                with them.
-              </DialogDescription>
-            </DialogHeader>
-            {TEXT_FIELDS.map((f) => (
-              <div key={f.key} className="flex flex-col gap-1.5">
-                <Label htmlFor={`member-${f.key}`}>{f.label}</Label>
-                <Input
-                  id={`member-${f.key}`}
-                  type={f.key === "email" ? "email" : "text"}
-                  value={form[f.key]}
-                  autoComplete={f.autoComplete}
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  required={f.key !== "name"}
-                  aria-invalid={errors[f.key] ? true : undefined}
-                  onChange={(e) => set(f.key, e.target.value)}
-                />
-                {f.hint && <p className="text-muted-foreground text-xs">{f.hint}</p>}
-                <FieldError msg={errors[f.key]} />
-              </div>
-            ))}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="member-role">Role</Label>
-              <RoleSelect id="member-role" value={form.role} onChange={(r) => set("role", r)} />
-              <FieldError msg={errors.role} />
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+          {created ? (
+            <div className="flex flex-col gap-4">
+              <DialogHeader className="text-left">
+                <DialogTitle>Member added</DialogTitle>
+                <DialogDescription>
+                  {created.username} can sign in now. Send them these details yourself.
+                </DialogDescription>
+              </DialogHeader>
+              <SignInDetails username={created.username} password={created.password} />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => reset(true)}>
+                  Add another
+                </Button>
+                <Button type="button" onClick={() => change(false)}>
+                  Done
+                </Button>
+              </DialogFooter>
             </div>
-            <TemporaryPasswordField
-              id="member-password"
-              value={form.password}
-              onChange={(v) => set("password", v)}
-              error={errors.password}
-            />
-            {error && (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => change(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={pending}>
-                {pending && <Loader2 className="animate-spin" />}
-                Add member
-              </Button>
-            </DialogFooter>
-          </form>
+          ) : (
+            <form onSubmit={submit} noValidate className="flex flex-col gap-4">
+              <DialogHeader className="text-left">
+                <DialogTitle>Add member</DialogTitle>
+                <DialogDescription>
+                  Sign-up is closed, so accounts are created here. No email is sent: you&rsquo;ll
+                  share the sign-in details yourself.
+                </DialogDescription>
+              </DialogHeader>
+              <AddMemberFields form={form} errors={errors} onChange={set} autoFocus={again} />
+              {error && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() => change(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={pending}>
+                  {pending && <Loader2 className="animate-spin" />}
+                  {pending ? "Adding…" : "Add member"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </>

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { generateTemporaryPassword, validateNewMember, validatePassword } from "./validation";
+import {
+  firstInvalidField,
+  generateTemporaryPassword,
+  signInDetailsText,
+  validateNewMember,
+  validatePassword,
+} from "./validation";
 
 const ok = {
   username: "Jane.Doe",
@@ -55,5 +61,36 @@ describe("generateTemporaryPassword", () => {
     expect(validatePassword(a)).toBeNull();
     expect(a).not.toMatch(/[0O1lI]/);
     expect(generateTemporaryPassword()).not.toBe(a);
+  });
+});
+
+describe("firstInvalidField", () => {
+  test("follows the dialog's field order, not the object's", () => {
+    expect(firstInvalidField({ password: "x", email: "y" })).toBe("email");
+    expect(firstInvalidField({ role: "x", username: "y" })).toBe("username");
+  });
+
+  test("is null when nothing is invalid", () => {
+    expect(firstInvalidField({})).toBeNull();
+  });
+});
+
+describe("signInDetailsText", () => {
+  const d = { loginUrl: "https://upkeep.example/login", username: "alice", password: "Xy7kPq" };
+
+  test("lists the page, username and temporary password", () => {
+    expect(signInDetailsText(d)).toBe(
+      [
+        "Sign in to upkeep.sh",
+        "Page: https://upkeep.example/login",
+        "Username: alice",
+        "Temporary password: Xy7kPq",
+        "You'll choose your own password when you first sign in.",
+      ].join("\n"),
+    );
+  });
+
+  test("says next sign-in after a reset", () => {
+    expect(signInDetailsText({ ...d, reset: true })).toEndWith("when you next sign in.");
   });
 });
