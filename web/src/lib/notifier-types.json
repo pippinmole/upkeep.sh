@@ -1,11 +1,8 @@
 {
   "$comment": "Generated from server/internal/notify/notifiers: go test ./internal/notify/notifiers -update. Do not edit.",
   "eventTypes": [
-    "finding.opened",
-    "finding.reopened",
-    "finding.resolved",
-    "agent.stale",
-    "agent.recovered"
+    "alert.firing",
+    "alert.resolved"
   ],
   "types": [
     {

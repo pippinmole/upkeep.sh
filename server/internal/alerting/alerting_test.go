@@ -1,79 +1,20 @@
 package alerting
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
 )
 
-func ip(n int) *int { return &n }
-
-func TestMatch(t *testing.T) {
-	base := Rule{ID: "r", WorkspaceID: "u", EventTypes: []string{notify.EventFindingOpened, notify.EventAgentStale}}
-	opened := EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, HostIDs: []string{"h1"}, SeverityRank: ip(4)}
-	stale := EventMeta{WorkspaceID: "u", Type: notify.EventAgentStale, HostIDs: []string{"h1", "h2"}}
-
-	with := func(f func(*Rule)) Rule { r := base; f(&r); return r }
-	cases := []struct {
-		name string
-		rule Rule
-		ev   EventMeta
-		want bool
-	}{
-		{"type selected", base, opened, true},
-		{"type not selected", base, EventMeta{WorkspaceID: "u", Type: notify.EventFindingResolved, SeverityRank: ip(6)}, false},
-		{"other user", base, EventMeta{WorkspaceID: "v", Type: notify.EventFindingOpened, SeverityRank: ip(6)}, false},
-		{"severity floor met", with(func(r *Rule) { r.MinSeverityRank = 4 }), opened, true},
-		{"severity below floor", with(func(r *Rule) { r.MinSeverityRank = 5 }), opened, false},
-		{"severity unknown with floor", with(func(r *Rule) { r.MinSeverityRank = 1 }),
-			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened}, false},
-		{"kev only, not kev", with(func(r *Rule) { r.KEVOnly = true }), opened, false},
-		{"kev only, kev", with(func(r *Rule) { r.KEVOnly = true }),
-			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, KEV: true, SeverityRank: ip(6)}, true},
-		{"severity/kev don't apply to agent events", with(func(r *Rule) { r.MinSeverityRank = 6; r.KEVOnly = true }), stale, true},
-		{"host scope hit", with(func(r *Rule) { r.HostIDs = []string{"h1"} }), opened, true},
-		{"host scope miss", with(func(r *Rule) { r.HostIDs = []string{"h9"} }), opened, false},
-		{"host scope, agent with a selected host", with(func(r *Rule) { r.HostIDs = []string{"h2"} }), stale, true},
-		{"host scope, event without hosts", with(func(r *Rule) { r.HostIDs = []string{"h1"} }),
-			EventMeta{WorkspaceID: "u", Type: notify.EventAgentStale}, false},
-		{"empty (non-nil) scope matches nothing", with(func(r *Rule) { r.HostIDs = []string{} }), opened, false},
-		{"finding kind selected", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_image"} }),
-			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, true},
-		{"finding kind not selected", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_package"} }),
-			EventMeta{WorkspaceID: "u", Type: notify.EventFindingOpened, FindingKind: "vulnerable_image"}, false},
-		{"finding kind unknown on the event", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_package"} }),
-			opened, true},
-		{"finding kinds don't apply to agent events", with(func(r *Rule) { r.FindingKinds = []string{"vulnerable_image"} }),
-			stale, true},
+func TestSends(t *testing.T) {
+	r := Rule{NotifyOnResolve: false}
+	if !r.Sends(notify.EventAlertFiring) || r.Sends(notify.EventAlertResolved) {
+		t.Error("without notify_on_resolve")
 	}
-	for _, c := range cases {
-		if got := Match(c.rule, c.ev); got != c.want {
-			t.Errorf("%s: Match = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
-func TestDedup(t *testing.T) {
-	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	at := func(d time.Duration) *time.Time { t := now.Add(-d); return &t }
-	if Suppressed(nil, time.Hour, now) {
-		t.Error("never sent is suppressed")
-	}
-	if !Suppressed(at(30*time.Minute), time.Hour, now) {
-		t.Error("inside window not suppressed")
-	}
-	if Suppressed(at(time.Hour), time.Hour, now) || Suppressed(at(2*time.Hour), time.Hour, now) {
-		t.Error("window end is exclusive")
-	}
-	if Suppressed(at(time.Second), 0, now) {
-		t.Error("window 0 disables dedup")
-	}
-	a := EventMeta{Type: notify.EventFindingOpened, Subject: "finding:h:pkg:x:CVE-1"}
-	b := EventMeta{Type: notify.EventFindingResolved, Subject: a.Subject}
-	if DedupKey(a) == DedupKey(b) {
-		t.Error("opened and resolved of one finding must not dedup each other")
+	r.NotifyOnResolve = true
+	if !r.Sends(notify.EventAlertResolved) || r.Sends("finding.opened") {
+		t.Error("with notify_on_resolve")
 	}
 }
 
@@ -113,39 +54,32 @@ func TestChunk(t *testing.T) {
 
 func TestSummary(t *testing.T) {
 	h := &notify.Host{Hostname: "web-1"}
-	f := func(typ, sev string, kev bool, host *notify.Host) notify.Event {
-		return notify.Event{Type: typ, Host: host, Finding: &notify.Finding{VulnKey: "CVE-1", SourcePackage: "openssl", Severity: sev, KEV: kev}}
+	port := func(typ string, host *notify.Host) notify.Event {
+		return notify.Event{Type: typ, Host: host, Alert: &notify.Alert{Title: "Port 22/tcp is listening"}}
 	}
-	if s := Summary(notify.KindAlert, []notify.Event{f(notify.EventFindingOpened, "critical", true, h)}); s != "New finding CVE-1 in openssl on web-1 (critical, KEV)" {
-		t.Errorf("single: %q", s)
+	vuln := func(sev string, kev bool) notify.Event {
+		return notify.Event{Type: notify.EventAlertFiring, Host: h,
+			Alert:   &notify.Alert{Title: VulnTitle("CVE-1", "openssl", sev, kev, "")},
+			Finding: &notify.Finding{VulnKey: "CVE-1", Severity: sev, KEV: kev}}
 	}
-	s := Summary(notify.KindDigest, []notify.Event{
-		f(notify.EventFindingOpened, "critical", true, h),
-		f(notify.EventFindingOpened, "high", false, h),
-		f(notify.EventFindingResolved, "critical", true, h),
-	})
-	if s != "Digest: 2 new, 1 resolved findings on web-1 (1 critical, 1 KEV)" {
-		t.Errorf("digest: %q", s)
+	cases := []struct {
+		kind   string
+		events []notify.Event
+		want   string
+	}{
+		{notify.KindAlert, []notify.Event{port(notify.EventAlertFiring, h)}, "Port 22/tcp is listening on web-1"},
+		{notify.KindAlert, []notify.Event{port(notify.EventAlertResolved, h)}, "Resolved: Port 22/tcp is listening on web-1"},
+		{notify.KindAlert, []notify.Event{vuln("critical", true)}, "KEV CVE-1 in openssl on web-1"},
+		{notify.KindDigest, []notify.Event{vuln("critical", true), vuln("high", false), port(notify.EventAlertResolved, h)},
+			"Digest: 2 firing, 1 resolved alerts on web-1 (1 critical, 1 KEV)"},
+		{notify.KindAlert, []notify.Event{port(notify.EventAlertFiring, h), port(notify.EventAlertFiring, &notify.Host{Hostname: "db-1"})},
+			"2 firing alerts across 2 hosts"},
+		{notify.KindTest, nil, "Test notification from upkeep.sh"},
+		{notify.KindAlert, nil, "No events"},
 	}
-	s = Summary(notify.KindAlert, []notify.Event{
-		f(notify.EventFindingOpened, "low", false, h),
-		f(notify.EventFindingOpened, "low", false, &notify.Host{Hostname: "db-1"}),
-	})
-	if s != "2 new findings across 2 hosts" {
-		t.Errorf("multi-host: %q", s)
-	}
-	s = Summary(notify.KindAlert, []notify.Event{{Type: notify.EventAgentStale, Agent: &notify.Agent{Name: "a1"}}})
-	if s != `Agent "a1" stopped reporting` {
-		t.Errorf("agent: %q", s)
-	}
-	s = Summary(notify.KindAlert, []notify.Event{
-		{Type: notify.EventAgentStale, Agent: &notify.Agent{Name: "a1"}},
-		f(notify.EventFindingOpened, "low", false, h),
-	})
-	if !strings.HasPrefix(s, "1 new, 1 agent stale") || strings.Contains(s, "findings") {
-		t.Errorf("mixed: %q", s)
-	}
-	if Summary(notify.KindTest, nil) == "" {
-		t.Error("test summary")
+	for _, c := range cases {
+		if got := Summary(c.kind, c.events); got != c.want {
+			t.Errorf("got %q, want %q", got, c.want)
+		}
 	}
 }

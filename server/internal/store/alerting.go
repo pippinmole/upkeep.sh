@@ -1,8 +1,10 @@
 package store
 
-// Alerting storage (migration 0009): the alert_events outbox written by
-// transitions, rule evaluation, digests, and the delivery log. The rule
-// logic itself is in internal/alerting; channel types in internal/notify.
+// Alerting storage (migrations 0009, 0024): the alert_events outbox of
+// alert instance transitions (written by EvaluateAlertRules,
+// alertrules.go), notification dispatch, digests, and the delivery log.
+// The rule logic itself is in internal/alerting; channel types in
+// internal/notify.
 
 import (
 	"cmp"
@@ -22,130 +24,12 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/reports"
 )
 
-// alertingLock serializes evaluation and digest flushing (dedup state and
-// digest items are read-modify-write). pg_advisory_xact_lock key.
+// alertingLock serializes dispatch and digest flushing (digest items are
+// read-modify-write). pg_advisory_xact_lock key.
 const alertingLock = 0x75706b_616c7274 // "upk" "alrt"
 
 // ErrNotFound: the row is gone.
 var ErrNotFound = errors.New("not found")
-
-// hasRuleForSQL is true when the user aliased by userCol has an enabled
-// rule selecting the event type in typeCol: events nobody listens for are
-// never written.
-func hasRuleForSQL(userCol, typeCol string) string {
-	return fmt.Sprintf(`EXISTS (SELECT 1 FROM alert_rules r WHERE r.workspace_id = %s AND r.enabled AND %s = ANY (r.event_types))`, userCol, typeCol)
-}
-
-// insertFindingEvents writes finding.* events for the given transitions of
-// one host's findings, inside the reconcile transaction (the findings rows
-// are already written, so the payload is their new state). Archived hosts
-// (migration 0011, merged ones included) never alert.
-func insertFindingEvents(ctx context.Context, tx pgx.Tx, hostID string, keys, types []string, now time.Time) (int, error) {
-	if len(keys) == 0 {
-		return 0, nil
-	}
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO alert_events (workspace_id, type, subject, occurred_at, host_ids, severity_rank, is_kev, payload)
-		SELECT h.workspace_id, t.type, 'finding:' || f.host_id || ':' || f.dedup_key, $4, ARRAY[f.host_id],
-		       f.severity_rank, f.is_kev,
-		       jsonb_build_object(
-		         'host', jsonb_build_object('id', h.id, 'hostname', h.hostname, 'label', h.label),
-		         'finding', jsonb_build_object(
-		           'id', f.id, 'kind', f.kind, 'vuln_key', f.vuln_key, 'source_package', f.source_package,
-		           'packages', to_jsonb(f.packages), 'installed_version', f.installed_version,
-		           'fixed_version', f.fixed_version, 'fix_channel', f.fix_channel,
-		           'severity', f.severity, 'severity_rank', f.severity_rank, 'kev', f.is_kev,
-		           'epss', f.epss_score, 'status', f.status, 'first_seen_at', f.first_seen_at)
-		           || CASE WHEN f.image_id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
-		                'image_id', f.image_id, 'image_refs', to_jsonb(f.image_refs),
-		                'containers', to_jsonb(f.container_names)) END)
-		FROM unnest($2::text[], $3::text[]) AS t(dedup_key, type)
-		JOIN findings f ON f.host_id = $1 AND f.dedup_key = t.dedup_key
-		JOIN hosts h ON h.id = f.host_id
-		WHERE h.archived_at IS NULL AND `+hasRuleForSQL("h.workspace_id", "t.type"), hostID, keys, types, now)
-	if err != nil {
-		return 0, fmt.Errorf("insert finding alert events: %w", err)
-	}
-	return int(tag.RowsAffected()), nil
-}
-
-// AgentHealthResult reports one agent health pass.
-type AgentHealthResult struct {
-	Changed, Events int
-}
-
-// CheckAgentHealth compares every active (not revoked, ever seen) agent's
-// staleness with the state last recorded in agent_health and, on a change,
-// writes agent.stale / agent.recovered events. Stale uses the dashboard's
-// rule: silent for more than greatest(3*coalesce(push_interval_seconds,
-// 900), 120) seconds. First observations are recorded silently. Archived
-// hosts are left out of the events' host_ids and payload, so a
-// host-scoped rule doesn't match on them.
-func (s *Store) CheckAgentHealth(ctx context.Context, now time.Time) (AgentHealthResult, error) {
-	var res AgentHealthResult
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return res, err
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(alertingLock)+1); err != nil {
-		return res, err
-	}
-	staleSQL := staleAgentSQL("$1::timestamptz")
-	if _, err := tx.Exec(ctx, `
-		CREATE TEMP TABLE agent_health_cur ON COMMIT DROP AS
-		SELECT a.id, a.workspace_id, a.name, a.last_seen_at,
-		       CASE WHEN `+staleSQL+` THEN 'stale' ELSE 'online' END AS state
-		FROM agents a WHERE a.revoked_at IS NULL AND a.last_seen_at IS NOT NULL
-	`, now); err != nil {
-		return res, err
-	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM agent_health ah WHERE NOT EXISTS (SELECT 1 FROM agent_health_cur c WHERE c.id = ah.agent_id)
-	`); err != nil {
-		return res, err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO agent_health (agent_id, state, changed_at)
-		SELECT id, state, $1 FROM agent_health_cur ON CONFLICT (agent_id) DO NOTHING
-	`, now); err != nil {
-		return res, err
-	}
-	rows, err := tx.Query(ctx, `
-		UPDATE agent_health ah SET state = c.state, changed_at = $1
-		FROM agent_health_cur c WHERE c.id = ah.agent_id AND ah.state <> c.state
-		RETURNING c.id
-	`, now)
-	if err != nil {
-		return res, err
-	}
-	changed, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return res, err
-	}
-	res.Changed = len(changed)
-	if len(changed) > 0 {
-		tag, err := tx.Exec(ctx, `
-			INSERT INTO alert_events (workspace_id, type, subject, occurred_at, host_ids, payload)
-			SELECT c.workspace_id, e.type, 'agent:' || c.id, $2,
-			       COALESCE((SELECT array_agg(ah.host_id ORDER BY ah.host_id)
-			                 FROM agent_hosts ah JOIN hosts h ON h.id = ah.host_id
-			                 WHERE ah.agent_id = c.id AND h.archived_at IS NULL), '{}'),
-			       jsonb_build_object('agent', jsonb_build_object(
-			         'id', c.id, 'name', c.name, 'last_seen_at', c.last_seen_at,
-			         'hosts', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', h.id, 'hostname', h.hostname, 'label', h.label) ORDER BY h.hostname)
-			                            FROM agent_hosts ah JOIN hosts h ON h.id = ah.host_id
-			                            WHERE ah.agent_id = c.id AND h.archived_at IS NULL), '[]')))
-			FROM agent_health_cur c
-			CROSS JOIN LATERAL (SELECT CASE c.state WHEN 'stale' THEN 'agent.stale' ELSE 'agent.recovered' END AS type) e
-			WHERE c.id = ANY ($1::uuid[]) AND `+hasRuleForSQL("c.workspace_id", "e.type"), changed, now)
-		if err != nil {
-			return res, fmt.Errorf("insert agent alert events: %w", err)
-		}
-		res.Events = int(tag.RowsAffected())
-	}
-	return res, tx.Commit(ctx)
-}
 
 // EnqueueDeliveries is called inside the transaction that created
 // deliveries (River InsertTx), so a delivery job exists iff its row does.
@@ -160,7 +44,7 @@ type AlertOptions struct {
 
 // EvalResult reports an evaluation pass.
 type EvalResult struct {
-	Events, Matched, Suppressed, Digested, Notifications, Deliveries int
+	Events, Sent, Skipped, Digested, Notifications, Deliveries int
 }
 
 type ruleWithChannels struct {
@@ -170,49 +54,48 @@ type ruleWithChannels struct {
 
 type channelRef struct{ id, name, typ string }
 
-// loadRules loads the enabled rules of the given workspaces with their enabled
-// channels. Rules without an enabled channel are left out: nothing could
-// be sent, so they neither dedup nor collect digest items.
-func loadRules(ctx context.Context, tx pgx.Tx, workspaceIDs []string, ruleIDs []string) (map[string][]*ruleWithChannels, error) {
+// loadRules loads the given enabled rules with their enabled channels.
+// Rules without an enabled channel are left out: nothing could be sent,
+// so they collect no digest items either.
+func loadRules(ctx context.Context, tx pgx.Tx, ruleIDs []string) (map[string]*ruleWithChannels, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT r.id::text, r.workspace_id::text, r.name, r.event_types, r.min_severity_rank, r.kev_only,
-		       r.finding_kinds, r.host_ids::text[], r.dedup_window_seconds, r.digest, r.digest_interval_seconds,
+		SELECT r.id::text, r.workspace_id::text, r.name, r.notify_on_resolve, r.digest, r.digest_interval_seconds,
 		       r.last_digest_at, r.created_at,
 		       array_agg(c.id::text ORDER BY c.name), array_agg(c.name ORDER BY c.name), array_agg(c.type ORDER BY c.name)
 		FROM alert_rules r
 		JOIN alert_rule_channels rc ON rc.rule_id = r.id
 		JOIN notification_channels c ON c.id = rc.channel_id AND c.enabled
-		WHERE r.enabled AND (r.workspace_id = ANY ($1::uuid[]) OR r.id = ANY ($2::uuid[]))
+		WHERE r.enabled AND r.id = ANY ($1::uuid[])
 		GROUP BY r.id
-		ORDER BY r.created_at, r.id
-	`, workspaceIDs, ruleIDs)
+	`, ruleIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string][]*ruleWithChannels{}
+	out := map[string]*ruleWithChannels{}
 	for rows.Next() {
 		var (
 			r                  ruleWithChannels
-			dedup, interval    int
+			interval           int
 			cids, cnames, ctyp []string
 		)
-		if err := rows.Scan(&r.ID, &r.WorkspaceID, &r.Name, &r.EventTypes, &r.MinSeverityRank, &r.KEVOnly,
-			&r.FindingKinds, &r.HostIDs, &dedup, &r.Digest, &interval, &r.LastDigestAt, &r.CreatedAt, &cids, &cnames, &ctyp); err != nil {
+		if err := rows.Scan(&r.ID, &r.WorkspaceID, &r.Name, &r.NotifyOnResolve, &r.Digest, &interval,
+			&r.LastDigestAt, &r.CreatedAt, &cids, &cnames, &ctyp); err != nil {
 			return nil, err
 		}
-		r.DedupWindow = time.Duration(dedup) * time.Second
 		r.DigestInterval = time.Duration(interval) * time.Second
 		for i := range cids {
 			r.channels = append(r.channels, channelRef{cids[i], cnames[i], ctyp[i]})
 		}
-		out[r.WorkspaceID] = append(out[r.WorkspaceID], &r)
+		out[r.ID] = &r
 	}
 	return out, rows.Err()
 }
 
 type eventRow struct {
-	meta    alerting.EventMeta
+	id      int64
+	ruleID  string
+	typ     string
 	payload []byte
 	at      time.Time
 }
@@ -220,9 +103,9 @@ type eventRow struct {
 func (e eventRow) event(dashboardURL string) (notify.Event, error) {
 	var ev notify.Event
 	if err := json.Unmarshal(e.payload, &ev); err != nil {
-		return ev, fmt.Errorf("event %d payload: %w", e.meta.ID, err)
+		return ev, fmt.Errorf("event %d payload: %w", e.id, err)
 	}
-	ev.ID, ev.Type, ev.OccurredAt = e.meta.ID, e.meta.Type, e.at.UTC()
+	ev.ID, ev.Type, ev.OccurredAt = e.id, e.typ, e.at.UTC()
 	ev.URL = eventURL(dashboardURL, ev)
 	return ev, nil
 }
@@ -240,8 +123,9 @@ func eventURL(base string, ev notify.Event) string {
 		return ImageFindingURL(base, ev.Finding.ImageID, ev.Host.ID, ev.Finding.VulnKey)
 	case ev.Finding != nil && ev.Host != nil:
 		return base + "/dashboard/hosts/" + url.PathEscape(ev.Host.ID) + "/vulnerabilities?v=" + url.QueryEscape(ev.Finding.VulnKey)
-	case ev.Agent != nil:
-		return base + "/dashboard/agents"
+	case ev.Host != nil:
+		// The alerts list filtered to the host (web/src/lib/alerts-table.ts).
+		return base + "/dashboard/alerts?host=" + url.QueryEscape(ev.Host.ID)
 	}
 	return ""
 }
@@ -258,17 +142,20 @@ func ImageFindingURL(base, imageID, hostID, vulnKey string) string {
 	return strings.TrimRight(base, "/") + "/dashboard/images/-/" + url.PathEscape(imageID) + "?" + q.Encode()
 }
 
-// EvaluateAlerts drains the alert_events outbox: every pending event is
-// matched against its user's enabled rules; matches that aren't dedup-
-// suppressed become an immediate notification (batched per rule per pass)
-// or a digest item. Events are marked processed in the same transaction.
+// EvaluateAlerts drains the alert_events outbox: every pending event
+// (an alert instance transition, written by EvaluateAlertRules) is sent
+// through its rule, if the rule is still enabled, has an enabled channel
+// and sends that type: as an immediate notification (batched per rule per
+// pass) or a digest item. Events are marked processed in the same
+// transaction. Dedup is the instance state machine: an event exists only
+// for a transition.
 func (s *Store) EvaluateAlerts(ctx context.Context, now time.Time, opt AlertOptions) (EvalResult, error) {
 	var total EvalResult
 	for {
 		res, n, err := s.evaluateBatch(ctx, now, opt, 500)
 		total.Events += res.Events
-		total.Matched += res.Matched
-		total.Suppressed += res.Suppressed
+		total.Sent += res.Sent
+		total.Skipped += res.Skipped
 		total.Digested += res.Digested
 		total.Notifications += res.Notifications
 		total.Deliveries += res.Deliveries
@@ -289,124 +176,57 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 		return res, 0, err
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id, workspace_id::text, type, subject, host_ids::text[], severity_rank, is_kev,
-		       coalesce(payload->'finding'->>'kind', ''), payload, occurred_at
+		SELECT id, rule_id::text, type, payload, occurred_at
 		FROM alert_events WHERE processed_at IS NULL ORDER BY id LIMIT $1
 	`, limit)
 	if err != nil {
 		return res, 0, err
 	}
-	var events []eventRow
-	workspaces := map[string]bool{}
-	for rows.Next() {
+	events, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (eventRow, error) {
 		var e eventRow
-		if err := rows.Scan(&e.meta.ID, &e.meta.WorkspaceID, &e.meta.Type, &e.meta.Subject, &e.meta.HostIDs,
-			&e.meta.SeverityRank, &e.meta.KEV, &e.meta.FindingKind, &e.payload, &e.at); err != nil {
-			rows.Close()
-			return res, 0, err
-		}
-		events = append(events, e)
-		workspaces[e.meta.WorkspaceID] = true
-	}
-	if err := rows.Err(); err != nil {
+		err := r.Scan(&e.id, &e.ruleID, &e.typ, &e.payload, &e.at)
+		return e, err
+	})
+	if err != nil {
 		return res, 0, err
 	}
 	res.Events = len(events)
 	if len(events) == 0 {
 		return res, 0, nil
 	}
-	workspaceIDs := make([]string, 0, len(workspaces))
-	for u := range workspaces {
-		workspaceIDs = append(workspaceIDs, u)
+	ruleIDs := make([]string, 0, len(events))
+	for _, e := range events {
+		if !slices.Contains(ruleIDs, e.ruleID) {
+			ruleIDs = append(ruleIDs, e.ruleID)
+		}
 	}
-	rules, err := loadRules(ctx, tx, workspaceIDs, nil)
+	rules, err := loadRules(ctx, tx, ruleIDs)
 	if err != nil {
 		return res, 0, err
 	}
 
-	// Candidate (rule, event) matches, then dedup against stored state.
-	type match struct {
-		rule *ruleWithChannels
-		ev   eventRow
-		key  string
-	}
-	var matches []match
-	var mRules, mKeys []string
-	for _, e := range events {
-		for _, r := range rules[e.meta.WorkspaceID] {
-			if alerting.Match(r.Rule, e.meta) {
-				k := alerting.DedupKey(e.meta)
-				matches = append(matches, match{r, e, k})
-				mRules, mKeys = append(mRules, r.ID), append(mKeys, k)
-			}
-		}
-	}
-	res.Matched = len(matches)
-	lastSent := map[[2]string]time.Time{}
-	if len(matches) > 0 {
-		rows, err := tx.Query(ctx, `
-			SELECT d.rule_id::text, d.dedup_key, d.last_sent_at
-			FROM alert_dedup d JOIN unnest($1::uuid[], $2::text[]) AS m(rule_id, key)
-			  ON d.rule_id = m.rule_id AND d.dedup_key = m.key
-		`, mRules, mKeys)
-		if err != nil {
-			return res, 0, err
-		}
-		for rows.Next() {
-			var r, k string
-			var t time.Time
-			if err := rows.Scan(&r, &k, &t); err != nil {
-				rows.Close()
-				return res, 0, err
-			}
-			lastSent[[2]string{r, k}] = t
-		}
-		if err := rows.Err(); err != nil {
-			return res, 0, err
-		}
-	}
-
-	var sentRules, sentKeys []string
 	var digestRules []string
 	var digestEvents []int64
 	immediate := map[string][]eventRow{}
 	var order []*ruleWithChannels
-	for _, m := range matches {
-		dk := [2]string{m.rule.ID, m.key}
-		var last *time.Time
-		if t, ok := lastSent[dk]; ok {
-			last = &t
-		}
-		if alerting.Suppressed(last, m.rule.DedupWindow, now) {
-			res.Suppressed++
+	for _, e := range events {
+		r := rules[e.ruleID]
+		if r == nil || !r.Sends(e.typ) {
+			res.Skipped++ // disabled, no channel left, or resolutions off since
 			continue
 		}
-		// Recording now also dedups repeats within this batch. Without a
-		// window nothing is recorded (and a key may repeat in the batch).
-		if m.rule.DedupWindow > 0 {
-			lastSent[dk] = now
-			sentRules, sentKeys = append(sentRules, m.rule.ID), append(sentKeys, m.key)
-		}
-		if m.rule.Digest {
-			digestRules, digestEvents = append(digestRules, m.rule.ID), append(digestEvents, m.ev.meta.ID)
+		res.Sent++
+		if r.Digest {
+			digestRules, digestEvents = append(digestRules, r.ID), append(digestEvents, e.id)
 			res.Digested++
 			continue
 		}
-		if _, seen := immediate[m.rule.ID]; !seen {
-			order = append(order, m.rule)
+		if _, seen := immediate[r.ID]; !seen {
+			order = append(order, r)
 		}
-		immediate[m.rule.ID] = append(immediate[m.rule.ID], m.ev)
+		immediate[r.ID] = append(immediate[r.ID], e)
 	}
 
-	if len(sentRules) > 0 {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO alert_dedup (rule_id, dedup_key, last_sent_at)
-			SELECT rule_id, key, $3 FROM unnest($1::uuid[], $2::text[]) AS m(rule_id, key)
-			ON CONFLICT (rule_id, dedup_key) DO UPDATE SET last_sent_at = EXCLUDED.last_sent_at
-		`, sentRules, sentKeys, now); err != nil {
-			return res, 0, err
-		}
-	}
 	if len(digestRules) > 0 {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO alert_digest_items (rule_id, event_id)
@@ -428,7 +248,7 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 
 	ids := make([]int64, len(events))
 	for i, e := range events {
-		ids[i] = e.meta.ID
+		ids[i] = e.id
 	}
 	if _, err := tx.Exec(ctx, `UPDATE alert_events SET processed_at = $2 WHERE id = ANY ($1)`, ids, now); err != nil {
 		return res, 0, err
@@ -515,15 +335,9 @@ func (s *Store) FlushDigests(ctx context.Context, now time.Time, opt AlertOption
 	if err != nil || len(ruleIDs) == 0 {
 		return res, err
 	}
-	rules, err := loadRules(ctx, tx, nil, ruleIDs)
+	live, err := loadRules(ctx, tx, ruleIDs)
 	if err != nil {
 		return res, err
-	}
-	live := map[string]*ruleWithChannels{}
-	for _, rs := range rules {
-		for _, r := range rs {
-			live[r.ID] = r
-		}
 	}
 	var deliveries []string
 	var drop []string
@@ -539,15 +353,14 @@ func (s *Store) FlushDigests(ctx context.Context, now time.Time, opt AlertOption
 		rows, err := tx.Query(ctx, `
 			DELETE FROM alert_digest_items i USING alert_events e
 			WHERE i.rule_id = $1 AND e.id = i.event_id
-			RETURNING e.id, e.workspace_id::text, e.type, e.subject, e.host_ids::text[], e.severity_rank, e.is_kev, e.payload, e.occurred_at
+			RETURNING e.id, e.rule_id::text, e.type, e.payload, e.occurred_at
 		`, id)
 		if err != nil {
 			return res, err
 		}
 		evs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (eventRow, error) {
 			var e eventRow
-			err := row.Scan(&e.meta.ID, &e.meta.WorkspaceID, &e.meta.Type, &e.meta.Subject, &e.meta.HostIDs,
-				&e.meta.SeverityRank, &e.meta.KEV, &e.payload, &e.at)
+			err := row.Scan(&e.id, &e.ruleID, &e.typ, &e.payload, &e.at)
 			return e, err
 		})
 		if err != nil {
@@ -556,7 +369,7 @@ func (s *Store) FlushDigests(ctx context.Context, now time.Time, opt AlertOption
 		if len(evs) == 0 {
 			continue
 		}
-		slices.SortFunc(evs, func(a, b eventRow) int { return cmp.Compare(a.meta.ID, b.meta.ID) })
+		slices.SortFunc(evs, func(a, b eventRow) int { return cmp.Compare(a.id, b.id) })
 		kind := notify.KindDigest
 		if !r.Digest {
 			kind = notify.KindAlert
@@ -754,13 +567,12 @@ func utf8RuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
 // PruneResult reports an alerting cleanup.
 type PruneResult struct {
-	Events, Notifications, Dedup, Reports int64
+	Events, Notifications, Instances, Reports int64
 }
 
 // PruneAlerting deletes processed events older than eventAge (unless a
 // digest still holds them), notifications (with their deliveries and
-// attempts) older than logAge, dedup marks older than the longest
-// possible window, and reports older than reportAge except each
+// attempts) and resolved alert instances older than logAge, and reports older than reportAge except each
 // schedule's latest (the next run compares against it, and the dashboard
 // keeps something to show for a schedule that stopped running). A pruned
 // report's notifications.report_id and the next report's
@@ -779,10 +591,11 @@ func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logA
 		return res, err
 	}
 	res.Notifications = tag.RowsAffected()
-	if tag, err = s.Pool.Exec(ctx, `DELETE FROM alert_dedup WHERE last_sent_at < $1`, now.Add(-8*24*time.Hour)); err != nil {
+	// Alert history: resolved instances, on the delivery log's retention.
+	if tag, err = s.Pool.Exec(ctx, `DELETE FROM alert_instances WHERE state = 'resolved' AND resolved_at < $1`, now.Add(-logAge)); err != nil {
 		return res, err
 	}
-	res.Dedup = tag.RowsAffected()
+	res.Instances = tag.RowsAffected()
 	// "Latest" is LatestReport's order (generated_at, then id), so exactly
 	// one report per schedule survives however old it is.
 	if tag, err = s.Pool.Exec(ctx, `

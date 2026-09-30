@@ -239,17 +239,16 @@ func renderReport(topic string, n notify.Notification) Message {
 
 // eventPriority maps one event to an ntfy priority:
 //
-//	finding opened/reopened: KEV or critical -> 5 urgent, high -> 4,
-//	                         medium -> 3, anything lower/unknown -> 2
-//	finding resolved:        2 low
-//	agent stale:             4 high (monitoring has stopped)
-//	agent recovered:         2 low
+//	resolved:                          2 low
+//	firing, vulnerability rule:        KEV or critical -> 5 urgent, high -> 4,
+//	                                   medium -> 3, anything lower/unknown -> 2
+//	firing, host not seen:             4 high (monitoring has stopped)
+//	firing, any other property:        3 default
 func eventPriority(e notify.Event) int {
-	switch e.Type {
-	case notify.EventFindingOpened, notify.EventFindingReopened:
-		if e.Finding == nil {
-			return PriorityDefault
-		}
+	switch {
+	case e.Type == notify.EventAlertResolved:
+		return PriorityLow
+	case e.Finding != nil:
 		if render.IsKEVOrCritical(e.Finding) {
 			return PriorityUrgent
 		}
@@ -260,9 +259,7 @@ func eventPriority(e notify.Event) int {
 			return PriorityDefault
 		}
 		return PriorityLow
-	case notify.EventFindingResolved, notify.EventAgentRecovered:
-		return PriorityLow
-	case notify.EventAgentStale:
+	case e.Alert != nil && e.Alert.Property == "host_not_seen":
 		return PriorityHigh
 	}
 	return PriorityDefault
@@ -272,20 +269,19 @@ func eventPriority(e notify.Event) int {
 // as that emoji before the title.
 func eventTags(e notify.Event) []string {
 	var tags []string
-	switch e.Type {
-	case notify.EventFindingOpened, notify.EventFindingReopened:
-		switch {
-		case e.Finding != nil && render.IsKEVOrCritical(e.Finding):
-			tags = append(tags, "rotating_light")
-		case e.Finding != nil && strings.EqualFold(e.Finding.Severity, "high"):
-			tags = append(tags, "warning")
-		default:
-			tags = append(tags, "mag")
-		}
-	case notify.EventFindingResolved, notify.EventAgentRecovered:
+	switch {
+	case e.Type == notify.EventAlertResolved:
 		tags = append(tags, "white_check_mark")
-	case notify.EventAgentStale:
+	case e.Finding != nil && render.IsKEVOrCritical(e.Finding):
+		tags = append(tags, "rotating_light")
+	case e.Finding != nil && strings.EqualFold(e.Finding.Severity, "high"):
+		tags = append(tags, "warning")
+	case e.Finding != nil:
+		tags = append(tags, "mag")
+	case e.Alert != nil && e.Alert.Property == "host_not_seen":
 		tags = append(tags, "electric_plug")
+	default:
+		tags = append(tags, "bell")
 	}
 	if e.Finding != nil {
 		if e.Finding.KEV {

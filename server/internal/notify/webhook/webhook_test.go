@@ -69,8 +69,10 @@ func sample() notify.Notification {
 	return notify.Notification{
 		Version: notify.PayloadVersion, ID: "n-1", DeliveryID: "d-1", Kind: notify.KindAlert,
 		CreatedAt: time.Unix(1700000000, 0).UTC(), Rule: &notify.RuleRef{ID: "r-1", Name: "Critical"},
-		Summary: "New finding",
-		Events: []notify.Event{{ID: 7, Type: notify.EventFindingOpened, Host: &notify.Host{ID: "h", Hostname: "web-1"},
+		Summary: "KEV CVE-2024-1 on web-1",
+		Events: []notify.Event{{ID: 7, Type: notify.EventAlertFiring, Host: &notify.Host{ID: "h", Hostname: "web-1"},
+			Alert: &notify.Alert{ID: "a", Property: "vulnerability", Subject: "pkg:x:CVE-2024-1", Title: "KEV CVE-2024-1",
+				State: "firing", FiredAt: time.Unix(1700000000, 0).UTC()},
 			Finding: &notify.Finding{ID: "f", VulnKey: "CVE-2024-1", Severity: sev, SeverityRank: 6, KEV: true}}},
 	}
 }
@@ -111,7 +113,7 @@ func TestSendSignsAndPosts(t *testing.T) {
 	if err := json.Unmarshal(got.body, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Version != 1 || decoded.Events[0].Finding.VulnKey != "CVE-2024-1" || decoded.Rule.Name != "Critical" {
+	if decoded.Version != notify.PayloadVersion || decoded.Events[0].Finding.VulnKey != "CVE-2024-1" || decoded.Rule.Name != "Critical" {
 		t.Fatalf("payload %s", got.body)
 	}
 }

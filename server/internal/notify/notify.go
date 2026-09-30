@@ -38,6 +38,7 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -189,12 +190,12 @@ func (r *Registry) Specs() []Spec {
 // ---- The notification model (the webhook payload; see docs/WEBHOOKS.md) ----
 
 // PayloadVersion is Notification.Version; bump it on breaking changes.
-const PayloadVersion = 1
+const PayloadVersion = 2
 
 // Notification kinds.
 const (
-	KindAlert  = "alert"  // immediate: one evaluation pass's matches for a rule
-	KindDigest = "digest" // a rule's matches over its digest interval
+	KindAlert  = "alert"  // immediate: one evaluation pass's transitions for a rule
+	KindDigest = "digest" // a rule's transitions over its digest interval
 	KindTest   = "test"   // "send test" from the dashboard
 	KindReport = "report" // a scheduled estate report (Report is set)
 )
@@ -233,45 +234,48 @@ type RuleRef struct {
 	Name string `json:"name"`
 }
 
-// Event types.
+// Event types: an alert instance started or stopped firing
+// (docs/ALERTING.md). Resolutions are only sent for rules with
+// notify_on_resolve, and only when the condition cleared.
 const (
-	EventFindingOpened   = "finding.opened"
-	EventFindingReopened = "finding.reopened"
-	EventFindingResolved = "finding.resolved"
-	EventAgentStale      = "agent.stale"
-	EventAgentRecovered  = "agent.recovered"
+	EventAlertFiring   = "alert.firing"
+	EventAlertResolved = "alert.resolved"
 )
 
-// EventTypes lists the event types rules can select, in display order.
-var EventTypes = []string{
-	EventFindingOpened, EventFindingReopened, EventFindingResolved,
-	EventAgentStale, EventAgentRecovered,
-}
+// EventTypes lists the event types, in display order.
+var EventTypes = []string{EventAlertFiring, EventAlertResolved}
 
-// Event is one thing that happened. Exactly the objects relevant to its
-// type are set; new event families (e.g. port exposure) add a new optional
-// object rather than changing existing ones.
+// Event is one alert transition. Alert and Host are always set; Finding
+// is set for vulnerability rules. New properties add detail through
+// Alert.Details (or a new optional object) rather than changing these.
 type Event struct {
 	ID         int64     `json:"id"`
 	Type       string    `json:"type"`
 	OccurredAt time.Time `json:"occurred_at"`
+	Alert      *Alert    `json:"alert,omitempty"`
 	Host       *Host     `json:"host,omitempty"`
-	Agent      *Agent    `json:"agent,omitempty"`
 	Finding    *Finding  `json:"finding,omitempty"`
 	URL        string    `json:"url,omitempty"` // dashboard link, when SW_DASHBOARD_URL is set
+}
+
+// Alert is the alert instance an event is about (alert_instances).
+type Alert struct {
+	ID       string `json:"id"`
+	Property string `json:"property"` // catalogue key, e.g. "listening_port"
+	// Subject is what the alert is about within its host ("tcp/22",
+	// "openssl", a finding key, a collector); "" for host-level properties.
+	Subject    string          `json:"subject,omitempty"`
+	Title      string          `json:"title"` // e.g. "Port 22/tcp is listening"
+	State      string          `json:"state"` // "firing" | "resolved"
+	FiredAt    time.Time       `json:"fired_at"`
+	ResolvedAt *time.Time      `json:"resolved_at,omitempty"`
+	Details    json.RawMessage `json:"details,omitempty"`
 }
 
 type Host struct {
 	ID       string  `json:"id"`
 	Hostname string  `json:"hostname"`
 	Label    *string `json:"label,omitempty"`
-}
-
-type Agent struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	LastSeenAt *time.Time `json:"last_seen_at"`
-	Hosts      []Host     `json:"hosts,omitempty"`
 }
 
 type Finding struct {

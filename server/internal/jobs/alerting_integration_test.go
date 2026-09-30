@@ -2,9 +2,10 @@ package jobs
 
 // Alerting integration tests against a real, fully migrated Postgres;
 // skipped unless SW_TEST_DATABASE_URL is set. Every test in this file
-// evaluates the global alert_events outbox, so they are sequential (no
+// drains the global alert_events outbox, so they are sequential (no
 // t.Parallel) and live in one package; other packages' tests write no
-// alert events (their users have no rules).
+// alert events (their workspaces' only rule is the seeded default, which has
+// no channels).
 //
 // Use a database of your own: TestAlertPipelineEndToEnd starts a River
 // client that works every queued job.
@@ -22,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,8 +32,8 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/pippinmole/upkeep.sh/server/internal/alerting"
 	"github.com/pippinmole/upkeep.sh/server/internal/feeds"
-	"github.com/pippinmole/upkeep.sh/server/internal/findings"
 	"github.com/pippinmole/upkeep.sh/server/internal/inventory"
 	"github.com/pippinmole/upkeep.sh/server/internal/netguard"
 	"github.com/pippinmole/upkeep.sh/server/internal/notify"
@@ -108,6 +110,16 @@ func newAlertFixture(t *testing.T) *alertFixture {
 	if f.hostID, err = s.CreateHost(ctx, f.workspaceID, "web-"+f.tag); err != nil {
 		t.Fatal(err)
 	}
+	// Migration 0024 seeds the SSH default for every new workspace; tests set
+	// up their own rules.
+	var seeded int
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM alert_rules WHERE workspace_id = $1 AND default_key = 'ssh_port_22'`,
+		f.workspaceID).Scan(&seeded); err != nil || seeded != 1 {
+		t.Fatalf("default rule not seeded: %d %v", seeded, err)
+	}
+	if _, err := s.Pool.Exec(ctx, `DELETE FROM alert_rules WHERE workspace_id = $1`, f.workspaceID); err != nil {
+		t.Fatal(err)
+	}
 	// Anything still pending in the outbox belongs to an earlier, aborted
 	// run: mark it processed so it can't leak into this test's counts.
 	_, _ = s.Pool.Exec(ctx, `UPDATE alert_events SET processed_at = now() WHERE processed_at IS NULL`)
@@ -145,16 +157,15 @@ func (f *alertFixture) channel(name, typ string, config, secrets map[string]stri
 }
 
 type ruleOpts struct {
-	types       []string
-	minSeverity int
-	kevOnly     bool
-	hostIDs     []string
-	dedup       time.Duration
-	digest      time.Duration // > 0: digest mode
-	createdAt   time.Time
+	hostIDs   []string
+	noResolve bool          // notify_on_resolve off
+	digest    time.Duration // > 0: digest mode
+	createdAt time.Time
 }
 
-func (f *alertFixture) rule(name string, o ruleOpts, channels ...string) string {
+// rule inserts an alert rule the way the dashboard does (condition JSON,
+// host scope, channels).
+func (f *alertFixture) rule(name, condition string, o ruleOpts, channels ...string) string {
 	f.t.Helper()
 	if o.createdAt.IsZero() {
 		o.createdAt = time.Now()
@@ -165,26 +176,15 @@ func (f *alertFixture) rule(name string, o ruleOpts, channels ...string) string 
 	}
 	var id string
 	if err := f.s.Pool.QueryRow(context.Background(), `
-		INSERT INTO alert_rules (workspace_id, name, event_types, min_severity_rank, kev_only, host_ids,
-		                         dedup_window_seconds, digest, digest_interval_seconds, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
-	`, f.workspaceID, name, o.types, o.minSeverity, o.kevOnly, o.hostIDs, int(o.dedup.Seconds()),
-		o.digest > 0, interval, o.createdAt).Scan(&id); err != nil {
+		INSERT INTO alert_rules (workspace_id, name, condition, host_ids, notify_on_resolve, digest, digest_interval_seconds, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
+	`, f.workspaceID, name, condition, o.hostIDs, !o.noResolve, o.digest > 0, interval, o.createdAt).Scan(&id); err != nil {
 		f.t.Fatal(err)
 	}
 	for _, c := range channels {
 		f.exec(`INSERT INTO alert_rule_channels (rule_id, channel_id, workspace_id) VALUES ($1, $2, $3)`, id, c, f.workspaceID)
 	}
 	return id
-}
-
-// event inserts an alert_events row for the fixture's user directly.
-func (f *alertFixture) event(typ, subject string, sevRank *int, kev bool, at time.Time) {
-	f.t.Helper()
-	payload := fmt.Sprintf(`{"host":{"id":%q,"hostname":"web"},"finding":{"id":"00000000-0000-0000-0000-000000000000","kind":"vulnerable_package","vuln_key":%q,"severity":"high","severity_rank":5,"kev":%v,"status":"open"}}`,
-		f.hostID, subject, kev)
-	f.exec(`INSERT INTO alert_events (workspace_id, type, subject, occurred_at, host_ids, severity_rank, is_kev, payload)
-	        VALUES ($1, $2, $3, $4, ARRAY[$5::uuid], $6, $7, $8)`, f.workspaceID, typ, subject, at, f.hostID, sevRank, kev, payload)
 }
 
 func (f *alertFixture) count(q string, args ...any) int {
@@ -196,7 +196,476 @@ func (f *alertFixture) count(q string, args ...any) int {
 	return n
 }
 
-// ---- End to end: reconcile transition -> outbox -> rule -> signed webhook ----
+func (f *alertFixture) host(name string) string {
+	f.t.Helper()
+	id, err := f.s.CreateHost(context.Background(), f.workspaceID, name+"-"+f.tag)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return id
+}
+
+// listen opens a host_listeners range (as ingest would).
+func (f *alertFixture) listen(host, transport, addr string, port int, proc string) {
+	f.t.Helper()
+	proto := transport
+	if strings.Contains(addr, ":") {
+		proto += "6"
+	}
+	f.exec(`INSERT INTO host_listeners (host_id, transport, proto, local_addr, port, process_name, row_key, row_hash, first_seen_at)
+	        VALUES ($1, $2, $3, $4, $5::int, NULLIF($6, ''), $3 || ' ' || $4 || ':' || $5::int, 'h', now() - interval '1 hour')`,
+		host, transport, proto, addr, port, proc)
+}
+
+// unlisten closes a host's open listener ranges on a port.
+func (f *alertFixture) unlisten(host string, port int) {
+	f.t.Helper()
+	f.exec(`UPDATE host_listeners SET removed_at = now() WHERE host_id = $1 AND port = $2 AND removed_at IS NULL`, host, port)
+}
+
+func (f *alertFixture) evaluate(hostID string) store.RuleEvalResult {
+	f.t.Helper()
+	res, err := f.s.EvaluateAlertRules(context.Background(), time.Now().UTC(), hostID, nil)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return res
+}
+
+type inst struct {
+	Host, Subject, State, Reason, Title string
+	Details                             map[string]any
+}
+
+// instances lists a rule's alert instances, oldest first.
+func (f *alertFixture) instances(ruleID string) []inst {
+	f.t.Helper()
+	rows, err := f.s.Pool.Query(context.Background(), `
+		SELECT host_id::text, subject, state, COALESCE(resolved_reason, ''), title, details
+		FROM alert_instances WHERE rule_id = $1 ORDER BY fired_at, host_id, subject`, ruleID)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (inst, error) {
+		var i inst
+		err := r.Scan(&i.Host, &i.Subject, &i.State, &i.Reason, &i.Title, &i.Details)
+		return i, err
+	})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return out
+}
+
+func (f *alertFixture) firing(ruleID string) []inst {
+	var out []inst
+	for _, i := range f.instances(ruleID) {
+		if i.State == "firing" {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func (f *alertFixture) events(ruleID, typ string) int {
+	return f.count(`SELECT count(*) FROM alert_events WHERE rule_id = $1 AND type = $2`, ruleID, typ)
+}
+
+const sshRule = `{"property":"listening_port","operator":"in","value":[22],"options":{"bind":"non_loopback","protocol":"tcp"}}`
+
+// ---- Default rules ----
+
+// Every new workspace gets the SSH default (migration 0024's trigger), and
+// every catalogue property has an evaluator.
+func TestDefaultRuleSeeded(t *testing.T) {
+	f := newAlertFixture(t) // asserts the seeded rule, then removes it
+	f.exec(`INSERT INTO workspaces (name) VALUES ($1)`, "seed-"+f.tag+"@test.invalid")
+	var cond []byte
+	var name string
+	var channels int
+	if err := f.s.Pool.QueryRow(context.Background(), `
+		SELECT r.name, r.condition, (SELECT count(*) FROM alert_rule_channels c WHERE c.rule_id = r.id)
+		FROM alert_rules r JOIN workspaces w ON w.id = r.workspace_id
+		WHERE w.name = $1 AND r.default_key = 'ssh_port_22' AND r.enabled AND r.host_ids IS NULL`,
+		"seed-"+f.tag+"@test.invalid").Scan(&name, &cond, &channels); err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`DELETE FROM workspaces WHERE name = $1`, "seed-"+f.tag+"@test.invalid")
+	c, err := alerting.ParseCondition(cond)
+	if err != nil || c.Property != alerting.PropListeningPort || c.Ints()[0] != 22 || channels != 0 {
+		t.Fatalf("seeded rule %q %s: %v", name, cond, err)
+	}
+	// Seeding again is a no-op.
+	f.exec(`SELECT seed_default_alert_rules($1)`, f.workspaceID)
+	f.exec(`SELECT seed_default_alert_rules($1)`, f.workspaceID)
+	if n := f.count(`SELECT count(*) FROM alert_rules WHERE workspace_id = $1`, f.workspaceID); n != 1 {
+		t.Fatalf("%d rules after seeding twice", n)
+	}
+}
+
+// ---- listening_port, state machine and dedup ----
+
+func TestListeningPortRule(t *testing.T) {
+	f := newAlertFixture(t)
+	ctx := context.Background()
+	h := f.hostID
+	f.listen(h, "tcp", "0.0.0.0", 22, "sshd")
+	f.listen(h, "tcp", "::", 22, "sshd")
+	f.listen(h, "tcp", "127.0.0.1", 5432, "postgres")
+	f.listen(h, "udp", "0.0.0.0", 53, "")
+	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
+	ssh := f.rule("ssh", sshRule, ruleOpts{}, ch)
+	allow := f.rule("allowlist", `{"property":"listening_port","operator":"not_in","value":[22],"options":{"protocol":"any"}}`, ruleOpts{})
+	loop := f.rule("loopback db", `{"property":"listening_port","operator":"in","value":[5432],"options":{"bind":"loopback"}}`, ruleOpts{})
+	wild := f.rule("wildcard db", `{"property":"listening_port","operator":"in","value":[5432],"options":{"bind":"all_interfaces"}}`, ruleOpts{})
+
+	res := f.evaluate(h)
+	if res.Fired != 3 || res.Events != 1 {
+		t.Fatalf("first pass: %+v", res)
+	}
+	got := f.firing(ssh)
+	if len(got) != 1 || got[0].Subject != "tcp/22" || got[0].Title != "Port 22/tcp is listening" ||
+		fmt.Sprint(got[0].Details["addresses"]) != "[0.0.0.0 ::]" || fmt.Sprint(got[0].Details["processes"]) != "[sshd]" {
+		t.Fatalf("ssh: %+v", got)
+	}
+	if got := f.firing(allow); len(got) != 1 || got[0].Subject != "udp/53" || got[0].Title != "Port 53/udp is listening (not allowed)" {
+		t.Fatalf("allowlist (loopback 5432 isn't counted): %+v", got)
+	}
+	if len(f.firing(loop)) != 1 || len(f.firing(wild)) != 0 {
+		t.Fatal("bind options")
+	}
+	if f.events(allow, notify.EventAlertFiring) != 0 {
+		t.Fatal("a rule without channels wrote events")
+	}
+
+	// Every later snapshot: nothing new (the state machine is the dedup).
+	for range 3 {
+		if res := f.evaluate(h); res.Fired+res.Resolved+res.Events+res.Refreshed != 0 {
+			t.Fatalf("repeat pass: %+v", res)
+		}
+	}
+
+	var enqueued []string
+	opt := store.AlertOptions{DashboardURL: "https://upkeep.example", Enqueue: func(_ context.Context, _ pgx.Tx, ids []string) error {
+		enqueued = append(enqueued, ids...)
+		return nil
+	}}
+	r, err := f.s.EvaluateAlerts(ctx, time.Now(), opt)
+	if err != nil || r.Events != 1 || r.Sent != 1 || r.Notifications != 1 || len(enqueued) != 1 {
+		t.Fatalf("dispatch: %+v %v", r, err)
+	}
+	var payload []byte
+	if err := f.s.Pool.QueryRow(ctx, `SELECT payload FROM notifications WHERE rule_id = $1`, ssh).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var n notify.Notification
+	_ = json.Unmarshal(payload, &n)
+	if len(n.Events) != 1 || n.Version != notify.PayloadVersion || n.Summary != "Port 22/tcp is listening on web-"+f.tag {
+		t.Fatalf("notification: %s", payload)
+	}
+	ev := n.Events[0]
+	if ev.Type != notify.EventAlertFiring || ev.Alert == nil || ev.Alert.Property != "listening_port" || ev.Alert.Subject != "tcp/22" ||
+		ev.Alert.State != "firing" || ev.Host == nil || ev.Host.ID != h || ev.URL != "https://upkeep.example/dashboard/alerts?host="+h {
+		t.Fatalf("event: %s", payload)
+	}
+
+	// A new address on the same port refreshes the alert, no event.
+	f.listen(h, "tcp", "10.0.0.5", 22, "sshd")
+	if res := f.evaluate(h); res.Refreshed != 1 || res.Events != 0 {
+		t.Fatalf("refresh: %+v", res)
+	}
+	// sshd stops: resolved (cleared), with a resolved event.
+	f.unlisten(h, 22)
+	if res := f.evaluate(h); res.Resolved != 1 || res.Events != 1 {
+		t.Fatalf("resolve: %+v", res)
+	}
+	if all := f.instances(ssh); len(all) != 1 || all[0].State != "resolved" || all[0].Reason != "cleared" {
+		t.Fatalf("after resolve: %+v", all)
+	}
+	r, _ = f.s.EvaluateAlerts(ctx, time.Now(), opt)
+	if r.Sent != 1 || r.Notifications != 1 {
+		t.Fatalf("resolved dispatch: %+v", r)
+	}
+	// Listening again: a new episode (history keeps the old one).
+	f.listen(h, "tcp", "0.0.0.0", 22, "sshd")
+	f.evaluate(h)
+	if all := f.instances(ssh); len(all) != 2 || all[1].State != "firing" {
+		t.Fatalf("refire: %+v", all)
+	}
+	// Without notify_on_resolve, a resolution writes no event.
+	f.exec(`UPDATE alert_rules SET notify_on_resolve = false WHERE id = $1`, ssh)
+	f.unlisten(h, 22)
+	if res := f.evaluate(h); res.Resolved != 1 || res.Events != 0 {
+		t.Fatalf("resolve without notify: %+v", res)
+	}
+	if f.events(ssh, notify.EventAlertResolved) != 1 || f.events(ssh, notify.EventAlertFiring) != 2 {
+		t.Fatal("event counts")
+	}
+}
+
+// Bookkeeping resolutions (rule edited, disabled, deleted; host out of
+// scope or archived) are silent.
+func TestSilentResolutions(t *testing.T) {
+	f := newAlertFixture(t)
+	h1, h2, h3 := f.hostID, f.host("h2"), f.host("h3")
+	for _, h := range []string{h1, h2, h3} {
+		f.listen(h, "tcp", "0.0.0.0", 22, "sshd")
+	}
+	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
+	rule := f.rule("ssh", sshRule, ruleOpts{}, ch)
+	if res := f.evaluate(""); len(f.firing(rule)) != 3 || f.events(rule, notify.EventAlertFiring) != 3 {
+		t.Fatalf("all hosts: %+v", res)
+	}
+	reason := func(host string) string {
+		t.Helper()
+		var r string
+		for _, i := range f.instances(rule) {
+			if i.Host == host {
+				r = i.State + ":" + i.Reason
+			}
+		}
+		return r
+	}
+
+	f.exec(`UPDATE hosts SET archived_at = now() WHERE id = $1`, h3)
+	f.evaluate(h3)
+	if got := reason(h3); got != "resolved:host_archived" {
+		t.Fatalf("archived: %s", got)
+	}
+	f.exec(`UPDATE alert_rules SET host_ids = ARRAY[$2::uuid] WHERE id = $1`, rule, h1)
+	f.evaluate("")
+	if got := reason(h2); got != "resolved:out_of_scope" {
+		t.Fatalf("scope: %s", got)
+	}
+	f.exec(`UPDATE alert_rules SET condition = jsonb_set(condition, '{value}', '[2222]') WHERE id = $1`, rule)
+	f.evaluate(h1)
+	if got := reason(h1); got != "resolved:rule_changed" {
+		t.Fatalf("edited: %s", got)
+	}
+	f.exec(`UPDATE alert_rules SET condition = $2 WHERE id = $1`, rule, sshRule)
+	f.evaluate(h1)
+	f.exec(`UPDATE alert_rules SET enabled = false WHERE id = $1`, rule)
+	f.evaluate(h1)
+	if got := reason(h1); got != "resolved:rule_disabled" {
+		t.Fatalf("disabled: %s", got)
+	}
+	f.exec(`UPDATE alert_rules SET enabled = true WHERE id = $1`, rule)
+	f.evaluate(h1)
+	f.exec(`DELETE FROM alert_rules WHERE id = $1`, rule)
+	f.evaluate(h1)
+	var state, reasonCol, name string
+	if err := f.s.Pool.QueryRow(context.Background(), `
+		SELECT state, resolved_reason, rule_name FROM alert_instances
+		WHERE host_id = $1 AND rule_id IS NULL ORDER BY fired_at DESC LIMIT 1`, h1).Scan(&state, &reasonCol, &name); err != nil {
+		t.Fatal(err)
+	}
+	if state != "resolved" || reasonCol != "rule_deleted" || name != "ssh" {
+		t.Fatalf("deleted rule: %s %s %s", state, reasonCol, name)
+	}
+	// Only the three first firings and two re-firings were ever news.
+	if n := f.count(`SELECT count(*) FROM alert_events e JOIN alert_instances i ON i.id = e.instance_id
+	                 WHERE i.workspace_id = $1 AND e.type = 'alert.resolved'`, f.workspaceID); n != 0 {
+		t.Fatalf("%d resolved events for silent resolutions", n)
+	}
+	if n := f.count(`SELECT count(*) FROM alert_instances WHERE workspace_id = $1`, f.workspaceID); n != 5 {
+		t.Fatalf("history rows: %d", n)
+	}
+}
+
+// ---- The other properties' evaluators ----
+
+func TestPropertyEvaluators(t *testing.T) {
+	f := newAlertFixture(t)
+	h, h2 := f.hostID, f.host("db")
+	rule := func(cond string) string { return f.rule(cond[:min(len(cond), 100)], cond, ruleOpts{}) }
+	subjects := func(rule string) string {
+		var s []string
+		for _, i := range f.firing(rule) {
+			host := "h"
+			if i.Host == h2 {
+				host = "h2"
+			}
+			s = append(s, host+":"+i.Subject)
+		}
+		return strings.Join(s, ",")
+	}
+
+	// Packages: h has an inventory with Telnetd; h2 has none (unknown).
+	var sw int64
+	if err := f.s.Pool.QueryRow(context.Background(), `
+		INSERT INTO software_versions (ecosystem, distro, release, name, version) VALUES ('deb', $1, 'jammy', 'Telnetd', '0.17-44')
+		RETURNING id`, f.tag).Scan(&sw); err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`INSERT INTO host_software (host_id, software_id, first_seen_at) VALUES ($1, $2, now())`, h, sw)
+	f.exec(`INSERT INTO host_inventory_state (host_id, ecosystem, confirmed_at, changed_at) VALUES ($1, 'deb', now(), now())`, h)
+	installed := rule(`{"property":"package_installed","operator":"installed","value":["telnetd","nano"]}`)
+	missing := rule(`{"property":"package_installed","operator":"not_installed","value":["telnetd","fail2ban"]}`)
+
+	// OS: h is Ubuntu, h2 unknown.
+	f.exec(`UPDATE hosts SET os_family = 'linux', os_id = 'ubuntu', os_version = '22.04' WHERE id = $1`, h)
+	isUbuntu := rule(`{"property":"os","operator":"in","value":["ubuntu"]}`)
+	notDebian := rule(`{"property":"os","operator":"not_in","value":["debian","windows"]}`)
+	isLinux := rule(`{"property":"os","operator":"in","value":["linux"]}`)
+
+	// Snapshots: h needs a reboot and its dpkg collector failed; h2's
+	// reboot collector failed (unknown).
+	f.exec(`INSERT INTO snapshots (host_id, schema_version, collected_at, os_id, os_version_id, reboot_required, reboot_packages, collector_status)
+	        VALUES ($1, 1, now(), 'ubuntu', '22.04', true, '{linux-image-6.8.0-45-generic}',
+	                '{"reboot_required":{"status":"ok"},"deb_packages":{"status":"error","error":"dpkg status missing"},"os":{"status":"ok"}}'),
+	               ($2, 1, now(), 'ubuntu', '22.04', false, '{}', '{"reboot_required":{"status":"error","error":"x"}}')`, h, h2)
+	reboot := rule(`{"property":"reboot_required","operator":"is_true"}`)
+	anyCollector := rule(`{"property":"collector_failed","operator":"any"}`)
+	tcpCollector := rule(`{"property":"collector_failed","operator":"in","value":["tcp_listeners"]}`)
+
+	// Last seen: h two hours ago, h2 just now.
+	f.exec(`UPDATE hosts SET last_seen_at = now() - interval '2 hours' WHERE id = $1`, h)
+	f.exec(`UPDATE hosts SET last_seen_at = now() WHERE id = $1`, h2)
+	notSeen := rule(`{"property":"host_not_seen","operator":"for_more_than","value":30}`)
+
+	// Findings on h: an open high, an open low KEV, a resolved critical.
+	f.exec(`INSERT INTO findings (host_id, kind, dedup_key, vuln_key, source_package, status, severity, severity_rank, is_kev)
+	        VALUES ($1, 'vulnerable_package', 'pkg:swlib:CVE-1', 'CVE-1', 'swlib', 'open', 'high', 5, false),
+	               ($1, 'vulnerable_package', 'pkg:swlib:CVE-2', 'CVE-2', 'swlib', 'open', 'low', 2, true),
+	               ($1, 'vulnerable_package', 'pkg:swlib:CVE-3', 'CVE-3', 'swlib', 'resolved', 'critical', 6, false)`, h)
+	high := rule(`{"property":"vulnerability","operator":"severity_at_least","value":"high"}`)
+	kev := rule(`{"property":"vulnerability","operator":"kev"}`)
+	images := rule(`{"property":"vulnerability","operator":"severity_at_least","value":"low","options":{"source":"images"}}`)
+
+	f.evaluate(h)
+	f.evaluate(h2)
+	for name, c := range map[string]struct{ rule, want string }{
+		"installed":      {installed, "h:telnetd"},
+		"not installed":  {missing, "h:fail2ban"},
+		"os in":          {isUbuntu, "h:"},
+		"os not in":      {notDebian, "h:"},
+		"os family":      {isLinux, "h:"},
+		"reboot":         {reboot, "h:"},
+		"any collector":  {anyCollector, "h:deb_packages,h2:reboot_required"},
+		"tcp collector":  {tcpCollector, ""},
+		"not seen":       {notSeen, "h:"},
+		"severity floor": {high, "h:pkg:swlib:CVE-1"},
+		"kev":            {kev, "h:pkg:swlib:CVE-2"},
+		"images only":    {images, ""},
+	} {
+		if got := subjects(c.rule); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+	checkTitle := func(rule, want string) {
+		t.Helper()
+		if got := f.firing(rule); len(got) == 0 || got[0].Title != want {
+			t.Errorf("title: %+v, want %q", got, want)
+		}
+	}
+	checkTitle(installed, "Package telnetd is installed")
+	checkTitle(missing, "Package fail2ban is not installed")
+	checkTitle(isUbuntu, "OS is ubuntu 22.04")
+	checkTitle(notDebian, "OS ubuntu 22.04 is not allowed")
+	checkTitle(reboot, "Reboot required")
+	checkTitle(notSeen, "Not seen for more than 30 minutes")
+	checkTitle(high, "High CVE-1 in swlib")
+	checkTitle(kev, "KEV CVE-2 in swlib")
+	if d := f.firing(anyCollector)[0].Details; d["error"] != "dpkg status missing" {
+		t.Errorf("collector details %v", d)
+	}
+	if d := f.firing(high)[0].Details; d["vuln_key"] != "CVE-1" || d["severity"] != "high" || d["kind"] != "vulnerable_package" {
+		t.Errorf("finding details %v", d)
+	}
+
+	// Changes resolve: reported again, package removed, finding fixed,
+	// newest snapshot without a reboot.
+	f.exec(`UPDATE hosts SET last_seen_at = now() WHERE id = $1`, h)
+	f.exec(`UPDATE host_software SET removed_at = now() + interval '1 second' WHERE host_id = $1`, h)
+	f.exec(`UPDATE findings SET status = 'resolved' WHERE host_id = $1 AND vuln_key = 'CVE-1'`, h)
+	f.exec(`INSERT INTO snapshots (host_id, schema_version, collected_at, os_id, os_version_id, reboot_required, collector_status, received_at)
+	        VALUES ($1, 1, now(), 'ubuntu', '22.04', false, '{"reboot_required":{"status":"ok"}}', now() + interval '1 second')`, h)
+	f.evaluate(h)
+	for name, c := range map[string]struct{ rule, want string }{
+		"installed":     {installed, ""},
+		"not installed": {missing, "h:fail2ban,h:telnetd"},
+		"reboot":        {reboot, ""},
+		"any collector": {anyCollector, "h2:reboot_required"},
+		"not seen":      {notSeen, ""},
+		"severity":      {high, ""},
+		"kev":           {kev, "h:pkg:swlib:CVE-2"},
+	} {
+		if got := subjects(c.rule); got != c.want {
+			t.Errorf("after changes, %s: %q, want %q", name, got, c.want)
+		}
+	}
+	// Unknown never resolves: h's reboot collector fails in its newest
+	// snapshot while an alert fires.
+	f.exec(`INSERT INTO snapshots (host_id, schema_version, collected_at, os_id, os_version_id, reboot_required, collector_status, received_at)
+	        VALUES ($1, 1, now(), 'ubuntu', '22.04', true, '{"reboot_required":{"status":"ok"}}', now() + interval '2 seconds'),
+	               ($1, 1, now(), 'ubuntu', '22.04', false, '{"reboot_required":{"status":"error"}}', now() + interval '3 seconds')`, h)
+	f.evaluate(h) // sees only the newest: unknown, nothing fires
+	if got := subjects(reboot); got != "" {
+		t.Fatalf("unknown fired: %q", got)
+	}
+	f.exec(`DELETE FROM snapshots WHERE host_id = $1 AND received_at > now() + interval '2500 milliseconds'`, h)
+	f.evaluate(h)
+	f.exec(`INSERT INTO snapshots (host_id, schema_version, collected_at, os_id, os_version_id, reboot_required, collector_status, received_at)
+	        VALUES ($1, 1, now(), 'ubuntu', '22.04', false, '{"reboot_required":{"status":"error"}}', now() + interval '4 seconds')`, h)
+	f.evaluate(h)
+	if got := subjects(reboot); got != "h:" {
+		t.Fatalf("a failed collector resolved the alert: %q", got)
+	}
+}
+
+// ---- Dispatch: digests, rules that stop sending ----
+
+func TestDispatchDigestAndSkips(t *testing.T) {
+	f := newAlertFixture(t)
+	ctx := context.Background()
+	h := f.hostID
+	f.listen(h, "tcp", "0.0.0.0", 22, "sshd")
+	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
+	t0 := time.Now().UTC().Truncate(time.Second)
+	digest := f.rule("digest", sshRule, ruleOpts{digest: time.Hour, createdAt: t0.Add(-2 * time.Hour)}, ch)
+	immediate := f.rule("immediate", sshRule, ruleOpts{}, ch)
+	quiet := f.rule("no resolve", sshRule, ruleOpts{noResolve: true}, ch)
+
+	opt := store.AlertOptions{}
+	f.evaluate(h)
+	r, err := f.s.EvaluateAlerts(ctx, t0, opt)
+	if err != nil || r.Events != 3 || r.Digested != 1 || r.Notifications != 2 {
+		t.Fatalf("firing: %+v %v", r, err)
+	}
+	// Resolved: the quiet rule wrote no event; the immediate rule is
+	// disabled before dispatch, so its event is skipped.
+	f.unlisten(h, 22)
+	if res := f.evaluate(h); res.Resolved != 3 || res.Events != 2 {
+		t.Fatalf("resolve: %+v", res)
+	}
+	f.exec(`UPDATE alert_rules SET enabled = false WHERE id = $1`, immediate)
+	r, _ = f.s.EvaluateAlerts(ctx, t0, opt)
+	if r.Events != 2 || r.Skipped != 1 || r.Digested != 1 || r.Notifications != 0 {
+		t.Fatalf("resolved: %+v", r)
+	}
+	d, err := f.s.FlushDigests(ctx, t0.Add(time.Minute), opt)
+	if err != nil || d.Rules != 1 || d.Events != 2 || d.Notifications != 1 {
+		t.Fatalf("digest: %+v %v", d, err)
+	}
+	var payload []byte
+	if err := f.s.Pool.QueryRow(ctx, `SELECT payload FROM notifications WHERE rule_id = $1 AND kind = 'digest'`, digest).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var n notify.Notification
+	_ = json.Unmarshal(payload, &n)
+	if len(n.Events) != 2 || n.Events[0].Type != notify.EventAlertFiring || n.Events[1].Type != notify.EventAlertResolved ||
+		!strings.HasPrefix(n.Summary, "Digest: 1 firing, 1 resolved alerts") {
+		t.Fatalf("digest notification: %s", payload)
+	}
+	if d, _ := f.s.FlushDigests(ctx, t0.Add(30*time.Minute), opt); d.Rules != 0 {
+		t.Fatal("digest before its interval")
+	}
+	if f.events(quiet, notify.EventAlertResolved) != 0 {
+		t.Fatal("quiet rule wrote a resolved event")
+	}
+}
+
+// ---- End to end: findings reconcile -> rule -> signed webhook ----
 
 type received struct {
 	body    []byte
@@ -225,10 +694,8 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 	const secret = "whsec_integration"
 	hook := f.channel("ops webhook", "webhook", map[string]string{"url": srv.URL + "/hook"}, map[string]string{"secret": secret})
 	fakeCh := f.channel("fake room", "fake", map[string]string{"room": "#sec"}, map[string]string{"token": "t0k"})
-	ruleID := f.rule("High and up", ruleOpts{
-		types:       []string{notify.EventFindingOpened, notify.EventFindingResolved},
-		minSeverity: 5, hostIDs: []string{f.hostID}, dedup: time.Hour,
-	}, hook, fakeCh)
+	ruleID := f.rule("High and up", `{"property":"vulnerability","operator":"severity_at_least","value":"high"}`,
+		ruleOpts{hostIDs: []string{f.hostID}}, hook, fakeCh)
 
 	// Advisory: swlib fixed in 1.0-2, high.
 	b := make([]byte, 3)
@@ -302,28 +769,30 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 		return notify.Notification{}
 	}
 
-	// 1. Vulnerable version installed -> finding opened -> webhook.
+	// 1. Vulnerable version installed -> finding opened -> the host's rules
+	// are evaluated -> alert fires -> webhook.
 	push(1, "1.0-1")
 	if _, err := client.Insert(ctx, ReconcileHostArgs{HostID: f.hostID}, nil); err != nil {
 		t.Fatal(err)
 	}
-	n := await(notify.EventFindingOpened)
+	n := await(notify.EventAlertFiring)
 	ev := n.Events[0]
-	if n.Kind != notify.KindAlert || n.Rule == nil || n.Rule.ID != ruleID || n.Version != 1 ||
+	if n.Kind != notify.KindAlert || n.Rule == nil || n.Rule.ID != ruleID || n.Version != notify.PayloadVersion ||
+		ev.Alert == nil || ev.Alert.Property != "vulnerability" || ev.Alert.State != "firing" ||
 		ev.Finding == nil || ev.Finding.VulnKey != cve || ev.Finding.Severity != "high" || ev.Finding.Status != "open" ||
 		ev.Host == nil || ev.Host.ID != f.hostID ||
 		ev.URL != "https://upkeep.example/dashboard/hosts/"+f.hostID+"/vulnerabilities?v="+cve {
-		t.Fatalf("opened notification: %+v / %+v", n, ev)
+		t.Fatalf("firing notification: %+v / %+v", n, ev)
 	}
 
-	// 2. Upgrade to the fixed version -> resolved -> webhook.
+	// 2. Upgrade to the fixed version -> finding resolved -> alert resolves.
 	push(2, "1.0-2")
 	if _, err := client.Insert(ctx, ReconcileHostArgs{HostID: f.hostID}, nil); err != nil {
 		t.Fatal(err)
 	}
-	n = await(notify.EventFindingResolved)
-	if n.Events[0].Finding.Status != "resolved" {
-		t.Fatalf("resolved event: %+v", n.Events[0].Finding)
+	n = await(notify.EventAlertResolved)
+	if a := n.Events[0].Alert; a == nil || a.State != "resolved" || a.ResolvedAt == nil || a.ID != ev.Alert.ID {
+		t.Fatalf("resolved event: %+v", n.Events[0])
 	}
 
 	// The fake channel type got both, with its secret merged into config.
@@ -332,7 +801,7 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	got := fake.all()
-	if len(got) != 2 || got[0].Events[0].Type != notify.EventFindingOpened || fake.cfgs[0]["token"] != "t0k" || fake.cfgs[0]["room"] != "#sec" {
+	if len(got) != 2 || got[0].Events[0].Type != notify.EventAlertFiring || fake.cfgs[0]["token"] != "t0k" || fake.cfgs[0]["room"] != "#sec" {
 		t.Fatalf("fake notifier: %d notifications, cfg %v", len(got), fake.cfgs)
 	}
 	// Delivery log: 4 delivered deliveries, one attempt each.
@@ -345,313 +814,6 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 	if n := f.count(`SELECT count(*) FROM notification_delivery_attempts a JOIN notification_deliveries d ON d.id = a.delivery_id
 	                 WHERE d.workspace_id = $1 AND d.channel_type = 'webhook' AND a.status_code = 204`, f.workspaceID); n != 2 {
 		t.Fatalf("webhook attempts with 204 = %d, want 2", n)
-	}
-}
-
-// ---- Rule matching, dedup and digests at the store level ----
-
-func TestEvaluateDedupAndDigest(t *testing.T) {
-	f := newAlertFixture(t)
-	ctx := context.Background()
-	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
-	immediate := f.rule("immediate", ruleOpts{types: []string{notify.EventFindingOpened}, minSeverity: 4, dedup: time.Hour}, ch)
-	t0 := time.Now().UTC().Truncate(time.Second)
-	digest := f.rule("digest", ruleOpts{types: []string{notify.EventFindingOpened, notify.EventFindingResolved},
-		digest: time.Hour, dedup: 0, createdAt: t0.Add(-2 * time.Hour)}, ch)
-	// A rule without channels matches nothing (nothing could be sent).
-	f.rule("no channels", ruleOpts{types: []string{notify.EventFindingOpened}})
-
-	var enqueued []string
-	opt := store.AlertOptions{Enqueue: func(_ context.Context, _ pgx.Tx, ids []string) error {
-		enqueued = append(enqueued, ids...)
-		return nil
-	}}
-	eval := func(at time.Time) store.EvalResult {
-		t.Helper()
-		r, err := f.s.EvaluateAlerts(ctx, at, opt)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return r
-	}
-	high, low := 5, 2
-	f.event(notify.EventFindingOpened, "finding:a", &high, false, t0)
-	f.event(notify.EventFindingOpened, "finding:a", &high, false, t0) // duplicate in the same batch
-	f.event(notify.EventFindingOpened, "finding:b", &high, true, t0)
-	f.event(notify.EventFindingOpened, "finding:low", &low, false, t0) // below the immediate rule's floor
-	r := eval(t0)
-	// immediate: a, b (a's duplicate suppressed, low filtered); digest: all 4 (no dedup window)
-	if r.Events != 4 || r.Suppressed != 1 || r.Digested != 4 || r.Notifications != 1 || r.Deliveries != 1 || len(enqueued) != 1 {
-		t.Fatalf("first pass: %+v, enqueued %d", r, len(enqueued))
-	}
-	var payload []byte
-	if err := f.s.Pool.QueryRow(ctx, `SELECT payload FROM notifications WHERE rule_id = $1`, immediate).Scan(&payload); err != nil {
-		t.Fatal(err)
-	}
-	var n notify.Notification
-	_ = json.Unmarshal(payload, &n)
-	if len(n.Events) != 2 || n.Kind != notify.KindAlert || n.Summary == "" {
-		t.Fatalf("immediate notification: %s", payload)
-	}
-
-	// Same subject again inside the window: suppressed; after it: sent.
-	f.event(notify.EventFindingOpened, "finding:a", &high, false, t0.Add(30*time.Minute))
-	if r := eval(t0.Add(30 * time.Minute)); r.Suppressed != 1 || r.Notifications != 0 {
-		t.Fatalf("inside window: %+v", r)
-	}
-	f.event(notify.EventFindingOpened, "finding:a", &high, false, t0.Add(61*time.Minute))
-	if r := eval(t0.Add(61 * time.Minute)); r.Suppressed != 0 || r.Notifications != 1 {
-		t.Fatalf("after window: %+v", r)
-	}
-	// A different event type about the same subject is not a duplicate.
-	f.event(notify.EventFindingResolved, "finding:a", &high, false, t0.Add(62*time.Minute))
-	if r := eval(t0.Add(62 * time.Minute)); r.Suppressed != 0 || r.Digested != 1 {
-		t.Fatalf("resolved: %+v", r)
-	}
-
-	// Digest: the rule was created 2h ago, so the first flush is due; all
-	// seven items (4 + a@30m + a@61m + resolved) go in one notification.
-	flush := func(at time.Time) store.DigestResult {
-		t.Helper()
-		d, err := f.s.FlushDigests(ctx, at, opt)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return d
-	}
-	d := flush(t0.Add(63 * time.Minute))
-	if d.Rules != 1 || d.Events != 7 || d.Notifications != 1 || d.Deliveries != 1 {
-		t.Fatalf("first digest: %+v", d)
-	}
-	if err := f.s.Pool.QueryRow(ctx, `SELECT payload FROM notifications WHERE rule_id = $1 AND kind = 'digest'`, digest).Scan(&payload); err != nil {
-		t.Fatal(err)
-	}
-	_ = json.Unmarshal(payload, &n)
-	if len(n.Events) != 7 || n.Rule.Name != "digest" || n.Events[0].ID > n.Events[6].ID {
-		t.Fatalf("digest notification: %d events", len(n.Events))
-	}
-	// A new item right after: not due until an hour after the last digest.
-	f.event(notify.EventFindingOpened, "finding:c", &high, false, t0.Add(64*time.Minute))
-	eval(t0.Add(64 * time.Minute))
-	if d := flush(t0.Add(90 * time.Minute)); d.Rules != 0 {
-		t.Fatalf("digest before interval: %+v", d)
-	}
-	if d := flush(t0.Add(124 * time.Minute)); d.Rules != 1 || d.Events != 1 {
-		t.Fatalf("second digest: %+v", d)
-	}
-	// Disabled rule: pending items are dropped, not sent.
-	f.event(notify.EventFindingOpened, "finding:d", &high, false, t0.Add(125*time.Minute))
-	eval(t0.Add(125 * time.Minute))
-	f.exec(`UPDATE alert_rules SET enabled = false WHERE id = $1`, digest)
-	if d := flush(t0.Add(300 * time.Minute)); d.Rules != 0 {
-		t.Fatalf("disabled digest rule flushed: %+v", d)
-	}
-	if n := f.count(`SELECT count(*) FROM alert_digest_items WHERE rule_id = $1`, digest); n != 0 {
-		t.Fatalf("disabled rule kept %d items", n)
-	}
-}
-
-// Host scope and KEV-only at the store level (Match is unit-tested; this
-// checks the SQL feeds it the right host ids and flags).
-func TestEvaluateScopeAndKEV(t *testing.T) {
-	f := newAlertFixture(t)
-	ctx := context.Background()
-	other, err := f.s.CreateHost(ctx, f.workspaceID, "other-"+f.tag)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
-	f.rule("kev on other host", ruleOpts{types: []string{notify.EventFindingOpened}, kevOnly: true, hostIDs: []string{other}}, ch)
-	sev := 6
-	now := time.Now().UTC()
-	f.event(notify.EventFindingOpened, "finding:kev-on-fixture-host", &sev, true, now) // wrong host
-	r, err := f.s.EvaluateAlerts(ctx, now, store.AlertOptions{})
-	if err != nil || r.Matched != 0 {
-		t.Fatalf("out of scope: %+v %v", r, err)
-	}
-	f.exec(`INSERT INTO alert_events (workspace_id, type, subject, host_ids, severity_rank, is_kev, payload)
-	        VALUES ($1, 'finding.opened', 's1', ARRAY[$2::uuid], 6, false, '{}'), ($1, 'finding.opened', 's2', ARRAY[$2::uuid], 6, true, '{}')`,
-		f.workspaceID, other)
-	if r, err = f.s.EvaluateAlerts(ctx, now, store.AlertOptions{}); err != nil || r.Matched != 1 || r.Notifications != 1 {
-		t.Fatalf("in scope: %+v %v", r, err)
-	}
-}
-
-// alert_rules.finding_kinds (migration 0015): a rule created without it
-// gets both kinds; a narrowed rule only sees events of its kinds.
-func TestEvaluateFindingKinds(t *testing.T) {
-	f := newAlertFixture(t)
-	ctx := context.Background()
-	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
-	both := f.rule("both", ruleOpts{types: []string{notify.EventFindingOpened}}, ch)
-	images := f.rule("images", ruleOpts{types: []string{notify.EventFindingOpened}}, ch)
-	pkgs := f.rule("packages", ruleOpts{types: []string{notify.EventFindingOpened}}, ch)
-	f.exec(`UPDATE alert_rules SET finding_kinds = '{vulnerable_image}' WHERE id = $1`, images)
-	f.exec(`UPDATE alert_rules SET finding_kinds = '{vulnerable_package}' WHERE id = $1`, pkgs)
-	var kinds []string
-	if err := f.s.Pool.QueryRow(ctx, `SELECT finding_kinds FROM alert_rules WHERE id = $1`, both).Scan(&kinds); err != nil ||
-		len(kinds) != 2 {
-		t.Fatalf("default finding_kinds = %v (%v), want both", kinds, err)
-	}
-	for _, bad := range []string{`'{}'`, `'{public_port}'`} {
-		if _, err := f.s.Pool.Exec(ctx, `UPDATE alert_rules SET finding_kinds = `+bad+` WHERE id = $1`, both); err == nil {
-			t.Errorf("finding_kinds = %s accepted", bad)
-		}
-	}
-
-	sev := 5
-	now := time.Now().UTC()
-	f.event(notify.EventFindingOpened, "finding:pkg", &sev, false, now) // kind vulnerable_package
-	f.exec(`INSERT INTO alert_events (workspace_id, type, subject, host_ids, severity_rank, is_kev, payload)
-	        VALUES ($1, 'finding.opened', 'finding:img', ARRAY[$2::uuid], 5, false,
-	                '{"finding": {"kind": "vulnerable_image", "vuln_key": "CVE-1", "image_id": "sha256:x", "severity": "high"}}')`,
-		f.workspaceID, f.hostID)
-	r, err := f.s.EvaluateAlerts(ctx, now, store.AlertOptions{})
-	if err != nil || r.Events != 2 || r.Matched != 4 {
-		t.Fatalf("evaluate: %+v %v (want 2 events, 4 matches)", r, err)
-	}
-	for id, want := range map[string]int{both: 2, images: 1, pkgs: 1} {
-		if n := f.count(`SELECT coalesce(sum(event_count), 0) FROM notifications WHERE rule_id = $1`, id); n != want {
-			t.Errorf("rule %s: %d events notified, want %d", id, n, want)
-		}
-	}
-}
-
-// Outbox writes only happen for users with a matching enabled rule, and
-// reconcile's hook sees how many were written.
-func TestAgentHealthEvents(t *testing.T) {
-	f := newAlertFixture(t)
-	ctx := context.Background()
-	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
-	f.rule("agents", ruleOpts{types: []string{notify.EventAgentStale, notify.EventAgentRecovered}}, ch)
-	now := time.Now().UTC().Truncate(time.Second)
-	var agentID string
-	if err := f.s.Pool.QueryRow(ctx, `
-		INSERT INTO agents (workspace_id, name, push_interval_seconds, last_seen_at) VALUES ($1, $2, 60, $3) RETURNING id
-	`, f.workspaceID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
-		t.Fatal(err)
-	}
-	f.exec(`INSERT INTO agent_hosts (agent_id, host_id, mode) VALUES ($1, $2, 'local')`, agentID, f.hostID)
-	events := func() []string {
-		rows, err := f.s.Pool.Query(ctx, `SELECT type FROM alert_events WHERE subject = $1 ORDER BY id`, "agent:"+agentID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var out []string
-		for rows.Next() {
-			var s string
-			_ = rows.Scan(&s)
-			out = append(out, s)
-		}
-		return out
-	}
-	check := func(at time.Time) {
-		t.Helper()
-		if _, err := f.s.CheckAgentHealth(ctx, at); err != nil {
-			t.Fatal(err)
-		}
-	}
-	check(now) // first observation: recorded silently
-	if e := events(); len(e) != 0 {
-		t.Fatalf("first observation emitted %v", e)
-	}
-	check(now.Add(2 * time.Minute)) // threshold max(3*60, 120) = 180s: still online
-	check(now.Add(4 * time.Minute)) // stale
-	check(now.Add(5 * time.Minute)) // still stale: no new event
-	if e := events(); len(e) != 1 || e[0] != notify.EventAgentStale {
-		t.Fatalf("after going stale: %v", e)
-	}
-	f.exec(`UPDATE agents SET last_seen_at = $2 WHERE id = $1`, agentID, now.Add(6*time.Minute))
-	check(now.Add(6 * time.Minute))
-	if e := events(); len(e) != 2 || e[1] != notify.EventAgentRecovered {
-		t.Fatalf("after recovering: %v", e)
-	}
-	var hostIDs []string
-	var payload []byte
-	if err := f.s.Pool.QueryRow(ctx, `SELECT host_ids::text[], payload FROM alert_events WHERE subject = $1 ORDER BY id LIMIT 1`,
-		"agent:"+agentID).Scan(&hostIDs, &payload); err != nil {
-		t.Fatal(err)
-	}
-	var ev notify.Event
-	_ = json.Unmarshal(payload, &ev)
-	if len(hostIDs) != 1 || hostIDs[0] != f.hostID || ev.Agent == nil || ev.Agent.ID != agentID || len(ev.Agent.Hosts) != 1 {
-		t.Fatalf("agent event: hosts %v payload %s", hostIDs, payload)
-	}
-	// Revoked agents are forgotten and never alert.
-	f.exec(`UPDATE agents SET revoked_at = now(), last_seen_at = $2 WHERE id = $1`, agentID, now.Add(-time.Hour))
-	check(now.Add(10 * time.Minute))
-	if e := events(); len(e) != 2 {
-		t.Fatalf("revoked agent emitted: %v", e)
-	}
-	// No rule for the type -> no event written.
-	f.exec(`UPDATE alert_rules SET event_types = '{finding.opened}' WHERE workspace_id = $1`, f.workspaceID)
-	f.exec(`UPDATE agents SET revoked_at = NULL, last_seen_at = $2 WHERE id = $1`, agentID, now.Add(10*time.Minute))
-	check(now.Add(10 * time.Minute)) // silent re-observation (online)
-	check(now.Add(20 * time.Minute)) // stale, but nobody listens
-	if e := events(); len(e) != 2 {
-		t.Fatalf("event written without a rule: %v", e)
-	}
-}
-
-// Archived hosts (migration 0011) never alert: their finding transitions
-// write no events, and agent events leave them out of host_ids and the
-// payload, so a rule scoped to an archived host doesn't match.
-func TestArchivedHostsDontAlert(t *testing.T) {
-	f := newAlertFixture(t)
-	ctx := context.Background()
-	archived, err := f.s.CreateHost(ctx, f.workspaceID, "archived-"+f.tag)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.exec(`UPDATE hosts SET archived_at = now() WHERE id = $1`, archived)
-	ch := f.channel("fake", "fake", map[string]string{"room": "r"}, nil)
-	f.rule("everything", ruleOpts{types: []string{notify.EventFindingResolved, notify.EventAgentStale}}, ch)
-
-	// An open finding on each host, and no inventory: reconcile resolves
-	// both, but only the active host's transition is written.
-	for _, h := range []string{f.hostID, archived} {
-		f.exec(`INSERT INTO findings (host_id, kind, dedup_key, vuln_key, source_package, status)
-		        VALUES ($1, $2, 'pkg:swlib:CVE-1902-1', 'CVE-1902-1', 'swlib', 'open')`, h, findings.KindVulnerablePackage)
-	}
-	for h, want := range map[string]int{f.hostID: 1, archived: 0} {
-		res, err := f.s.ReconcileHostFindings(ctx, h)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if res.Resolved != 1 || res.AlertEvents != want {
-			t.Fatalf("host %s: resolved %d, alert events %d, want 1, %d", h, res.Resolved, res.AlertEvents, want)
-		}
-		if n := f.count(`SELECT count(*) FROM alert_events WHERE $1::uuid = ANY (host_ids) AND type = $2`,
-			h, notify.EventFindingResolved); n != want {
-			t.Fatalf("host %s: %d finding events, want %d", h, n, want)
-		}
-	}
-
-	// An agent collecting both hosts goes stale.
-	now := time.Now().UTC().Truncate(time.Second)
-	var agentID string
-	if err := f.s.Pool.QueryRow(ctx, `
-		INSERT INTO agents (workspace_id, name, push_interval_seconds, last_seen_at) VALUES ($1, $2, 60, $3) RETURNING id
-	`, f.workspaceID, "agent-"+f.tag, now).Scan(&agentID); err != nil {
-		t.Fatal(err)
-	}
-	f.exec(`INSERT INTO agent_hosts (agent_id, host_id, mode, target_ref, address, port, username) VALUES ($1, $2, 'local', 'local', NULL, NULL, NULL), ($1, $3, 'ssh', 'ssh:old', '10.0.0.9', 22, 'upkeep')`,
-		agentID, f.hostID, archived)
-	for _, at := range []time.Time{now, now.Add(4 * time.Minute)} { // first observation, then stale
-		if _, err := f.s.CheckAgentHealth(ctx, at); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var hostIDs []string
-	var payload []byte
-	if err := f.s.Pool.QueryRow(ctx, `SELECT host_ids::text[], payload FROM alert_events WHERE subject = $1`,
-		"agent:"+agentID).Scan(&hostIDs, &payload); err != nil {
-		t.Fatal(err)
-	}
-	var ev notify.Event
-	_ = json.Unmarshal(payload, &ev)
-	if len(hostIDs) != 1 || hostIDs[0] != f.hostID || ev.Agent == nil || len(ev.Agent.Hosts) != 1 || ev.Agent.Hosts[0].ID != f.hostID {
-		t.Fatalf("agent event: hosts %v payload %s", hostIDs, payload)
 	}
 }
 

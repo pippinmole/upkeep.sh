@@ -1,11 +1,14 @@
 package jobs
 
-// Alerting jobs (docs/ARCHITECTURE.md "Alerting"), queue "alerts":
+// Alerting jobs (docs/ALERTING.md, docs/ARCHITECTURE.md "Alerting"), queue "alerts":
 //
-//	reconcile_host (findings tx) ──┐ alert_events rows + alert_evaluate (InsertTx)
-//	agent_health (every 1m) ───────┘
-//	alert_evaluate    drain the outbox: match rules, dedup, immediate
-//	                  notifications or digest items; alert_deliver per delivery (InsertTx)
+//	ingest (snapshot tx), reconcile_host (findings tx), dashboard rule edits
+//	  -> alert_rules_evaluate {host_id}   one host's rules (dashboard: {} = all)
+//	alert_rules_evaluate {} (every 1m)   every rule over every host (time-based
+//	                  properties, rule edits, deletions; safety net)
+//	  -> alert_instances transitions + alert_events rows + alert_evaluate (InsertTx)
+//	alert_evaluate    drain the outbox: per rule, immediate notifications or
+//	                  digest items; alert_deliver per delivery (InsertTx)
 //	alert_digest      (every 1m) flush digest rules whose interval elapsed
 //	alert_deliver     send one delivery through its channel type's Notifier;
 //	                  retried with backoff (deliverBackoff) on retryable errors
@@ -47,11 +50,19 @@ func (AlertDigestArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: QueueAlerts, MaxAttempts: 3, UniqueOpts: uniqueWhileActive}
 }
 
-type AgentHealthArgs struct{}
+// AlertRulesEvaluateArgs evaluates alert rules (store.EvaluateAlertRules):
+// the rules of HostID's owner over that host, or with HostID empty every
+// rule over every host. The dashboard inserts it with plain SQL after a
+// rule change (web/src/lib/river.ts), so keep the kind and args stable. Not
+// unique, for the same reason as alert_evaluate; passes are serialized by
+// an advisory lock and idempotent.
+type AlertRulesEvaluateArgs struct {
+	HostID string `json:"host_id,omitempty"`
+}
 
-func (AgentHealthArgs) Kind() string { return "agent_health" }
-func (AgentHealthArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: QueueAlerts, MaxAttempts: 3, UniqueOpts: uniqueWhileActive}
+func (AlertRulesEvaluateArgs) Kind() string { return "alert_rules_evaluate" }
+func (AlertRulesEvaluateArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: QueueAlerts, MaxAttempts: 5}
 }
 
 type AlertPruneArgs struct{}
@@ -116,14 +127,17 @@ func enqueueDeliveries(ctx context.Context, tx pgx.Tx, ids []string) error {
 	return err
 }
 
-// EnqueueAlertEvaluate is the reconcile hook: when the reconcile wrote
-// alert events, queue an evaluation in the same transaction.
-func EnqueueAlertEvaluate(ctx context.Context, tx pgx.Tx, res store.ReconcileResult) error {
-	if res.AlertEvents == 0 {
-		return nil
+// enqueueHostAlertRules is the reconcile hook: when the host's findings
+// changed, evaluate its alert rules (vulnerability properties) in a job
+// inserted in the same transaction.
+func enqueueHostAlertRules(hostID string) store.AfterReconcile {
+	return func(ctx context.Context, tx pgx.Tx, res store.ReconcileResult) error {
+		if !res.Changed() {
+			return nil
+		}
+		_, err := river.ClientFromContext[pgx.Tx](ctx).InsertTx(ctx, tx, AlertRulesEvaluateArgs{HostID: hostID}, nil)
+		return err
 	}
-	_, err := river.ClientFromContext[pgx.Tx](ctx).InsertTx(ctx, tx, AlertEvaluateArgs{}, nil)
-	return err
 }
 
 type AlertEvaluateWorker struct {
@@ -140,8 +154,8 @@ func (w *AlertEvaluateWorker) Work(ctx context.Context, _ *river.Job[AlertEvalua
 		return err
 	}
 	if res.Events > 0 {
-		log.Printf("alert_evaluate: %d events, %d matches, %d suppressed (dedup), %d to digests, %d notifications, %d deliveries",
-			res.Events, res.Matched, res.Suppressed, res.Digested, res.Notifications, res.Deliveries)
+		log.Printf("alert_evaluate: %d events, %d sent, %d skipped, %d to digests, %d notifications, %d deliveries",
+			res.Events, res.Sent, res.Skipped, res.Digested, res.Notifications, res.Deliveries)
 	}
 	return nil
 }
@@ -166,22 +180,35 @@ func (w *AlertDigestWorker) Work(ctx context.Context, _ *river.Job[AlertDigestAr
 	return nil
 }
 
-type AgentHealthWorker struct {
-	river.WorkerDefaults[AgentHealthArgs]
+type AlertRulesEvaluateWorker struct {
+	river.WorkerDefaults[AlertRulesEvaluateArgs]
 	Store *store.Store
 	Cfg   AlertingConfig
 }
 
-func (w *AgentHealthWorker) Work(ctx context.Context, _ *river.Job[AgentHealthArgs]) error {
-	res, err := w.Store.CheckAgentHealth(ctx, w.Cfg.now())
+func (w *AlertRulesEvaluateWorker) Timeout(*river.Job[AlertRulesEvaluateArgs]) time.Duration {
+	return 5 * time.Minute
+}
+
+func (w *AlertRulesEvaluateWorker) Work(ctx context.Context, job *river.Job[AlertRulesEvaluateArgs]) error {
+	res, err := w.Store.EvaluateAlertRules(ctx, w.Cfg.now(), job.Args.HostID,
+		func(ctx context.Context, tx pgx.Tx, res store.RuleEvalResult) error {
+			if res.Events == 0 {
+				return nil
+			}
+			_, err := river.ClientFromContext[pgx.Tx](ctx).InsertTx(ctx, tx, AlertEvaluateArgs{}, nil)
+			return err
+		})
 	if err != nil {
 		return err
 	}
-	if res.Events > 0 {
-		log.Printf("agent_health: %d agents changed state, %d alert events", res.Changed, res.Events)
-		if _, err := river.ClientFromContext[pgx.Tx](ctx).Insert(ctx, AlertEvaluateArgs{}, nil); err != nil {
-			log.Printf("enqueue alert_evaluate: %v", err) // the periodic evaluate picks it up
+	if res.Fired+res.Resolved > 0 {
+		scope := "all hosts"
+		if job.Args.HostID != "" {
+			scope = "host " + job.Args.HostID
 		}
+		log.Printf("alert_rules_evaluate (%s): %d rules, %d fired, %d resolved, %d refreshed, %d events",
+			scope, res.Rules, res.Fired, res.Resolved, res.Refreshed, res.Events)
 	}
 	return nil
 }
@@ -197,9 +224,9 @@ func (w *AlertPruneWorker) Work(ctx context.Context, _ *river.Job[AlertPruneArgs
 	if err != nil {
 		return err
 	}
-	if res.Events+res.Notifications+res.Dedup+res.Reports > 0 {
-		log.Printf("alert_prune: %d events, %d notifications, %d dedup marks, %d reports",
-			res.Events, res.Notifications, res.Dedup, res.Reports)
+	if res.Events+res.Notifications+res.Instances+res.Reports > 0 {
+		log.Printf("alert_prune: %d events, %d notifications, %d resolved alerts, %d reports",
+			res.Events, res.Notifications, res.Instances, res.Reports)
 	}
 	return nil
 }
@@ -219,7 +246,7 @@ func (w *AlertDeliverWorker) NextRetry(job *river.Job[AlertDeliverArgs]) time.Ti
 func (w *AlertDeliverWorker) Work(ctx context.Context, job *river.Job[AlertDeliverArgs]) error {
 	d, err := w.Store.LoadDelivery(ctx, job.Args.DeliveryID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil // pruned or its user deleted
+		return nil // pruned or its workspace deleted
 	}
 	if err != nil {
 		return err

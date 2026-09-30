@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
@@ -248,19 +249,40 @@ func (f *fakeSMTP) serve(c net.Conn) {
 
 func ptr[T any](v T) *T { return &v }
 
+var fired = time.Date(2026, 9, 27, 11, 0, 0, 0, time.UTC)
+
+// withState sets the alert's state from the event type.
+func withState(e notify.Event) notify.Event {
+	e.Alert.State, e.Alert.FiredAt = "firing", fired
+	if e.Type == notify.EventAlertResolved {
+		at := fired.Add(time.Hour)
+		e.Alert.State, e.Alert.ResolvedAt = "resolved", &at
+	}
+	return e
+}
+
+// finding is a vulnerability rule's event (alert title as the store's
+// evaluator writes it: alerting.VulnTitle).
 func finding(typ, sev string, kev bool) notify.Event {
-	return notify.Event{ID: 7, Type: typ, URL: "https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094",
+	prefix := strings.ToUpper(sev[:1]) + sev[1:] + " "
+	if kev {
+		prefix = "KEV "
+	}
+	return withState(notify.Event{ID: 7, Type: typ, URL: "https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094",
+		Alert: &notify.Alert{ID: "a1", Property: "vulnerability", Subject: "pkg:xz-utils:CVE-2024-3094",
+			Title: prefix + "CVE-2024-3094 in xz-utils"},
 		Host: &notify.Host{ID: "h1", Hostname: "web-1"},
 		Finding: &notify.Finding{ID: "f", VulnKey: "CVE-2024-3094", SourcePackage: "xz-utils",
 			Packages: []string{"xz-utils", "liblzma5"}, InstalledVersion: "5.6.0-1",
-			FixedVersion: ptr("5.6.1-1"), Severity: sev, KEV: kev, EPSS: ptr(0.853)}}
+			FixedVersion: ptr("5.6.1-1"), Severity: sev, KEV: kev, EPSS: ptr(0.853)}})
 }
 
-func agentEvent(typ, name string) notify.Event {
-	seen := time.Date(2026, 9, 27, 10, 30, 0, 0, time.UTC)
-	return notify.Event{ID: 8, Type: typ, URL: "https://app.example/dashboard/agents",
-		Agent: &notify.Agent{ID: "a", Name: name, LastSeenAt: &seen,
-			Hosts: []notify.Host{{ID: "h1", Hostname: "web-1"}}}}
+// notSeen is a host_not_seen rule's event.
+func notSeen(typ string) notify.Event {
+	return withState(notify.Event{ID: 8, Type: typ, URL: "https://app.example/dashboard/alerts?host=h2",
+		Host: &notify.Host{ID: "h2", Hostname: "db-1", Label: ptr("database")},
+		Alert: &notify.Alert{ID: "a2", Property: "host_not_seen", Title: "Not seen for more than 30 minutes",
+			Details: json.RawMessage(`{"last_seen_at":"2026-09-27T10:30:00Z"}`)}})
 }
 
 func alert(events ...notify.Event) notify.Notification {
@@ -306,7 +328,7 @@ func TestSendSTARTTLSWithAuth(t *testing.T) {
 	f := newFake(t, func(f *fakeSMTP) { f.starttls, f.auth, f.user, f.pass = true, "PLAIN LOGIN", "alerts", "s3cret" })
 	n := newNotifier(f.guard())
 	_, err := n.Send(context.Background(), f.cfg(SecurityStartTLS, "username", "alerts", "password", "s3cret"),
-		alert(finding(notify.EventFindingOpened, "high", true)))
+		alert(finding(notify.EventAlertFiring, "high", true)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +346,7 @@ func TestSendSTARTTLSWithAuth(t *testing.T) {
 	for k, want := range map[string]string{
 		"From":                      `"upkeep.sh" <alerts@example.com>`,
 		"To":                        "ops@example.com, oncall@example.org",
-		"Subject":                   "[upkeep.sh] KEV CVE-2024-3094 opened on web-1",
+		"Subject":                   "[upkeep.sh] KEV CVE-2024-3094 in xz-utils on web-1",
 		"Date":                      "Sun, 27 Sep 2026 12:00:00 +0000",
 		"Message-Id":                "<0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11@example.com>",
 		"Mime-Version":              "1.0",
@@ -338,7 +360,7 @@ func TestSendSTARTTLSWithAuth(t *testing.T) {
 			t.Errorf("%s: %q, want %q", k, got, want)
 		}
 	}
-	for _, want := range []string{"KEV CVE-2024-3094 opened on web-1", "Package: xz-utils 5.6.0-1 (liblzma5)",
+	for _, want := range []string{"KEV CVE-2024-3094 in xz-utils on web-1", "Package: xz-utils 5.6.0-1 (liblzma5)",
 		"Fix: upgrade to 5.6.1-1", "Severity: high, known exploited (CISA KEV), EPSS 85.3%",
 		"Open in upkeep.sh: https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094", "Rule: Critical"} {
 		if !strings.Contains(body, want) {
@@ -351,7 +373,7 @@ func TestSendSTARTTLSWithAuth(t *testing.T) {
 func TestSendAuthLogin(t *testing.T) {
 	f := newFake(t, func(f *fakeSMTP) { f.starttls, f.auth, f.user, f.pass = true, "LOGIN", "u", "p w" })
 	_, err := newNotifier(f.guard()).Send(context.Background(),
-		f.cfg("", "username", "u", "password", "p w"), alert(agentEvent(notify.EventAgentStale, "edge")))
+		f.cfg("", "username", "u", "password", "p w"), alert(notSeen(notify.EventAlertFiring)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +385,7 @@ func TestSendAuthLogin(t *testing.T) {
 func TestSendImplicitTLS(t *testing.T) {
 	f := newFake(t, func(f *fakeSMTP) { f.implicitTLS, f.auth, f.user, f.pass = true, "PLAIN", "u", "p" })
 	_, err := newNotifier(f.guard()).Send(context.Background(),
-		f.cfg(SecurityTLS, "username", "u", "password", "p"), alert(finding(notify.EventFindingResolved, "low", false)))
+		f.cfg(SecurityTLS, "username", "u", "password", "p"), alert(finding(notify.EventAlertResolved, "low", false)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +393,7 @@ func TestSendImplicitTLS(t *testing.T) {
 	if !s.tls || !s.authTLS || s.authUser != "u" {
 		t.Fatalf("session %+v", s)
 	}
-	if m, _ := parse(t, s.data); m.Header.Get("Subject") != "[upkeep.sh] CVE-2024-3094 resolved on web-1" {
+	if m, _ := parse(t, s.data); m.Header.Get("Subject") != "[upkeep.sh] Resolved: Low CVE-2024-3094 in xz-utils on web-1" {
 		t.Fatalf("subject %q", m.Header.Get("Subject"))
 	}
 }
@@ -380,7 +402,7 @@ func TestSendImplicitTLS(t *testing.T) {
 func TestSendNoneWithoutAuth(t *testing.T) {
 	f := newFake(t, func(f *fakeSMTP) { f.starttls = true }) // offered but not used
 	_, err := newNotifier(f.guard()).Send(context.Background(), f.cfg(SecurityNone),
-		alert(agentEvent(notify.EventAgentRecovered, "edge")))
+		alert(notSeen(notify.EventAlertResolved)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +421,7 @@ func TestInsecureAuth(t *testing.T) {
 	if err := n.Validate(off); err == nil || !strings.Contains(err.Error(), "Allow insecure authentication") {
 		t.Fatalf("validate: %v", err)
 	}
-	_, err := n.Send(context.Background(), off, alert(finding(notify.EventFindingOpened, "high", false)))
+	_, err := n.Send(context.Background(), off, alert(finding(notify.EventAlertFiring, "high", false)))
 	if !notify.IsPermanent(err) || !strings.Contains(err.Error(), "unencrypted") {
 		t.Fatalf("send with insecure auth off: %v", err)
 	}
@@ -413,7 +435,7 @@ func TestInsecureAuth(t *testing.T) {
 	}
 
 	on := f.cfg(SecurityNone, "username", "u", "password", "p", "allow_insecure_auth", "true")
-	if _, err := n.Send(context.Background(), on, alert(finding(notify.EventFindingOpened, "high", false))); err != nil {
+	if _, err := n.Send(context.Background(), on, alert(finding(notify.EventAlertFiring, "high", false))); err != nil {
 		t.Fatal(err)
 	}
 	if s := f.last(); s.authTLS || s.tls || s.authUser != "u" || s.authPass != "p" || s.data == "" {
@@ -442,7 +464,7 @@ func TestInsecureAuthRefusedOnLiveConnection(t *testing.T) {
 	f2 := newFake(t, func(f *fakeSMTP) { f.starttls, f.auth, f.user, f.pass = true, "PLAIN", "u", "p" })
 	if _, err := newNotifier(f2.guard()).Send(context.Background(),
 		f2.cfg(SecurityStartTLS, "username", "u", "password", "p", "allow_insecure_auth", "false"),
-		alert(agentEvent(notify.EventAgentStale, "edge"))); err != nil {
+		alert(notSeen(notify.EventAlertFiring))); err != nil {
 		t.Fatal(err)
 	}
 	if !f2.last().authTLS {
@@ -453,7 +475,7 @@ func TestInsecureAuthRefusedOnLiveConnection(t *testing.T) {
 func TestSendRequiresSTARTTLS(t *testing.T) {
 	f := newFake(t, func(f *fakeSMTP) { f.auth, f.user, f.pass = "PLAIN", "u", "p" }) // no STARTTLS
 	_, err := newNotifier(f.guard()).Send(context.Background(),
-		f.cfg(SecurityStartTLS, "username", "u", "password", "p"), alert(agentEvent(notify.EventAgentStale, "edge")))
+		f.cfg(SecurityStartTLS, "username", "u", "password", "p"), alert(notSeen(notify.EventAlertFiring)))
 	if !notify.IsPermanent(err) || !strings.Contains(err.Error(), "does not offer STARTTLS") {
 		t.Fatalf("err %v", err)
 	}
@@ -468,7 +490,7 @@ func TestSendVerifiesCertificates(t *testing.T) {
 	for _, mode := range []string{SecurityStartTLS, SecurityTLS} {
 		f := newFake(t, func(f *fakeSMTP) { f.starttls, f.implicitTLS = true, mode == SecurityTLS })
 		_, err := newNotifier(&netguard.Guard{AllowPrivate: true}).Send(context.Background(), f.cfg(mode),
-			alert(agentEvent(notify.EventAgentStale, "edge")))
+			alert(notSeen(notify.EventAlertFiring)))
 		if !notify.IsPermanent(err) || !strings.Contains(err.Error(), "certificate") {
 			t.Errorf("%s: err %v", mode, err)
 		}
@@ -481,7 +503,7 @@ func TestHeaderInjection(t *testing.T) {
 	f := newFake(t, nil)
 	n := newNotifier(f.guard())
 	// Host labels go into the subject verbatim.
-	evil := finding(notify.EventFindingOpened, "high", false)
+	evil := finding(notify.EventAlertFiring, "high", false)
 	evil.Host.Label = ptr("web\r\nBcc: victim@example.net\r\n\r\nspoofed body")
 	if _, err := n.Send(context.Background(), f.cfg(SecurityNone), alert(evil)); err != nil {
 		t.Fatal(err)
@@ -492,7 +514,7 @@ func TestHeaderInjection(t *testing.T) {
 		t.Fatalf("injected header: %v rcpt %v", m.Header, s.rcpt)
 	}
 	subj, _ := (&mime.WordDecoder{}).DecodeHeader(m.Header.Get("Subject"))
-	if subj != "[upkeep.sh] High CVE-2024-3094 opened on web Bcc: victim@example.net spoofed body" {
+	if subj != "[upkeep.sh] High CVE-2024-3094 in xz-utils on web Bcc: victim@example.net spoofed body" {
 		t.Fatalf("subject %q", subj)
 	}
 
@@ -515,7 +537,7 @@ func TestHeaderInjection(t *testing.T) {
 	}
 
 	// Non-ASCII subject: encoded, decodes back.
-	e := finding(notify.EventFindingOpened, "high", false)
+	e := finding(notify.EventAlertFiring, "high", false)
 	e.Host.Hostname = "serveur-été"
 	if _, err := n.Send(context.Background(), f.cfg(SecurityNone), alert(e)); err != nil {
 		t.Fatal(err)
@@ -525,7 +547,7 @@ func TestHeaderInjection(t *testing.T) {
 	if !strings.HasPrefix(raw, "=?utf-8?q?") {
 		t.Fatalf("subject not encoded: %q", raw)
 	}
-	if got, _ := (&mime.WordDecoder{}).DecodeHeader(raw); got != "[upkeep.sh] High CVE-2024-3094 opened on serveur-été" {
+	if got, _ := (&mime.WordDecoder{}).DecodeHeader(raw); got != "[upkeep.sh] High CVE-2024-3094 in xz-utils on serveur-été" {
 		t.Fatalf("decoded subject %q", got)
 	}
 	if !strings.Contains(body, "serveur-été") {
@@ -538,7 +560,7 @@ func TestHeaderInjection(t *testing.T) {
 func TestMessageIDFallback(t *testing.T) {
 	n := newNotifier(&netguard.Guard{})
 	s := settings{from: "a@example.com", to: []string{"b@example.com"}}
-	note := alert(finding(notify.EventFindingOpened, "low", false))
+	note := alert(finding(notify.EventAlertFiring, "low", false))
 	note.DeliveryID, note.Kind = "x\r\nBcc: y", "alert\r\nBcc: y"
 	msg, err := n.buildMessage(s, note, nil)
 	if err != nil {
@@ -559,41 +581,41 @@ func TestRender(t *testing.T) {
 		strings.Contains(test.Body, "Open in upkeep.sh") {
 		t.Fatalf("test: %+v", test)
 	}
-	stale := Render(alert(agentEvent(notify.EventAgentStale, "edge")))
-	if stale.Subject != `Agent "edge" stopped reporting` || !strings.Contains(stale.Body, "Last seen 2026-09-27 10:30 UTC") ||
-		!strings.Contains(stale.Body, "Open in upkeep.sh: https://app.example/dashboard/agents") {
+	stale := Render(alert(notSeen(notify.EventAlertFiring)))
+	if stale.Subject != "Not seen for more than 30 minutes on database" || !strings.Contains(stale.Body, "Last seen: 2026-09-27 10:30 UTC") ||
+		!strings.Contains(stale.Body, "Open in upkeep.sh: https://app.example/dashboard/alerts?host=h2") {
 		t.Fatalf("stale: %+v", stale)
 	}
-	if r := Render(alert(agentEvent(notify.EventAgentRecovered, "edge"))); r.Subject != `Agent "edge" is reporting again` {
+	if r := Render(alert(notSeen(notify.EventAlertResolved))); r.Subject != "Resolved: Not seen for more than 30 minutes on database" {
 		t.Fatalf("recovered: %q", r.Subject)
 	}
-	if r := Render(alert(finding(notify.EventFindingReopened, "critical", false))); r.Subject != "Critical CVE-2024-3094 reopened on web-1" {
-		t.Fatalf("reopened: %q", r.Subject)
+	if r := Render(alert(finding(notify.EventAlertFiring, "critical", false))); r.Subject != "Critical CVE-2024-3094 in xz-utils on web-1" {
+		t.Fatalf("critical: %q", r.Subject)
 	}
 
 	var evs []notify.Event
 	for range 55 {
-		evs = append(evs, finding(notify.EventFindingOpened, "high", false))
+		evs = append(evs, finding(notify.EventAlertFiring, "high", false))
 	}
-	evs = append(evs, agentEvent(notify.EventAgentStale, "edge"))
+	evs = append(evs, notSeen(notify.EventAlertFiring))
 	d := alert(evs...)
-	d.Kind, d.Summary = notify.KindDigest, "Digest: 55 new findings, 1 agent stale"
+	d.Kind, d.Summary = notify.KindDigest, "Digest: 56 firing alerts across 2 hosts"
 	dm := Render(d)
 	if dm.Subject != d.Summary || strings.Count(dm.Body, "• ") != maxListed || !strings.Contains(dm.Body, "…and 6 more") ||
 		!strings.Contains(dm.Body, "Open in upkeep.sh: https://app.example/dashboard\n") {
 		t.Fatalf("digest: %+v", dm)
 	}
-	one := alert(finding(notify.EventFindingOpened, "high", false))
+	one := alert(finding(notify.EventAlertFiring, "high", false))
 	one.Kind = notify.KindDigest
-	if got := Render(one).Subject; got != "Digest: High CVE-2024-3094 opened on web-1" {
+	if got := Render(one).Subject; got != "Digest: High CVE-2024-3094 in xz-utils on web-1" {
 		t.Fatalf("single digest subject %q", got)
 	}
-	noURL := finding(notify.EventFindingOpened, "low", false)
+	noURL := finding(notify.EventAlertFiring, "low", false)
 	noURL.URL = ""
 	if b := Render(alert(noURL, noURL)).Body; strings.Contains(b, "Open in upkeep.sh") {
 		t.Fatalf("link without URL: %s", b)
 	}
-	long := finding(notify.EventFindingOpened, "low", false)
+	long := finding(notify.EventAlertFiring, "low", false)
 	long.Host.Hostname = strings.Repeat("é", 300)
 	if s := Render(alert(long)).Subject; len(s) > maxSubject || !strings.HasSuffix(s, "…") {
 		t.Fatalf("subject len %d", len(s))
@@ -635,7 +657,7 @@ func TestSendClassifiesReplies(t *testing.T) {
 				}
 			})
 			_, err := newNotifier(f.guard()).Send(context.Background(), f.cfg(SecurityStartTLS, tc.cfg...),
-				alert(agentEvent(notify.EventAgentStale, "edge")))
+				alert(notSeen(notify.EventAlertFiring)))
 			if err == nil {
 				t.Fatal("no error")
 			}
@@ -662,7 +684,7 @@ func TestSendTransportErrorsAreRetried(t *testing.T) {
 	ln.Close()
 	n := newNotifier(&netguard.Guard{AllowPrivate: true})
 	cfg := notify.Config{"host": "127.0.0.1", "port": port, "security": SecurityNone, "from": "a@example.com", "to": "b@example.com"}
-	_, err = n.Send(context.Background(), cfg, alert(agentEvent(notify.EventAgentStale, "edge")))
+	_, err = n.Send(context.Background(), cfg, alert(notSeen(notify.EventAlertFiring)))
 	if err == nil || notify.IsPermanent(err) {
 		t.Fatalf("connection refused: %v", err)
 	}
@@ -671,7 +693,7 @@ func TestSendTransportErrorsAreRetried(t *testing.T) {
 	f := newFake(t, func(f *fakeSMTP) { f.silent = true })
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	_, err = newNotifier(f.guard()).Send(ctx, f.cfg(SecurityStartTLS), alert(agentEvent(notify.EventAgentStale, "edge")))
+	_, err = newNotifier(f.guard()).Send(ctx, f.cfg(SecurityStartTLS), alert(notSeen(notify.EventAlertFiring)))
 	var ne net.Error
 	if err == nil || notify.IsPermanent(err) || !errors.As(err, &ne) || !ne.Timeout() {
 		t.Fatalf("silent server: %v", err)
@@ -680,7 +702,7 @@ func TestSendTransportErrorsAreRetried(t *testing.T) {
 	// TLS mode against a plaintext server: a configuration mistake, permanent.
 	plain := newFake(t, nil)
 	_, err = newNotifier(plain.guard()).Send(context.Background(), plain.cfg(SecurityTLS),
-		alert(agentEvent(notify.EventAgentStale, "edge")))
+		alert(notSeen(notify.EventAlertFiring)))
 	if !notify.IsPermanent(err) || !strings.Contains(err.Error(), "did not answer with TLS") {
 		t.Fatalf("TLS to plaintext: %v", err)
 	}
@@ -698,7 +720,7 @@ func TestSendBlocksPrivateDestinations(t *testing.T) {
 		{"::1", "587"}, {"smtp.example.com", "2526"}, {"smtp.example.com", "443"},
 	} {
 		cfg := notify.Config{"host": hp[0], "port": hp[1], "from": "a@example.com", "to": "b@example.com"}
-		_, err := n.Send(context.Background(), cfg, alert(agentEvent(notify.EventAgentStale, "edge")))
+		_, err := n.Send(context.Background(), cfg, alert(notSeen(notify.EventAlertFiring)))
 		if !notify.IsPermanent(err) || !errors.Is(err, netguard.ErrBlocked) {
 			t.Errorf("%s:%s: want permanent ErrBlocked, got %v", hp[0], hp[1], err)
 		}
@@ -708,7 +730,7 @@ func TestSendBlocksPrivateDestinations(t *testing.T) {
 		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
 	}
 	_, err := n.Send(context.Background(), notify.Config{"host": "smtp.rebind.test", "from": "a@example.com", "to": "b@example.com"},
-		alert(agentEvent(notify.EventAgentStale, "edge")))
+		alert(notSeen(notify.EventAlertFiring)))
 	if !notify.IsPermanent(err) || !errors.Is(err, netguard.ErrBlocked) {
 		t.Errorf("rebinding name: %v", err)
 	}

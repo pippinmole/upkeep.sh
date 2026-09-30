@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/findings"
-	"github.com/pippinmole/upkeep.sh/server/internal/notify"
 )
 
 // ErrUnevaluated is returned by ReconcileHostFindings when the host
@@ -25,14 +24,15 @@ type ReconcileResult struct {
 	RunningKernel                    string // "" = unknown
 	Images                           int    // images in the vulnerable_image scope with a package list
 	Opened, Reopened, Kept, Resolved int
-	// AlertEvents is the number of finding.* alert_events written (only
-	// for users with an enabled rule for that event type).
-	AlertEvents int
 }
 
-// AfterReconcile runs inside the reconcile transaction after findings and
-// alert events are written (the worker uses it to InsertTx the
-// alert_evaluate job). An error rolls the reconcile back.
+// Changed reports whether any finding opened, reopened or resolved (the
+// host's vulnerability alert rules need evaluating).
+func (r ReconcileResult) Changed() bool { return r.Opened+r.Reopened+r.Resolved > 0 }
+
+// AfterReconcile runs inside the reconcile transaction after findings are
+// written (the worker uses it to InsertTx the host's alert rule
+// evaluation). An error rolls the reconcile back.
 type AfterReconcile func(ctx context.Context, tx pgx.Tx, res ReconcileResult) error
 
 // ReconcileHostFindings makes the host's vulnerable_package findings match
@@ -47,8 +47,7 @@ func (s *Store) ReconcileHostFindings(ctx context.Context, hostID string) (Recon
 }
 
 // ReconcileHostFindingsTx is ReconcileHostFindings with a hook run in its
-// transaction. Every open / reopen / resolve transition is also written to
-// the alert_events outbox in that transaction (store/alerting.go).
+// transaction.
 func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, after AfterReconcile) (ReconcileResult, error) {
 	var res ReconcileResult
 	tx, err := s.Pool.Begin(ctx)
@@ -167,39 +166,12 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 	if err := writeFindings(ctx, tx, hostID, plan, now); err != nil {
 		return res, err
 	}
-	keys, types := findingTransitions(existing, plan)
-	if res.AlertEvents, err = insertFindingEvents(ctx, tx, hostID, keys, types, now); err != nil {
-		return res, err
-	}
 	if after != nil {
 		if err := after(ctx, tx, res); err != nil {
 			return res, err
 		}
 	}
 	return res, tx.Commit(ctx)
-}
-
-// findingTransitions lists the plan's lifecycle transitions as
-// (dedup_key, alert event type) pairs.
-func findingTransitions(existing []findings.Existing, plan findings.Plan) (keys, types []string) {
-	for _, u := range plan.Upserts {
-		switch {
-		case u.New:
-			keys, types = append(keys, u.DedupKey), append(types, notify.EventFindingOpened)
-		case u.Reopened:
-			keys, types = append(keys, u.DedupKey), append(types, notify.EventFindingReopened)
-		}
-	}
-	if len(plan.Resolve) > 0 {
-		byID := make(map[string]string, len(existing))
-		for _, e := range existing {
-			byID[e.ID] = e.DedupKey
-		}
-		for _, id := range plan.Resolve {
-			keys, types = append(keys, byID[id]), append(types, notify.EventFindingResolved)
-		}
-	}
-	return keys, types
 }
 
 func loadCVEs(ctx context.Context, tx pgx.Tx, keys map[string]bool) (map[string]findings.CVE, error) {

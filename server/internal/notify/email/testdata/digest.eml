@@ -12,13 +12,13 @@ X-Upkeep-Delivery: 0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11
 
 2 events for Critical
 
-=E2=80=A2 KEV CVE-2024-3094 opened on web-1 (xz-utils)
-=E2=80=A2 Agent "edge" stopped reporting
+=E2=80=A2 KEV CVE-2024-3094 in xz-utils on web-1
+=E2=80=A2 Not seen for more than 30 minutes on database
 
 Open in upkeep.sh: https://app.example/dashboard
 
 Rule: Critical
 
 --=20
-Sent by upkeep.sh. Change what you're alerted about under Alerts in the das=
-hboard.
+Sent by upkeep.sh. Change what you're alerted about under Settings > Alert =
+rules in the dashboard.

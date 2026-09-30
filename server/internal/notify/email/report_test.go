@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -332,20 +333,35 @@ func TestNewReportRenderer(t *testing.T) {
 	}
 }
 
+var updateGolden = flag.Bool("update", false, "rewrite testdata/{alert,digest,test}.eml")
+
 // Alert, digest and test emails (and a report without a renderer) are
-// byte for byte what they were before report emails became HTML
-// (testdata/*.eml, captured then), whether or not a renderer is
-// configured; the renderer is never called for them.
+// byte for byte testdata/*.eml (captured when report emails became HTML;
+// alert and digest re-captured for alert rules, migration 0024: `go test
+// ./internal/notify/email -run TestPlainEmailsUnchanged -update`), whether
+// or not a renderer is configured; the renderer is never called for them.
 func TestPlainEmailsUnchanged(t *testing.T) {
 	snap, _ := fixture(t)
 	rs := newRenderServer(t, renderOK(testSubject, testHTML, testText))
-	dig := alert(finding(notify.EventFindingOpened, "high", true), agentEvent(notify.EventAgentStale, "edge"))
+	dig := alert(finding(notify.EventAlertFiring, "high", true), notSeen(notify.EventAlertFiring))
 	dig.Kind, dig.Summary = notify.KindDigest, "2 events for Critical"
 	test := notify.Notification{Version: 1, ID: "n-t", DeliveryID: "d-test", Kind: notify.KindTest, Summary: "Test notification from upkeep.sh"}
 	cases := map[string]notify.Notification{
-		"alert": alert(finding(notify.EventFindingOpened, "high", true)), "digest": dig, "test": test,
+		"alert": alert(finding(notify.EventAlertFiring, "high", true)), "digest": dig, "test": test,
 	}
 	f := newFake(t, nil)
+	if *updateGolden {
+		s := settings{from: "alerts@example.com", to: []string{"ops@example.com", "oncall@example.org"}}
+		for name, note := range cases {
+			msg, err := newNotifier(&netguard.Guard{}).buildMessage(s, note, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile("testdata/"+name+".eml", msg, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	for name, note := range cases {
 		golden, err := os.ReadFile("testdata/" + name + ".eml")
 		if err != nil {
