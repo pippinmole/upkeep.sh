@@ -25,12 +25,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 🚚 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Docker and Compose versions
+      - name: 📝 Docker and Compose versions
         run: |
           docker version --format 'engine {{.Server.Version}} (API {{.Server.APIVersion}})'
           docker compose version
-      - name: Check the compose example's mounts
+      - name: 🧪 Check the compose example's mounts
         run: agent/test/host-mount/run.sh agent/docker-compose.example.yml
