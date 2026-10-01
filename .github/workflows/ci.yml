@@ -1,6 +1,6 @@
 # Build, lint and test every component on every push and pull request.
-# Job `name:`s are the check names that branch protection requires, so
-# keep them stable. Actions are pinned by commit SHA (tag in the comment).
+# Job `name:`s (emoji included) are the check names that branch protection
+# requires, so keep them stable. Actions are pinned by commit SHA (tag in the comment).
 name: CI
 
 on:
@@ -17,33 +17,35 @@ permissions:
 
 jobs:
   agent:
-    name: Agent (Go)
+    name: 🧪 Agent (Go)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 🚚 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: 🏗️ Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
-      - name: gofmt
+      - name: 🧹 gofmt
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then echo "gofmt needed on:"; echo "$unformatted"; exit 1; fi
-      - name: go build
+      - name: 🏗️ go build
         run: go build ./...
-      - name: go vet
+      - name: 🧹 go vet
         run: go vet ./...
-      - name: go test
+      - name: 🧪 go test
         run: go test ./...
 
   server:
-    name: Server (Go)
+    name: 🧪 Server (Go)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -68,32 +70,34 @@ jobs:
       # step below fails if any of them skipped.
       SW_TEST_DATABASE_URL: postgres://ci:ci@localhost:5432/upkeep_ci?sslmode=disable
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 🚚 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: 🏗️ Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: gofmt
+      - name: 🧹 gofmt
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then echo "gofmt needed on:"; echo "$unformatted"; exit 1; fi
-      - name: go build
+      - name: 🏗️ go build
         run: go build ./...
-      - name: go vet
+      - name: 🧹 go vet
         run: go vet ./...
       # The integration tests expect a fully migrated database; apply
       # server/migrations with the golang-migrate CLI (the server image's
       # /migrate embeds the same files).
-      - name: Apply migrations
+      - name: ⚙️ Apply migrations
         working-directory: .
         run: |
           docker run --rm --network host \
             -v "$PWD/server/migrations:/migrations:ro" \
             migrate/migrate:v4.20.1 \
             -path /migrations -database "$SW_TEST_DATABASE_URL" up
-      - name: go test (with Postgres)
+      - name: 🧪 go test (with Postgres)
         # Explicit bash gets -o pipefail; the default shell doesn't, and
         # the tee below would otherwise hide a failing go test.
         shell: bash
@@ -109,7 +113,7 @@ jobs:
           fi
 
   web:
-    name: Web (Next.js)
+    name: 🧪 Web (Next.js)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -122,32 +126,35 @@ jobs:
       AUTH_SECRET: build-time-placeholder-not-used-at-runtime
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 🚚 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: 🏗️ Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2 # keep in step with web/Dockerfile's oven/bun tag
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: 💾 Bun install cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
-      - name: bun install
+      - name: 🏗️ bun install
         run: bun install --frozen-lockfile
-      - name: Lint (oxlint)
+      - name: 🧹 Lint (oxlint)
         run: bun run lint
-      - name: Format check (oxfmt)
+      - name: 🧹 Format check (oxfmt)
         run: bun run format:check
-      - name: Typecheck
+      - name: 🧹 Typecheck
         run: bun run typecheck
-      - name: bun test
+      - name: 🧪 bun test
         run: bun test
-      - name: Build
+      - name: 🏗️ Build
         run: bun run build
 
   docker:
-    name: Docker build (${{ matrix.image }})
+    name: 🐳 Docker build (${{ matrix.image }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -155,11 +162,14 @@ jobs:
       matrix:
         image: [agent, server, web]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 🚚 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - name: 🏗️ Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: 🚀 Build Docker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.image }}
           push: false
