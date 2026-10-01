@@ -11,7 +11,7 @@ import { getFleetVulnCounts, getFleetVulnList } from "@/lib/queries-vuln-list";
 import { oneOf, type SearchParams, withParams } from "@/lib/search-params";
 import { SEVERITIES } from "@/lib/severity";
 import { requireViewer } from "@/lib/viewer";
-import { FLEET_VULN_SORTS, FLEET_VULNS_TABLE, VULN_FIXES, VULN_KINDS } from "@/lib/vuln-tables";
+import { FLEET_VULN_SORTS, fleetVulnsTable, VULN_FIXES, VULN_KINDS } from "@/lib/vuln-tables";
 
 import { FleetVulnsTable } from "./fleet-table";
 import { KindSummary } from "./kind-summary";
@@ -32,15 +32,15 @@ export default async function FleetVulnerabilitiesPage({
   const sp = await searchParams;
 
   const status = oneOf(sp, "status", ["open", "resolved"] as const) ?? "open";
-  const state = tableStateFromParams(sp, FLEET_VULNS_TABLE);
+  const state = tableStateFromParams(sp, fleetVulnsTable(status));
   const filters = {
     status,
     q: state.globalFilter || null,
     kinds: tableFacet(state, "kind", VULN_KINDS),
     severities: tableFacet(state, "severity", SEVERITIES),
     kev: tableFacet(state, "kev", ["1"]) !== null,
-    fix: tableFacet(state, "fix", VULN_FIXES),
-    sort: tableSort(state, FLEET_VULN_SORTS, "severity"),
+    fix: status === "open" ? tableFacet(state, "fix", VULN_FIXES) : null,
+    sort: tableSort(state, FLEET_VULN_SORTS, status === "resolved" ? "seen" : "severity"),
     page: state.pagination.pageIndex + 1,
     pageSize: state.pagination.pageSize,
   };
@@ -49,6 +49,10 @@ export default async function FleetVulnerabilitiesPage({
     getFleetVulnCounts(workspaceId),
   ]);
   const basePath = "/dashboard/vulnerabilities";
+  // Switching status drops the sort (each status has its own default) and
+  // the Fix facet, which Resolved doesn't have.
+  const statusHref = (s: "open" | "resolved") =>
+    `${basePath}${withParams(sp, { status: s === "open" ? null : s, page: null, sort: null, fix: null })}`;
   const filtered = filters.q || filters.kinds || filters.severities || filters.kev || filters.fix;
   const header = (
     <PageHeader
@@ -86,7 +90,7 @@ export default async function FleetVulnerabilitiesPage({
             description={`No package on your ${counts.hosts === 1 ? "host" : `${counts.hosts} hosts`}, or in the images their containers run, matches a known vulnerability. New advisories are matched as they're published.`}
             action={
               <Button asChild variant="outline">
-                <Link href={`${basePath}?status=resolved`}>Resolved vulnerabilities</Link>
+                <Link href={`${basePath}?status=resolved`}>View resolved</Link>
               </Button>
             }
           />
@@ -104,19 +108,26 @@ export default async function FleetVulnerabilitiesPage({
           label="Vulnerability status"
           items={[
             {
-              href: `${basePath}${withParams(sp, { status: null, page: null })}`,
+              href: statusHref("open"),
               label: "Open",
               active: status === "open",
             },
             {
-              href: `${basePath}${withParams(sp, { status: "resolved", page: null })}`,
-              label: "Resolved everywhere",
+              href: statusHref("resolved"),
+              label: "Resolved",
               active: status === "resolved",
             },
           ]}
         />
       </div>
-      <KindSummary counts={counts} basePath={basePath} />
+      {status === "open" ? (
+        <KindSummary counts={counts} basePath={basePath} />
+      ) : (
+        <p className="text-muted-foreground text-sm">
+          No longer found on any host or in any image. A vulnerability moves back to Open if it
+          reappears.
+        </p>
+      )}
 
       <FleetVulnsTable
         // Remount on status change: the columns differ.
@@ -128,7 +139,7 @@ export default async function FleetVulnerabilitiesPage({
         emptyMessage={
           status === "open"
             ? "Nothing on this page."
-            : "No vulnerabilities have been resolved on every host yet."
+            : "Nothing resolved yet. A vulnerability appears here once no host or image is affected by it."
         }
       />
     </main>

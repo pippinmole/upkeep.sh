@@ -23,6 +23,7 @@ import {
 // (`h.workspace_id = $1`); fleet-wide reads skip archived hosts.
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
+const iso = (d: Date | null): string | null => d?.toISOString() ?? null;
 
 // ?kind= -> findings.kind values; no filter = both.
 function findingKinds(kinds: VulnKind[] | null): string[] {
@@ -143,6 +144,7 @@ export type FleetVulnRow = {
   proOnly: boolean; // some affected host's only fix is Ubuntu Pro
   noFix: boolean; // some affected package has no fix at all
   firstSeenAt: string;
+  resolvedAt: string | null; // latest resolved_at, resolved rows only
   description: string | null;
 };
 
@@ -168,6 +170,7 @@ type FleetDbRow = {
   pro_only: boolean;
   no_fix: boolean;
   first_seen_at: Date;
+  resolved_at: Date | null;
   description: string | null;
   refs: string[] | null;
   containers: string[] | null;
@@ -204,6 +207,7 @@ function mapFleetRow(r: FleetDbRow): FleetVulnRow {
     proOnly: r.pro_only,
     noFix: r.no_fix,
     firstSeenAt: r.first_seen_at.toISOString(),
+    resolvedAt: iso(r.resolved_at),
     description: r.description,
   };
 }
@@ -224,7 +228,10 @@ export async function getFleetVulnList(
     severity: `g.top_key ${dir}, g.affected_hosts DESC, ${tie}`,
     vuln: `g.vuln_key ${dir}, g.top_key DESC, ${tie}`,
     hosts: `g.affected_hosts ${dir}, g.top_key DESC, ${tie}`,
-    first_seen: `g.first_seen_at ${dir}, g.top_key DESC, ${tie}`,
+    seen:
+      f.status === "resolved"
+        ? `g.resolved_at ${dir}, g.top_key DESC, ${tie}`
+        : `g.first_seen_at ${dir}, g.top_key DESC, ${tie}`,
   }[f.sort.id];
   const { rows } = await pool.query<FleetDbRow>(
     `WITH uf AS (
@@ -249,6 +256,7 @@ export async function getFleetVulnList(
               coalesce(bool_or(uf.requires_pro) FILTER (WHERE uf.status = $2), false) AS pro_only,
               coalesce(bool_or(uf.fixed_version IS NULL) FILTER (WHERE uf.status = $2), false) AS no_fix,
               min(uf.first_seen_at) AS first_seen_at,
+              max(uf.resolved_at) FILTER (WHERE uf.status = 'resolved') AS resolved_at,
               bool_or(${qMatchSql(4, "uf")}) AS q_match
        FROM uf
        GROUP BY uf.vuln_key, uf.is_image, uf.image_id, uf.image_os, uf.image_arch, uf.image_variant

@@ -17,7 +17,7 @@ import type { FleetVulnRow } from "@/lib/queries-vuln-list";
 import { formatDate, formatDateTime } from "@/lib/time";
 
 // Fleet Vulnerabilities columns: one row per (vuln_key, host packages) and
-// per (vuln_key, image key). Sortable ids match FLEET_VULNS_TABLE.sortKeys;
+// per (vuln_key, image key). Sortable ids match FLEET_VULN_SORTS;
 // kind (Where), severity, kev and fix carry the facets.
 
 const col = dataTableColumnHelper<FleetVulnRow>();
@@ -25,6 +25,7 @@ const col = dataTableColumnHelper<FleetVulnRow>();
 const dash = <span className="text-muted-foreground">—</span>;
 
 export function fleetColumns(status: "open" | "resolved") {
+  const resolved = status === "resolved";
   return col.columns([
     col.accessor("vulnKey", {
       id: "vuln",
@@ -94,51 +95,63 @@ export function fleetColumns(status: "open" | "resolved") {
       header: ({ column }) => (
         <DataTableColumnHeader
           column={column}
-          title={status === "open" ? "Affected hosts" : "Previously affected"}
+          title={resolved ? "Hosts affected" : "Affected hosts"}
           className="-mr-3 ml-0"
         />
       ),
       meta: { className: "text-right tabular-nums" },
       cell: ({ row }) => {
         const r = row.original;
+        if (resolved) {
+          return (
+            <span title="Hosts this was found on before it was resolved">{r.previousHosts}</span>
+          );
+        }
         return (
           <>
-            {status === "open" ? r.affectedHosts : r.previousHosts}
-            {status === "open" && r.previousHosts > 0 && (
+            {r.affectedHosts}
+            {r.previousHosts > 0 && (
               <span
                 className="text-muted-foreground block text-xs"
-                title="Hosts where a finding for this vulnerability was resolved"
+                title="Hosts where this vulnerability was found and has since been resolved"
               >
-                +{r.previousHosts} resolved
+                +{r.previousHosts} {r.previousHosts === 1 ? "host" : "hosts"} resolved
               </span>
             )}
           </>
         );
       },
     }),
-    col.accessor((r) => (r.anyFix ? "available" : r.proOnly ? "pro" : "none"), {
-      id: "fix",
-      header: "Fix",
-      enableSorting: false,
-      cell: ({ row }) => {
-        const r = row.original;
-        if (r.image) return <ImageFixCell fixes={r.imageFixes} />;
-        return (
-          <div className="flex flex-col items-start gap-1">
-            {r.anyFix && <span className="text-sm">Upgrade available</span>}
-            {r.proOnly && <ProFixBadge />}
-            {r.noFix && <NoFixBadge />}
-          </div>
-        );
-      },
-    }),
-    col.accessor("firstSeenAt", {
-      id: "first_seen",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="First seen" />,
-      meta: { className: "text-muted-foreground whitespace-nowrap" },
-      cell: ({ getValue }) => (
-        <span title={formatDateTime(getValue())}>{formatDate(getValue())}</span>
+    // Resolved rows have no Fix column: their fix data is from when they
+    // were open, and resolved can also mean removed.
+    ...(resolved ? [] : [fixColumn]),
+    col.accessor((r) => (resolved ? r.resolvedAt : r.firstSeenAt), {
+      id: "seen",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={resolved ? "Resolved" : "First seen"} />
       ),
+      meta: { className: "text-muted-foreground whitespace-nowrap" },
+      cell: ({ getValue }) => {
+        const at = getValue();
+        return at ? <span title={formatDateTime(at)}>{formatDate(at)}</span> : dash;
+      },
     }),
   ]);
 }
+
+const fixColumn = col.accessor((r) => (r.anyFix ? "available" : r.proOnly ? "pro" : "none"), {
+  id: "fix",
+  header: "Fix",
+  enableSorting: false,
+  cell: ({ row }) => {
+    const r = row.original;
+    if (r.image) return <ImageFixCell fixes={r.imageFixes} />;
+    return (
+      <div className="flex flex-col items-start gap-1">
+        {r.anyFix && <span className="text-sm">Upgrade available</span>}
+        {r.proOnly && <ProFixBadge />}
+        {r.noFix && <NoFixBadge />}
+      </div>
+    );
+  },
+});

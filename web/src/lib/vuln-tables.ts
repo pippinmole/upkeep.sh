@@ -40,16 +40,22 @@ export const VULN_FIX_LABEL: Record<VulnFix, string> = {
 export const FIX_FACET_OPTIONS = VULN_FIXES.map((f) => ({ value: f, label: VULN_FIX_LABEL[f] }));
 
 // Fleet list: one row per (vuln_key, host packages) and per (vuln_key,
-// image key).
-export const FLEET_VULN_SORTS = ["severity", "vuln", "hosts", "first_seen"] as const;
+// image key). `seen` is the earliest first_seen_at for open rows and the
+// latest resolved_at for resolved ones (the default sort there). Resolved
+// rows have no Fix facet: the fix data is from when they were open.
+export const FLEET_VULN_SORTS = ["severity", "vuln", "hosts", "seen"] as const;
 export type FleetVulnSort = (typeof FLEET_VULN_SORTS)[number];
 
-export const FLEET_VULNS_TABLE: TableUrlOptions = {
-  sortKeys: FLEET_VULN_SORTS,
-  filterKeys: ["kind", "severity", "kev", "fix"],
-  defaultSort: { id: "severity", desc: true },
-  defaultPageSize: 50,
-};
+export function fleetVulnsTable(status: "open" | "resolved"): TableUrlOptions {
+  return {
+    sortKeys: FLEET_VULN_SORTS,
+    filterKeys:
+      status === "resolved" ? ["kind", "severity", "kev"] : ["kind", "severity", "kev", "fix"],
+    defaultSort:
+      status === "resolved" ? { id: "seen", desc: true } : { id: "severity", desc: true },
+    defaultPageSize: 50,
+  };
+}
 
 // Host tab: one row per finding. `seen` is first_seen_at for open
 // findings and resolved_at for resolved ones (the default sort there).
