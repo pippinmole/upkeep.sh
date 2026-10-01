@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   guard:
-    name: Check tag and version pins
+    name: 🏷️ Check tag and version pins
     runs-on: ubuntu-24.04
     outputs:
       publish: ${{ steps.check.outputs.publish }}
@@ -108,7 +108,7 @@ jobs:
   # and provenance attestations) goes to a local OCI layout, which the
   # last step checks.
   dry-run:
-    name: Dry run (${{ matrix.image }})
+    name: 🏗️ Dry run (${{ matrix.image }})
     needs: guard
     if: needs.guard.outputs.publish != 'true'
     runs-on: ubuntu-24.04
@@ -179,7 +179,7 @@ jobs:
   # cosign keyless (GitHub OIDC). `environment: release` lets the owner
   # require an approval before anything is published (docs/RELEASING.md).
   publish:
-    name: Publish (${{ matrix.image }})
+    name: 🚀 Publish (${{ matrix.image }})
     needs: guard
     if: needs.guard.outputs.publish == 'true'
     runs-on: ubuntu-24.04

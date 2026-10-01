@@ -3,8 +3,8 @@
 # socket (docker.sock, containerd, D-Bus, systemd) under /host, and that
 # the Docker opt-in line still gives it the Docker socket. The job drives
 # the compose example itself, so it can't drift from the docs; see
-# agent/test/host-mount/run.sh. The job `name:` is a required check, so
-# keep it stable. Actions are pinned by commit SHA (tag in the comment).
+# agent/test/host-mount/run.sh. The job `name:` (emoji included) is a required
+# check, so keep it stable. Actions are pinned by commit SHA (tag in the comment).
 name: Host mount
 
 on:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   host-mount:
-    name: Agent host mount (no host sockets)
+    name: 🧪 Agent host mount (no host sockets)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

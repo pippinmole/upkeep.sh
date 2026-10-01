@@ -1,6 +1,6 @@
 # Build, lint and test every component on every push and pull request.
-# Job `name:`s are the check names that branch protection requires, so
-# keep them stable. Actions are pinned by commit SHA (tag in the comment).
+# Job `name:`s (emoji included) are the check names that branch protection
+# requires, so keep them stable. Actions are pinned by commit SHA (tag in the comment).
 name: CI
 
 on:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   agent:
-    name: Agent (Go)
+    name: 🧪 Agent (Go)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -45,7 +45,7 @@ jobs:
         run: go test ./...
 
   server:
-    name: Server (Go)
+    name: 🧪 Server (Go)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -113,7 +113,7 @@ jobs:
           fi
 
   web:
-    name: Web (Next.js)
+    name: 🧪 Web (Next.js)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -154,7 +154,7 @@ jobs:
         run: bun run build
 
   docker:
-    name: Docker build (${{ matrix.image }})
+    name: 🐳 Docker build (${{ matrix.image }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
