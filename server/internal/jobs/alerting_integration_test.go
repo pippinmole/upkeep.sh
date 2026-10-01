@@ -58,9 +58,11 @@ func (f *fakeNotifier) Spec() notify.Spec {
 		{Key: "token", Label: "Token", Type: notify.FieldSecret, Secret: true},
 	}}
 }
+
 func (f *fakeNotifier) Validate(cfg notify.Config) error {
 	return notify.ValidateRequired(f.Spec(), cfg)
 }
+
 func (f *fakeNotifier) Send(_ context.Context, cfg notify.Config, n notify.Notification) (notify.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -74,6 +76,7 @@ func (f *fakeNotifier) Send(_ context.Context, cfg notify.Config, n notify.Notif
 	f.cfgs = append(f.cfgs, cfg)
 	return notify.Result{StatusCode: 200}, nil
 }
+
 func (f *fakeNotifier) all() []notify.Notification {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -276,7 +279,7 @@ const sshRule = `{"property":"listening_port","operator":"in","value":[22],"opti
 // ---- Default rules ----
 
 // Every new workspace gets the SSH default (migration 0024's trigger), and
-// every catalogue property has an evaluator.
+// every catalog property has an evaluator.
 func TestDefaultRuleSeeded(t *testing.T) {
 	f := newAlertFixture(t) // asserts the seeded rule, then removes it
 	f.exec(`INSERT INTO workspaces (name) VALUES ($1)`, "seed-"+f.tag+"@test.invalid")
@@ -691,7 +694,7 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 	fake := &fakeNotifier{}
 	registry := notify.NewRegistry(webhook.New(guard), fake)
 
-	const secret = "whsec_integration"
+	const secret = "whsec_integration" //nolint:gosec // test fixture, not a credential
 	hook := f.channel("ops webhook", "webhook", map[string]string{"url": srv.URL + "/hook"}, map[string]string{"secret": secret})
 	fakeCh := f.channel("fake room", "fake", map[string]string{"room": "#sec"}, map[string]string{"token": "t0k"})
 	ruleID := f.rule("High and up", `{"property":"vulnerability","operator":"severity_at_least","value":"high"}`,
@@ -706,8 +709,10 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 	if _, err := f.s.UpsertAdvisories(ctx, []osv.Advisory{{
 		ID: "UBUNTU-" + cve, Source: f.tag, VulnKey: cve, CVEIDs: []string{cve}, Aliases: []string{},
 		Upstream: []string{cve}, Related: []string{}, Modified: time.Now().UTC(), Raw: []byte(`{}`), ContentHash: f.tag,
-		Affected: []osv.AffectedRow{{Distro: f.tag, Release: "jammy", SourcePackage: "swlib", Channel: osv.ChannelStandard,
-			Introduced: "0", FixedVersion: &fixed, DistroSeverity: &sev, Status: "fixed", Ecosystem: "Test:22.04"}},
+		Affected: []osv.AffectedRow{{
+			Distro: f.tag, Release: "jammy", SourcePackage: "swlib", Channel: osv.ChannelStandard,
+			Introduced: "0", FixedVersion: &fixed, DistroSeverity: &sev, Status: "fixed", Ecosystem: "Test:22.04",
+		}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -718,7 +723,8 @@ func TestAlertPipelineEndToEnd(t *testing.T) {
 			HostID: f.hostID, SchemaVersion: 1, CollectedAt: at, InventoryAt: at,
 			OSID: f.tag, OSVersionID: "22.04", OSCodename: "jammy",
 			Inventory: []inventory.Set{inventory.NewSet("deb", f.tag, "jammy", []inventory.Item{
-				{Name: "libsw1", Version: version, Arch: "amd64", Source: "swlib", SourceVersion: version}})},
+				{Name: "libsw1", Version: version, Arch: "amd64", Source: "swlib", SourceVersion: version},
+			})},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -840,12 +846,12 @@ func TestDeliverWorker(t *testing.T) {
 		}
 		return did
 	}
-	job := func(id string, attempt, max int) *river.Job[AlertDeliverArgs] {
-		return &river.Job[AlertDeliverArgs]{JobRow: &rivertype.JobRow{Attempt: attempt, MaxAttempts: max}, Args: AlertDeliverArgs{DeliveryID: id}}
+	job := func(id string, attempt, limit int) *river.Job[AlertDeliverArgs] {
+		return &river.Job[AlertDeliverArgs]{JobRow: &rivertype.JobRow{Attempt: attempt, MaxAttempts: limit}, Args: AlertDeliverArgs{DeliveryID: id}}
 	}
 	status := func(id string) (s string, attempts int) {
 		_ = f.s.Pool.QueryRow(ctx, `SELECT status, attempts FROM notification_deliveries WHERE id = $1`, id).Scan(&s, &attempts)
-		return
+		return s, attempts
 	}
 
 	ok := newDelivery(ch)

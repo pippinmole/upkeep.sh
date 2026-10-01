@@ -1,4 +1,4 @@
-// Package imagescan catalogues a public container image on the server:
+// Package imagescan catalogs a public container image on the server:
 // it pulls the image's platform layers by digest through our registry
 // client, extracts them into a temporary root filesystem and runs Syft
 // (as a library, in a resource-limited child process) over it
@@ -120,7 +120,7 @@ func (e *Error) Unwrap() error { return e.Err }
 
 var errUnsupported = errors.New("unsupported image")
 
-// Scan pulls and catalogues the platform p of the image ref names
+// Scan pulls and catalogs the platform p of the image ref names
 // (imageID as for registry.FetchSBOM). Every temporary file is removed
 // before it returns, whatever happened.
 func (s *Scanner) Scan(ctx context.Context, ref registry.Ref, p registry.Platform, imageID string) (res *Result, err error) {

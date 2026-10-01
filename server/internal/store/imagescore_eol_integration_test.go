@@ -43,14 +43,20 @@ func TestImageScoreEndOfLifeRelease(t *testing.T) {
 		f.onHost(f.hostID, k, name+":1")
 		var pkgs []ImagePackage
 		for _, n := range []string{"libc6", "zlib1g", "bash"} {
-			pkgs = append(pkgs, ImagePackage{Package: purl.Package{Ecosystem: "deb", Distro: "debian", Release: release,
-				KnownType: true, Item: inventory.Item{Name: n + "-" + f.distro, Version: "1.0-1", Arch: "amd64"}}})
+			pkgs = append(pkgs, ImagePackage{Package: purl.Package{
+				Ecosystem: "deb", Distro: "debian", Release: release,
+				KnownType: true, Item: inventory.Item{Name: n + "-" + f.distro, Version: "1.0-1", Arch: "amd64"},
+			}})
 		}
 		// One language package: never assessed yet, whatever the release.
-		pkgs = append(pkgs, ImagePackage{Package: purl.Package{Ecosystem: "gem", KnownType: true,
-			Item: inventory.Item{Name: "rack-" + f.distro, Version: "2.2.8"}}})
-		res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{Key: k, Source: SBOMSourceAttestation,
-			OS: purl.OSRelease{ID: "debian", VersionCodename: release}, Release: release, Packages: pkgs})
+		pkgs = append(pkgs, ImagePackage{Package: purl.Package{
+			Ecosystem: "gem", KnownType: true,
+			Item: inventory.Item{Name: "rack-" + f.distro, Version: "2.2.8"},
+		}})
+		res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{
+			Key: k, Source: SBOMSourceAttestation,
+			OS: purl.OSRelease{ID: "debian", VersionCodename: release}, Release: release, Packages: pkgs,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}

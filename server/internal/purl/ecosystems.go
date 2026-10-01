@@ -27,7 +27,7 @@ type typeRule struct {
 	Name func(namespace, name string) string
 }
 
-// knownTypes is the explicit table of purl types we recognise. A type not
+// knownTypes is the explicit table of purl types we recognize. A type not
 // listed is still stored (inventory first; see Map), under its own type
 // as the ecosystem and "namespace/name" as the name.
 //

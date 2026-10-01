@@ -3,6 +3,7 @@ package cvefeeds
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -67,7 +68,7 @@ func TestEPSSReader(t *testing.T) {
 	var rows []EPSSScore
 	for {
 		s, err := r.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

@@ -56,7 +56,7 @@ type Reboot struct {
 //     tmpfs also holds the host's control sockets). A missing flag file is
 //     then the normal "no reboot pending".
 //   - the kernels: a reboot is pending when dpkg has a newer kernel image
-//     of the running kernel's flavour installed than the one running
+//     of the running kernel's flavor installed than the one running
 //     (Debian version ordering). runningKernel is the release from
 //     /proc/sys/kernel/osrelease; pkgs is the dpkg inventory, nil when it
 //     wasn't collected.
@@ -68,7 +68,7 @@ func CollectRebootRequired(fsys fs.FS, runVisible bool, runningKernel string, pk
 
 	if !runVisible {
 		if kernelErr != nil {
-			return Reboot{}, fmt.Errorf("%w: /run/reboot-required isn't visible (the host's /run isn't mounted, by design) and %v", ErrRebootUnknown, kernelErr)
+			return Reboot{}, fmt.Errorf("%w: /run/reboot-required isn't visible (the host's /run isn't mounted, by design) and %w", ErrRebootUnknown, kernelErr)
 		}
 		return Reboot{Required: kernelReq, Packages: kernelPkgs, Source: RebootSourceKernel}, nil
 	}

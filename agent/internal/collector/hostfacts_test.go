@@ -40,10 +40,14 @@ svc:x:998:
 		t.Fatalf("err=%v truncated=%v", err, truncated)
 	}
 	want := []User{
-		{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/zsh",
-			Groups: []string{"alice", "adm", "docker", "sudo"}, LoginShell: true, Admin: true},
-		{Name: "bob", UID: 1001, GID: 1001, Home: "/home/bob",
-			Groups: []string{"bob", "docker"}, LoginShell: true}, // empty shell = /bin/sh
+		{
+			Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/zsh",
+			Groups: []string{"alice", "adm", "docker", "sudo"}, LoginShell: true, Admin: true,
+		},
+		{
+			Name: "bob", UID: 1001, GID: 1001, Home: "/home/bob",
+			Groups: []string{"bob", "docker"}, LoginShell: true,
+		}, // empty shell = /bin/sh
 		{Name: "daemon", UID: 1, GID: 1, Home: "/usr/sbin", Shell: "/usr/sbin/nologin", Groups: []string{"daemon"}},
 		{Name: "root", UID: 0, GID: 0, Home: "/root", Shell: "/bin/bash", Groups: []string{"root"}, LoginShell: true, Admin: true},
 		{Name: "svc", UID: 998, GID: 998, Home: "/var/lib/svc", Shell: "/bin/false", Groups: []string{"svc"}},
@@ -117,8 +121,10 @@ func TestCollectDeletedLibs(t *testing.T) {
 		UnreadableProcesses: 1,
 	}
 	if os.Geteuid() == 0 {
-		want.Processes = append(want.Processes, DeletedLibProcess{PID: 960, Name: "postgres",
-			Unit: "postgresql@15-main.service", Libraries: want.Processes[0].Libraries})
+		want.Processes = append(want.Processes, DeletedLibProcess{
+			PID: 960, Name: "postgres",
+			Unit: "postgresql@15-main.service", Libraries: want.Processes[0].Libraries,
+		})
 		want.UnreadableProcesses = 0
 	}
 	if !reflect.DeepEqual(got, want) {

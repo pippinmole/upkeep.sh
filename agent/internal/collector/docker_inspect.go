@@ -38,7 +38,8 @@ var errDockerGone = errors.New("docker object gone")
 // failures say nothing about the objects, and the collector fails rather
 // than send a list of partial entries.
 func dockerInspectAll[R any](ctx context.Context, what string, ids []string,
-	inspect func(context.Context, string) (R, error)) (out []R, errs []error, err error) {
+	inspect func(context.Context, string) (R, error),
+) (out []R, errs []error, err error) {
 	out = make([]R, len(ids))
 	errs = make([]error, len(ids))
 	var (

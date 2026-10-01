@@ -1,8 +1,6 @@
 module github.com/pippinmole/upkeep.sh/server
 
-go 1.26.3
-
-toolchain go1.27.1
+go 1.27.1
 
 require (
 	github.com/anchore/syft v1.52.0

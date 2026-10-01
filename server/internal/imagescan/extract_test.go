@@ -24,7 +24,7 @@ type tarEntry struct {
 func layerTar(t *testing.T, gz bool, ents ...tarEntry) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	var w = &buf
+	w := &buf
 	var zw *gzip.Writer
 	tw := tar.NewWriter(w)
 	if gz {

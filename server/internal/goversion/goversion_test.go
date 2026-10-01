@@ -30,7 +30,7 @@ func TestXModSemverTable(t *testing.T) {
 	}
 	for i, ri := range rows {
 		if Valid(ri.in) != (ri.out != "") {
-			t.Errorf("Valid(%q) = %v", ri.in, !(ri.out != ""))
+			t.Errorf("Valid(%q) = %v", ri.in, ri.out == "")
 		}
 		for j, rj := range rows {
 			if ri.out == "" || rj.out == "" {

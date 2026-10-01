@@ -12,6 +12,7 @@ package osv
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -96,10 +97,17 @@ func Parse(data []byte) (*Record, error) {
 		key string
 		dst any
 	}{
-		{"id", &r.ID}, {"summary", &r.Summary}, {"details", &r.Details},
-		{"aliases", &r.Aliases}, {"upstream", &r.Upstream}, {"related", &r.Related},
-		{"published", &r.Published}, {"modified", &r.Modified}, {"withdrawn", &r.Withdrawn},
-		{"severity", &r.Severity}, {"affected", &r.rawAffected},
+		{"id", &r.ID},
+		{"summary", &r.Summary},
+		{"details", &r.Details},
+		{"aliases", &r.Aliases},
+		{"upstream", &r.Upstream},
+		{"related", &r.Related},
+		{"published", &r.Published},
+		{"modified", &r.Modified},
+		{"withdrawn", &r.Withdrawn},
+		{"severity", &r.Severity},
+		{"affected", &r.rawAffected},
 	} {
 		if v, ok := top[f.key]; ok {
 			if err := json.Unmarshal(v, f.dst); err != nil {
@@ -108,7 +116,7 @@ func Parse(data []byte) (*Record, error) {
 		}
 	}
 	if r.ID == "" {
-		return nil, fmt.Errorf("osv record without id")
+		return nil, errors.New("osv record without id")
 	}
 	// database_specific is free-form per database: read the one field we
 	// use and ignore anything else (a distro may put another shape there).

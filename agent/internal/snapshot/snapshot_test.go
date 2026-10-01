@@ -181,12 +181,14 @@ func TestCollectNonLinuxAndUndetected(t *testing.T) {
 				t.Errorf("os status = %s, want %s", got, tt.wantOS)
 			}
 			// No Linux collector, and no dpkg, may run on a non-Linux host.
-			for _, name := range []string{"deb_packages", collector.CollectorHostIdentity, collector.CollectorKernel,
+			for _, name := range []string{
+				"deb_packages", collector.CollectorHostIdentity, collector.CollectorKernel,
 				collector.CollectorTCPListeners, collector.CollectorUDPListeners, collector.CollectorRebootRequired,
 				collector.CollectorUptime, collector.CollectorArch, collector.CollectorSystemdServices,
 				collector.CollectorLocalUsers, collector.CollectorDeletedLibs, collector.CollectorUnattendedUpgrades,
 				collector.CollectorDockerEngine, collector.CollectorDockerContainers, collector.CollectorDockerImages,
-				collector.CollectorDockerNetworks, collector.CollectorSwarmServices} {
+				collector.CollectorDockerNetworks, collector.CollectorSwarmServices,
+			} {
 				if st := snap.Collectors[name]; st.Status != collector.StatusSkipped {
 					t.Errorf("%s = %+v, want skipped", name, st)
 				}

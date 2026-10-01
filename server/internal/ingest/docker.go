@@ -174,11 +174,13 @@ func containersSet(in []DockerContainer, additive bool) hostfacts.Set {
 		inspectErr := hostfacts.Clip(c.InspectError, maxDockerInspectErrorSize)
 		r := hostfacts.Row{
 			Key: id,
-			Values: []any{id, hostfacts.Clip(c.Name, 256), nullText(c.Image, 512), nullText(c.ImageID, 128), nullText(c.State, 32),
+			Values: []any{
+				id, hostfacts.Clip(c.Name, 256), nullText(c.Image, 512), nullText(c.ImageID, 128), nullText(c.State, 32),
 				labelText(labels, "com.docker.compose.project"), labelText(labels, "com.docker.compose.service"),
 				labelText(labels, "com.docker.stack.namespace"), labelText(labels, "com.docker.swarm.service.id"),
 				labelText(labels, "com.docker.swarm.service.name"), labelText(labels, "com.docker.swarm.task.id"),
-				labels},
+				labels,
+			},
 			Live: []any{startedAt, nullText(inspectErr, maxDockerInspectErrorSize)},
 		}
 		if inspectErr != "" {
@@ -261,8 +263,8 @@ func containerMounts(in []DockerMount) (out []containerMount, cut bool) {
 }
 
 // textList clips each entry to n bytes, drops empty ones, optionally sorts
-// and dedupes, and cuts to max. Never nil.
-func textList(in []string, n, max int, sorted bool) (out []string, cut bool) {
+// and dedupes, and cuts to limit. Never nil.
+func textList(in []string, n, limit int, sorted bool) (out []string, cut bool) {
 	out = []string{}
 	for _, s := range in {
 		if s = hostfacts.Clip(s, n); s != "" {
@@ -273,8 +275,8 @@ func textList(in []string, n, max int, sorted bool) (out []string, cut bool) {
 		slices.Sort(out)
 		out = slices.Compact(out)
 	}
-	if len(out) > max {
-		out, cut = out[:max], true
+	if len(out) > limit {
+		out, cut = out[:limit], true
 	}
 	return out, cut
 }
@@ -366,8 +368,10 @@ func dockerNetworks(in []DockerNetwork, truncated bool) *store.DockerNetworksInp
 		}
 		subnets, cut := textList(n.Subnets, 64, maxDockerSubnetsPerNet, true)
 		truncated = truncated || cut
-		out = append(out, dockerNetwork{ID: id, Name: hostfacts.Clip(n.Name, 256), Driver: hostfacts.Clip(n.Driver, 64),
-			Scope: hostfacts.Clip(n.Scope, 16), Internal: n.Internal, Subnets: subnets})
+		out = append(out, dockerNetwork{
+			ID: id, Name: hostfacts.Clip(n.Name, 256), Driver: hostfacts.Clip(n.Driver, 64),
+			Scope: hostfacts.Clip(n.Scope, 16), Internal: n.Internal, Subnets: subnets,
+		})
 	}
 	slices.SortFunc(out, func(a, b dockerNetwork) int { return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID)) })
 	return &store.DockerNetworksInput{Networks: out, Truncated: truncated}
@@ -418,8 +422,10 @@ func swarmServicesSet(in []SwarmService, additive bool) hostfacts.Set {
 		labels := dockerLabels(s.Labels)
 		rows = append(rows, hostfacts.Row{
 			Key: id,
-			Values: []any{id, name, nullText(s.Image, 512), nullText(s.Mode, 32), nonNegative(s.Replicas),
-				labelText(labels, "com.docker.stack.namespace"), labels, ports},
+			Values: []any{
+				id, name, nullText(s.Image, 512), nullText(s.Mode, 32), nonNegative(s.Replicas),
+				labelText(labels, "com.docker.stack.namespace"), labels, ports,
+			},
 			Live: []any{nonNegative(s.RunningTasks), nonNegative(s.DesiredTasks)},
 		})
 	}

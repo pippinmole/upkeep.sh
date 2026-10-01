@@ -49,7 +49,7 @@ func (s *Scanner) catalog(ctx context.Context, rootfs string) (*Result, error) {
 		}
 		argv = []string{exe, CatalogCommand}
 	}
-	cmd := exec.CommandContext(ctx, argv[0], append(argv[1:], rootfs)...)
+	cmd := exec.CommandContext(ctx, argv[0], append(argv[1:], rootfs)...) //nolint:gosec // argv is this binary or test config, not request input
 	cmd.Env = append(childEnv(os.Environ()),
 		"GOMAXPROCS="+strconv.Itoa(s.cfg.CPUs),
 		"GOMEMLIMIT="+strconv.FormatInt(s.cfg.MemoryBytes/10*8, 10))
@@ -75,7 +75,7 @@ func (s *Scanner) catalog(ctx context.Context, rootfs string) (*Result, error) {
 	case ctx.Err() != nil:
 		return nil, ctx.Err() // Scan turns a deadline into KindTimeout
 	case err != nil:
-		return nil, &Error{Kind: KindFailed, Err: fmt.Errorf("catalog: %v: %s", err, stderr.String())}
+		return nil, &Error{Kind: KindFailed, Err: fmt.Errorf("catalog: %w: %s", err, stderr.String())}
 	case stdout.over:
 		return nil, &Error{Kind: KindFailed, Err: errors.New("catalog: result over the size limit")}
 	}

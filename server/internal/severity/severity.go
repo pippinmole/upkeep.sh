@@ -28,7 +28,7 @@
 //	Distro priority low                               low
 //	Distro priority negligible (Debian unimportant)   negligible
 //	Distro priority unknown (untriaged, not yet       unknown    [2]
-//	  assigned, missing, unrecognised)
+//	  assigned, missing, unrecognized)
 //
 //	[1] EPSS escalation does not apply when the distro triaged the issue as
 //	    negligible/unimportant: that is a package-specific judgement (e.g.
@@ -102,7 +102,7 @@ const (
 // are ignored) or Ubuntu priority (negligible, low, medium, high, critical,
 // untriaged) or GitHub advisory severity (low, moderate, high, critical)
 // to a Priority. Matching is case-insensitive and treats
-// spaces, underscores and hyphens alike. Anything unrecognised, including
+// spaces, underscores and hyphens alike. Anything unrecognized, including
 // "", "unknown" and "end-of-life", is PriorityUnknown.
 func ParsePriority(s string) Priority {
 	s = strings.ToLower(strings.TrimSpace(s))

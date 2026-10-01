@@ -91,7 +91,7 @@ func (s *Store) RotateAgentCredential(ctx context.Context, agentID, presentedHas
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var current string
 	var prev *string

@@ -91,21 +91,27 @@ func TestFilterDockerLabelsCap(t *testing.T) {
 func TestDockerJSON(t *testing.T) {
 	one, two := 1, 2
 	d := &Docker{
-		Engine: &DockerEngine{Version: "29.8.0", APIVersion: "1.56",
-			StorageDriver: "overlayfs", ImageStore: "containerd", Rootless: false},
+		Engine: &DockerEngine{
+			Version: "29.8.0", APIVersion: "1.56",
+			StorageDriver: "overlayfs", ImageStore: "containerd", Rootless: false,
+		},
 		Swarm: &DockerSwarm{State: "active", NodeID: "n1", ClusterID: "c1", Role: "manager"},
 		Containers: []DockerContainer{{
 			ID: "8e89", Name: "myapp-db-1", Image: "postgres:18", ImageID: "sha256:aa",
 			State: "running", StartedAt: "2026-09-27T10:00:00Z",
 			Labels: map[string]string{"com.docker.compose.project": "myapp"},
-			Ports: []DockerPort{{HostIP: "0.0.0.0", HostPort: 5432,
-				ContainerPort: 5432, Proto: "tcp"}},
+			Ports: []DockerPort{{
+				HostIP: "0.0.0.0", HostPort: 5432,
+				ContainerPort: 5432, Proto: "tcp",
+			}},
 			Networks: []string{"myapp_default"}, NetworkMode: "bridge",
 			Privileged: new(false), RestartPolicy: "unless-stopped",
 			Mounts: []DockerMount{
 				{Type: "volume", Destination: "/var/lib/postgresql", RW: true},
-				{Type: "bind", Source: "/var/run/docker.sock",
-					Destination: "/var/run/docker.sock", RW: false},
+				{
+					Type: "bind", Source: "/var/run/docker.sock",
+					Destination: "/var/run/docker.sock", RW: false,
+				},
 			},
 		}},
 		Images: []DockerImage{{
@@ -116,14 +122,18 @@ func TestDockerJSON(t *testing.T) {
 		}, {
 			ID: "sha256:ee", RepoTags: []string{"app:1"}, InspectError: "boom",
 		}},
-		Networks: []DockerNetwork{{ID: "n", Name: "myapp_default", Driver: "bridge",
-			Scope: "local", Internal: false, Subnets: []string{"172.18.0.0/16"}}},
+		Networks: []DockerNetwork{{
+			ID: "n", Name: "myapp_default", Driver: "bridge",
+			Scope: "local", Internal: false, Subnets: []string{"172.18.0.0/16"},
+		}},
 		SwarmServices: []SwarmService{{
 			ID: "s", Name: "web_api", Image: "ghcr.io/me/api:1@sha256:dd",
 			Mode: "replicated", Replicas: &two, RunningTasks: &one, DesiredTasks: &two,
 			Labels: map[string]string{"com.docker.stack.namespace": "web"},
-			Ports: []SwarmPort{{Published: 443, Target: 8443, Proto: "tcp",
-				PublishMode: "ingress"}},
+			Ports: []SwarmPort{{
+				Published: 443, Target: 8443, Proto: "tcp",
+				PublishMode: "ingress",
+			}},
 		}},
 	}
 	got, err := json.Marshal(d)
@@ -178,8 +188,10 @@ func TestDockerJSONOmissions(t *testing.T) {
 		"no running tasks": {SwarmService{RunningTasks: &zero, DesiredTasks: &zero}, `{"id":"","name":"","image":"","mode":"","running_tasks":0,"desired_tasks":0}`},
 		"locked swarm":     {DockerSwarm{State: "locked"}, `{"state":"locked"}`},
 		"unpublished port": {DockerPort{ContainerPort: 80, Proto: "tcp"}, `{"container_port":80,"proto":"tcp"}`},
-		"partial container": {DockerContainer{ID: "c", Name: "web", State: "running", InspectError: "boom"},
-			`{"id":"c","name":"web","image":"","image_id":"","state":"running","inspect_error":"boom"}`},
+		"partial container": {
+			DockerContainer{ID: "c", Name: "web", State: "running", InspectError: "boom"},
+			`{"id":"c","name":"web","image":"","image_id":"","state":"running","inspect_error":"boom"}`,
+		},
 	} {
 		got, err := json.Marshal(tc.v)
 		if err != nil {

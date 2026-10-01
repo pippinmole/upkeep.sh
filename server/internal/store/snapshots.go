@@ -141,7 +141,7 @@ type SocketInput struct {
 // findings history stay auditable.
 //
 // The host row is locked first (FOR NO KEY UPDATE), so concurrent pushes
-// for one host serialise: each sees the previous one's ranges and state.
+// for one host serialize: each sees the previous one's ranges and state.
 // Pushes for different hosts don't contend except on shared
 // software_versions rows, which are interned in a fixed order.
 func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res SnapshotResult, err error) {
@@ -149,7 +149,7 @@ func (s *Store) InsertSnapshot(ctx context.Context, in SnapshotInput) (res Snaps
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if in.AgentID != "" {
 		if in.HostID != "" {

@@ -41,8 +41,10 @@ func defaultPackage(p Package) (ecosystem string, it inventory.Item) {
 	if ecosystem == "" {
 		ecosystem = DefaultEcosystem
 	}
-	it = inventory.Item{Name: p.Name, Version: p.Version, Arch: p.Arch,
-		Source: p.Source, SourceVersion: p.SourceVersion}
+	it = inventory.Item{
+		Name: p.Name, Version: p.Version, Arch: p.Arch,
+		Source: p.Source, SourceVersion: p.SourceVersion,
+	}
 	if it.Source == "" {
 		it.Source, it.SourceVersion, it.SourceInferred = p.Name, p.Version, true
 	} else if it.SourceVersion == "" {

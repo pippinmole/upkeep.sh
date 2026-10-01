@@ -26,7 +26,7 @@ func TestApkToolsVectors(t *testing.T) {
 		}
 		n++
 		var ok bool
-		invert := false
+		var invert bool
 		if v1, rest, found := strings.Cut(arg, " "); found {
 			op, v2, found := strings.Cut(rest, " ")
 			if !found {
@@ -98,8 +98,10 @@ func TestCompareAlpine(t *testing.T) {
 }
 
 func TestInvalidDoesNotPanic(t *testing.T) {
-	for _, v := range []string{"", "-", "-r", "_", "~", ".", "a", "1.", "1..2", "1-r", "1-x1",
-		"1_", "1_foo", "1~", "1~xyz", "1-r1-r2", "1.0bc", "\x00", "1\x002", "1.2.3 ", "99999999999999999999999"} {
+	for _, v := range []string{
+		"", "-", "-r", "_", "~", ".", "a", "1.", "1..2", "1-r", "1-x1",
+		"1_", "1_foo", "1~", "1~xyz", "1-r1-r2", "1.0bc", "\x00", "1\x002", "1.2.3 ", "99999999999999999999999",
+	} {
 		_ = Valid(v)
 		for _, w := range []string{"", "1", "1.0-r0", v} {
 			_ = Compare(v, w)

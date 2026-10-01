@@ -91,9 +91,11 @@ func servicesSet(p SnapshotPayload) hostfacts.Set {
 		}
 		rows = append(rows, hostfacts.Row{
 			Key: "systemd/" + name,
-			Values: []any{"systemd", name,
+			Values: []any{
+				"systemd", name,
 				nullText(s.DisplayName, 512), nullText(s.StartMode, 32), nullText(s.State, 32),
-				nullText(s.RunAs, 64), nullText(s.BinaryPath, 1024), sanitizeAttrs(s.Attrs)},
+				nullText(s.RunAs, 64), nullText(s.BinaryPath, 1024), sanitizeAttrs(s.Attrs),
+			},
 		})
 	}
 	return hostfacts.NewSet("services:systemd", hostfacts.ServicesTable, "systemd", rows, additive)
@@ -160,8 +162,10 @@ func usersSet(p SnapshotPayload) hostfacts.Set {
 		}
 		rows = append(rows, hostfacts.Row{
 			Key: name,
-			Values: []any{name, u.UID, u.GID, nullText(u.Home, 256), nullText(u.Shell, 256),
-				groups, u.LoginShell, u.Admin || u.UID == 0},
+			Values: []any{
+				name, u.UID, u.GID, nullText(u.Home, 256), nullText(u.Shell, 256),
+				groups, u.LoginShell, u.Admin || u.UID == 0,
+			},
 		})
 	}
 	return hostfacts.NewSet("users:local", hostfacts.UsersTable, "", rows, additive)
@@ -187,7 +191,7 @@ func hostArch(p SnapshotPayload) string {
 		return ""
 	}
 	for _, r := range a {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-' {
 			return ""
 		}
 	}

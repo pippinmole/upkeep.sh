@@ -99,7 +99,7 @@ func (c *Client) DownloadBlob(ctx context.Context, ref Ref, d Descriptor, maxByt
 	}
 	h := sha256.New()
 	cw := &countWriter{}
-	if _, err := c.getTo(ctx, ref, "/blobs/"+d.Digest, "", maxBytes, c.cfg.LayerTimeout, io.MultiWriter(w, h, cw)); err != nil {
+	if err := c.getTo(ctx, ref, "/blobs/"+d.Digest, "", maxBytes, c.cfg.LayerTimeout, io.MultiWriter(w, h, cw)); err != nil {
 		return err
 	}
 	if got := "sha256:" + hex.EncodeToString(h.Sum(nil)); got != d.Digest {

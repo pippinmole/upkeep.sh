@@ -1,5 +1,5 @@
 // Package alerting is the pure core of alert rules (docs/ALERTING.md):
-// the property catalogue and condition validation (catalog.go,
+// the property catalog and condition validation (catalog.go,
 // condition.go), the per-rule state diff that turns current matches into
 // alert instance transitions (state.go), digest scheduling, how
 // transitions are cut into notifications, and their summary line. It
@@ -79,7 +79,7 @@ func Summary(kind string, events []notify.Event) string {
 	if len(events) == 0 {
 		return "No events"
 	}
-	s := ""
+	var s string
 	if len(events) == 1 {
 		s = render.Title(events[0])
 	} else {

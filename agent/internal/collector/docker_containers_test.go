@@ -42,8 +42,10 @@ func dbInspect(id string) container.InspectResponse {
 		Image: "sha256:img1",
 		Path:  "docker-entrypoint.sh",
 		Args:  []string{"postgres", "--password=hunter2"},
-		State: &container.State{Status: container.StateRunning, Running: true,
-			StartedAt: "2026-09-27T12:00:00.123456789+02:00", FinishedAt: "0001-01-01T00:00:00Z"},
+		State: &container.State{
+			Status: container.StateRunning, Running: true,
+			StartedAt: "2026-09-27T12:00:00.123456789+02:00", FinishedAt: "0001-01-01T00:00:00Z",
+		},
 		HostConfig: &container.HostConfig{
 			NetworkMode:   "myapp_default",
 			Privileged:    true,
@@ -70,8 +72,10 @@ func dbInspect(id string) container.InspectResponse {
 			Networks: map[string]*network.EndpointSettings{"myapp_default": {}, "backend": {}},
 		},
 		Mounts: []container.MountPoint{
-			{Type: mount.TypeVolume, Name: "cifs-creds", Source: "/var/lib/docker/volumes/cifs-creds/_data",
-				Destination: "/var/lib/postgresql", Driver: "local", RW: true},
+			{
+				Type: mount.TypeVolume, Name: "cifs-creds", Source: "/var/lib/docker/volumes/cifs-creds/_data",
+				Destination: "/var/lib/postgresql", Driver: "local", RW: true,
+			},
 			{Type: mount.TypeBind, Source: "/srv/myapp/backups", Destination: "/backups", RW: true},
 			{Type: mount.TypeBind, Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock"},
 		},
@@ -125,8 +129,10 @@ func TestCollectDockerContainers(t *testing.T) {
 				{Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock"},
 			},
 		},
-		{ID: stopped, Name: "old", Image: "alpine:3.20", ImageID: "sha256:img2", State: "created",
-			NetworkMode: "bridge", Privileged: new(false), RestartPolicy: "no"},
+		{
+			ID: stopped, Name: "old", Image: "alpine:3.20", ImageID: "sha256:img2", State: "created",
+			NetworkMode: "bridge", Privileged: new(false), RestartPolicy: "no",
+		},
 	}
 	if !reflect.DeepEqual(got, want) {
 		gb, _ := json.MarshalIndent(got, "", " ")
@@ -149,10 +155,14 @@ func TestCollectDockerContainers(t *testing.T) {
 // Only a bind mount's source is ever sent.
 func TestDockerMountsSourceOnlyForBind(t *testing.T) {
 	var in []container.MountPoint
-	for i, typ := range []mount.Type{mount.TypeBind, mount.TypeVolume, mount.TypeTmpfs, mount.TypeNamedPipe,
-		mount.TypeCluster, mount.TypeImage, "something-new"} {
-		in = append(in, container.MountPoint{Type: typ, Name: "name", Source: "/src/" + string(typ),
-			Destination: fmt.Sprintf("/d%d", i), RW: true})
+	for i, typ := range []mount.Type{
+		mount.TypeBind, mount.TypeVolume, mount.TypeTmpfs, mount.TypeNamedPipe,
+		mount.TypeCluster, mount.TypeImage, "something-new",
+	} {
+		in = append(in, container.MountPoint{
+			Type: typ, Name: "name", Source: "/src/" + string(typ),
+			Destination: fmt.Sprintf("/d%d", i), RW: true,
+		})
 	}
 	got, cut := dockerMounts(in)
 	if cut || len(got) != len(in) {
@@ -230,8 +240,10 @@ func TestCollectDockerContainersInspectError(t *testing.T) {
 		"call timeout": fmt.Errorf("boom: %w", context.DeadlineExceeded),
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := &failingInspects{Fake: &dockerapitest.Fake{ContainerInspects: map[string]container.InspectResponse{}},
-				failID: dockerID(5), failErr: failErr}
+			f := &failingInspects{
+				Fake:   &dockerapitest.Fake{ContainerInspects: map[string]container.InspectResponse{}},
+				failID: dockerID(5), failErr: failErr,
+			}
 			for i := range 10 {
 				id := dockerID(i)
 				f.Containers = append(f.Containers, container.Summary{ID: id})
@@ -277,8 +289,10 @@ func TestCollectDockerContainersInspectError(t *testing.T) {
 func TestCollectDockerContainersContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	f := &failingInspects{Fake: &dockerapitest.Fake{ContainerInspects: map[string]container.InspectResponse{}},
-		failID: dockerID(3), failErr: context.Canceled, onFail: cancel}
+	f := &failingInspects{
+		Fake:   &dockerapitest.Fake{ContainerInspects: map[string]container.InspectResponse{}},
+		failID: dockerID(3), failErr: context.Canceled, onFail: cancel,
+	}
 	for i := range 4 {
 		id := dockerID(i)
 		f.Containers = append(f.Containers, container.Summary{ID: id})

@@ -39,7 +39,7 @@ func SchemaJSON() []byte {
 func TestSchemaFileIsCurrent(t *testing.T) {
 	want := SchemaJSON()
 	if *update {
-		if err := os.WriteFile(schemaFile, want, 0o644); err != nil {
+		if err := os.WriteFile(schemaFile, want, 0o644); err != nil { //nolint:gosec // committed file, stays world-readable
 			t.Fatal(err)
 		}
 		return

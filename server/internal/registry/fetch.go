@@ -28,7 +28,7 @@ const (
 // getManifest GETs a manifest or index by digest and verifies its content
 // digest.
 func (c *Client) getManifest(ctx context.Context, ref Ref, digest string) ([]byte, error) {
-	body, _, err := c.get(ctx, ref, "/manifests/"+digest, acceptManifests, c.cfg.MaxManifestBytes, c.cfg.RequestTimeout)
+	body, err := c.get(ctx, ref, "/manifests/"+digest, acceptManifests, c.cfg.MaxManifestBytes, c.cfg.RequestTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (c *Client) getBlob(ctx context.Context, ref Ref, digest string, size int64
 	if size > c.cfg.MaxBlobBytes {
 		return nil, newErr(KindTooLarge, ref.Host, "blob %s is %d bytes, over the %d byte limit", digest, size, c.cfg.MaxBlobBytes)
 	}
-	body, _, err := c.get(ctx, ref, "/blobs/"+digest, "", c.cfg.MaxBlobBytes, c.cfg.BlobTimeout)
+	body, err := c.get(ctx, ref, "/blobs/"+digest, "", c.cfg.MaxBlobBytes, c.cfg.BlobTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -58,22 +58,21 @@ func verifyDigest(host, want string, body []byte) error {
 
 // get GETs https://<host>/v2/<repository><path>, running the token flow
 // once on a 401.
-func (c *Client) get(ctx context.Context, ref Ref, path, accept string, maxBytes int64, timeout time.Duration) ([]byte, http.Header, error) {
+func (c *Client) get(ctx context.Context, ref Ref, path, accept string, maxBytes int64, timeout time.Duration) ([]byte, error) {
 	var buf bytes.Buffer
-	hdr, err := c.getTo(ctx, ref, path, accept, maxBytes, timeout, &buf)
-	if err != nil {
-		return nil, hdr, err
+	if err := c.getTo(ctx, ref, path, accept, maxBytes, timeout, &buf); err != nil {
+		return nil, err
 	}
-	return buf.Bytes(), hdr, nil
+	return buf.Bytes(), nil
 }
 
 // getTo is get streaming the body to w (only a 200's body is written).
-func (c *Client) getTo(ctx context.Context, ref Ref, path, accept string, maxBytes int64, timeout time.Duration, w io.Writer) (http.Header, error) {
+func (c *Client) getTo(ctx context.Context, ref Ref, path, accept string, maxBytes int64, timeout time.Duration, w io.Writer) error {
 	u := "https://" + ref.Host + "/v2/" + ref.Repository + path
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 		if err != nil {
-			return nil, newErr(KindTransient, ref.Host, "request: %v", err)
+			return newErr(KindTransient, ref.Host, "request: %v", err)
 		}
 		if accept != "" {
 			req.Header.Set("Accept", accept)
@@ -85,11 +84,11 @@ func (c *Client) getTo(ctx context.Context, ref Ref, path, accept string, maxByt
 		var e *Error
 		if attempt == 0 && errors.As(err, &e) && e.Status == http.StatusUnauthorized {
 			if _, err := c.fetchToken(ctx, ref, hdr.Get("WWW-Authenticate")); err != nil {
-				return nil, err
+				return err
 			}
 			continue
 		}
-		return hdr, err
+		return err
 	}
 }
 
@@ -110,8 +109,10 @@ func (c *Client) send(ctx context.Context, host string, req *http.Request, maxBy
 // (e.g. a disk cap) is returned as is, not as a registry error.
 func (c *Client) sendTo(ctx context.Context, host string, req *http.Request, maxBytes int64, timeout time.Duration, w io.Writer) (http.Header, error) {
 	if until, ok := c.backedOff(host); ok {
-		return nil, &Error{Kind: KindRateLimited, Host: host, RetryAt: until,
-			Err: errors.New("backing off after a 429")}
+		return nil, &Error{
+			Kind: KindRateLimited, Host: host, RetryAt: until,
+			Err: errors.New("backing off after a 429"),
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -129,19 +130,25 @@ func (c *Client) sendTo(ctx context.Context, host string, req *http.Request, max
 	}
 	defer resp.Body.Close()
 
-	switch s := resp.StatusCode; {
-	case s == http.StatusOK:
-	case s == http.StatusTooManyRequests:
+	switch s := resp.StatusCode; s {
+	case http.StatusOK:
+	case http.StatusTooManyRequests:
 		until := c.cfg.Now().Add(retryAfter(resp.Header.Get("Retry-After"), c.cfg.Now(), c.cfg.RateLimitBackoff))
 		c.backOff(host, until)
-		return resp.Header, &Error{Kind: KindRateLimited, Host: host, Status: s, RetryAt: until,
-			Err: fmt.Errorf("GET %s: %s", req.URL.Redacted(), resp.Status)}
-	case s == http.StatusUnauthorized, s == http.StatusForbidden, s == http.StatusNotFound:
-		return resp.Header, &Error{Kind: KindDenied, Host: host, Status: s,
-			Err: fmt.Errorf("GET %s: %s", req.URL.Redacted(), resp.Status)}
+		return resp.Header, &Error{
+			Kind: KindRateLimited, Host: host, Status: s, RetryAt: until,
+			Err: fmt.Errorf("GET %s: %s", req.URL.Redacted(), resp.Status),
+		}
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+		return resp.Header, &Error{
+			Kind: KindDenied, Host: host, Status: s,
+			Err: fmt.Errorf("GET %s: %s", req.URL.Redacted(), resp.Status),
+		}
 	default:
-		return resp.Header, &Error{Kind: KindTransient, Host: host, Status: s,
-			Err: fmt.Errorf("GET %s: %s", req.URL.Redacted(), resp.Status)}
+		return resp.Header, &Error{
+			Kind: KindTransient, Host: host, Status: s,
+			Err: fmt.Errorf("GET %s: %s", req.URL.Redacted(), resp.Status),
+		}
 	}
 
 	if resp.ContentLength > maxBytes {

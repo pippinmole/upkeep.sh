@@ -3,7 +3,7 @@ package osv
 import (
 	"bufio"
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // GCS x-goog-hash integrity check, not security
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -44,7 +44,7 @@ func (c *Client) url(parts ...string) string {
 }
 
 func (c *Client) get(ctx context.Context, u, etag string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -108,11 +108,11 @@ func (c *Client) downloadOnce(ctx context.Context, dir, tmpDir string) (path, et
 			os.Remove(f.Name())
 		}
 	}()
-	h := md5.New()
+	h := md5.New() //nolint:gosec // GCS x-goog-hash integrity check, not security
 	body := &progressReader{r: resp.Body, onRead: func() { watchdog.Reset(StallTimeout) }}
 	size, err = io.Copy(io.MultiWriter(f, h), body)
 	if err != nil {
-		if cause := context.Cause(ctx); cause != nil && cause != context.Canceled {
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 			err = cause
 		}
 		return "", "", 0, fmt.Errorf("download %s/all.zip: %w", dir, err)
@@ -123,7 +123,7 @@ func (c *Client) downloadOnce(ctx context.Context, dir, tmpDir string) (path, et
 	if want := googMD5(resp.Header); want != "" && want != base64.StdEncoding.EncodeToString(h.Sum(nil)) {
 		return "", "", 0, fmt.Errorf("download %s/all.zip: md5 mismatch", dir)
 	}
-	if err = f.Close(); err != nil {
+	if err := f.Close(); err != nil {
 		return "", "", 0, err
 	}
 	return f.Name(), resp.Header.Get("ETag"), size, nil

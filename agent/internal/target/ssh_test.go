@@ -101,7 +101,7 @@ func (s *sshServer) serve(c net.Conn, conf *ssh.ServerConfig) {
 }
 
 // seed writes files onto the server through a separate (writable) session.
-func (s *sshServer) seed(t *testing.T, user string, key ssh.Signer, files map[string]string, links map[string]string) {
+func (s *sshServer) seed(t *testing.T, user string, key ssh.Signer, files, links map[string]string) {
 	t.Helper()
 	c, err := ssh.Dial("tcp", net.JoinHostPort(s.addr, strconv.Itoa(s.port)), &ssh.ClientConfig{
 		User: user, Auth: []ssh.AuthMethod{ssh.PublicKeys(key)},

@@ -157,8 +157,10 @@ func TestDockerEngineUnavailable(t *testing.T) {
 }
 
 func TestDockerEngineOK(t *testing.T) {
-	manager := swarm.Info{NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
-		Cluster: &swarm.ClusterInfo{ID: "c1"}}
+	manager := swarm.Info{
+		NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
+		Cluster: &swarm.ClusterInfo{ID: "c1"},
+	}
 	worker := swarm.Info{NodeID: "n2", LocalNodeState: swarm.LocalNodeStateActive}
 	tests := []struct {
 		name      string
@@ -243,8 +245,10 @@ func TestDockerEngineCollectFails(t *testing.T) {
 // the Swarm) between /info and the list is a skip with the node's actual
 // state, anything else an error.
 func TestDockerSwarmServices(t *testing.T) {
-	manager := swarm.Info{NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
-		Cluster: &swarm.ClusterInfo{ID: "c1"}}
+	manager := swarm.Info{
+		NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
+		Cluster: &swarm.ClusterInfo{ID: "c1"},
+	}
 	three := uint64(3)
 	svc := swarm.Service{
 		ID: "s1",
@@ -273,9 +277,9 @@ func TestDockerSwarmServices(t *testing.T) {
 	}{
 		{"services", []swarm.Service{svc}, nil, collector.OK(), 1},
 		{"truncated", many, nil, collector.OKTruncated(true), collector.MaxSwarmServices},
-		{"demoted", nil, errors.New("Error response from daemon: This node is not a swarm manager. Worker nodes can't be used to view or modify cluster state."), collector.Skipped("not a swarm manager"), 0},
+		{"demoted", nil, errors.New("Error response from daemon: This node is not a swarm manager. Worker nodes can't be used to view or modify cluster state."), collector.Skipped("not a swarm manager"), 0}, //nolint:revive // the engine's error text, verbatim
 		{"left swarm", nil, errors.New("Error response from daemon: This node is not part of a swarm"), collector.Skipped("not in a swarm"), 0},
-		{"locked since info", nil, errors.New("Error response from daemon: Swarm is encrypted and needs to be unlocked before it can be used."), collector.Skipped("swarm locked"), 0},
+		{"locked since info", nil, errors.New("Error response from daemon: Swarm is encrypted and needs to be unlocked before it can be used."), collector.Skipped("swarm locked"), 0}, //nolint:revive // the engine's error text, verbatim
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -305,7 +309,7 @@ func TestDockerSwarmServices(t *testing.T) {
 
 	// Any other failure (here a manager without quorum) is an error.
 	fake = engineFake(manager)
-	fake.ServicesErr = errors.New("rpc error: code = Unknown desc = The swarm does not have a leader.")
+	fake.ServicesErr = errors.New("rpc error: code = Unknown desc = The swarm does not have a leader.") //nolint:revive // the engine's error text, verbatim
 	c, _ = dockerCollector(fake, nil)
 	snap := c.Collect(context.Background(), ubuntu())
 	if st := snap.Collectors[collector.CollectorSwarmServices]; st.Status != collector.StatusError || !strings.Contains(st.Error, "does not have a leader") {

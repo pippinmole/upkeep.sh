@@ -14,8 +14,10 @@ import (
 // never meaningfully delay snapshot collection.
 const publicIPTimeout = 3 * time.Second
 
-const ipv4LookupURL = "https://api.ipify.org?format=text"
-const ipv6LookupURL = "https://api6.ipify.org?format=text"
+const (
+	ipv4LookupURL = "https://api.ipify.org?format=text"
+	ipv6LookupURL = "https://api6.ipify.org?format=text"
+)
 
 // CollectPublicIPs makes a strictly best-effort attempt to determine the
 // host's own public IPv4 and IPv6 addresses by asking a well-known external
@@ -58,7 +60,7 @@ func lookupPublicIP(ctx context.Context, url string, family func(net.IP) bool) s
 	reqCtx, cancel := context.WithTimeout(ctx, publicIPTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		log.Printf("debug: public ip lookup %s: build request: %v", url, err)
 		return ""

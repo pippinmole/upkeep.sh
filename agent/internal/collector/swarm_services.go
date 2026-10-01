@@ -68,7 +68,7 @@ func CollectSwarmServices(ctx context.Context, c dockerapi.Client) (services []S
 	return services, truncated, nil
 }
 
-// swarmListError recognises the engine's "this node is not a manager",
+// swarmListError recognizes the engine's "this node is not a manager",
 // "this node is not part of a swarm" and "swarm is locked" refusals
 // (daemon/cluster errNoManager / errNoSwarm / errSwarmLocked; all 503
 // Unavailable, like a leaderless manager, so the message is the only
@@ -115,7 +115,7 @@ func swarmService(s swarm.Service) (svc SwarmService, portsCut bool) {
 // TotalCompletions / MaxConcurrent are a completion target and a
 // concurrency limit, not a steady-state number of running tasks, and
 // sending either as "replicas" would read as a service that should have
-// that many tasks up. An unrecognised mode (a future engine) is sent as
+// that many tasks up. An unrecognized mode (a future engine) is sent as
 // an empty mode rather than guessed.
 func swarmMode(m swarm.ServiceMode) (string, *int) {
 	switch {

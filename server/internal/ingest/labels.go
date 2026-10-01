@@ -7,7 +7,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/hostfacts"
 )
 
-// Docker label allowlist, re-applied on ingest as defence in depth: an
+// Docker label allowlist, re-applied on ingest as defense in depth: an
 // old, buggy or compromised agent must not get arbitrary labels (which
 // routinely carry secrets, e.g. reverse-proxy basic-auth hashes) stored.
 // It is a copy of the agent's (agent/internal/collector/types_docker.go:

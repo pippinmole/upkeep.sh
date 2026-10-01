@@ -14,7 +14,8 @@ func svcSet(additive bool, svcs ...[2]string) hostfacts.Set {
 	var rows []hostfacts.Row
 	for _, s := range svcs {
 		rows = append(rows, hostfacts.Row{Key: "systemd/" + s[0], Values: []any{
-			"systemd", s[0], nil, "auto", s[1], "root", "/usr/sbin/" + s[0], map[string]any{"unit_path": "/lib/" + s[0]}}})
+			"systemd", s[0], nil, "auto", s[1], "root", "/usr/sbin/" + s[0], map[string]any{"unit_path": "/lib/" + s[0]},
+		}})
 	}
 	return hostfacts.NewSet("services:systemd", hostfacts.ServicesTable, "systemd", rows, additive)
 }
@@ -22,8 +23,10 @@ func svcSet(additive bool, svcs ...[2]string) hostfacts.Set {
 func listenerSet(transport string, ports ...int) hostfacts.Set {
 	var rows []hostfacts.Row
 	for _, p := range ports {
-		rows = append(rows, hostfacts.Row{Key: transport + " 0.0.0.0:" + strconv.Itoa(p),
-			Values: []any{transport, transport, "0.0.0.0", p, "proc"}})
+		rows = append(rows, hostfacts.Row{
+			Key:    transport + " 0.0.0.0:" + strconv.Itoa(p),
+			Values: []any{transport, transport, "0.0.0.0", p, "proc"},
+		})
 	}
 	return hostfacts.NewSet("listeners:"+transport, hostfacts.ListenersTable, transport, rows, false)
 }
@@ -83,9 +86,10 @@ func (f *fixture) wantFactRanges(table, attrCol string, want ...factRange) {
 	}
 }
 
-func factOutcome(res SnapshotResult, kind string) InventoryOutcome {
+// factOutcome is the systemd services fact's outcome in res.
+func factOutcome(res SnapshotResult) InventoryOutcome {
 	for _, r := range res.Facts {
-		if r.Kind == kind {
+		if r.Kind == "services:systemd" {
 			return r.Outcome
 		}
 	}
@@ -97,7 +101,7 @@ func TestFactRangesServices(t *testing.T) {
 	const k = "services:systemd"
 
 	res := f.pushFacts(0, svcSet(false, [2]string{"a", "running"}, [2]string{"b", "running"}, [2]string{"c", "running"}))
-	if factOutcome(res, k) != InventoryDiffed || res.Facts[0].Opened != 3 {
+	if factOutcome(res) != InventoryDiffed || res.Facts[0].Opened != 3 {
 		t.Fatalf("first push: %+v", res.Facts)
 	}
 
@@ -117,7 +121,7 @@ func TestFactRangesServices(t *testing.T) {
 
 	// Same set again: short-circuited on the set hash.
 	res = f.pushFacts(20, svcSet(false, [2]string{"d", "running"}, [2]string{"b", "stopped"}, [2]string{"a", "running"}))
-	if factOutcome(res, k) != InventoryUnchanged {
+	if factOutcome(res) != InventoryUnchanged {
 		t.Errorf("identical push: %+v", res.Facts)
 	}
 
@@ -138,7 +142,7 @@ func TestFactRangesServices(t *testing.T) {
 
 	// Stale (collected before the last applied push): stored, not diffed.
 	res = f.pushFacts(35, svcSet(false))
-	if factOutcome(res, k) != InventoryStale {
+	if factOutcome(res) != InventoryStale {
 		t.Errorf("stale push: %+v", res.Facts)
 	}
 
@@ -149,7 +153,7 @@ func TestFactRangesServices(t *testing.T) {
 		t.Errorf("full push after additive: %+v", r)
 	}
 	res = f.pushFacts(60, svcSet(false, [2]string{"a", "running"}, [2]string{"b", "stopped"}, [2]string{"d", "stopped"}))
-	if factOutcome(res, k) != InventoryUnchanged {
+	if factOutcome(res) != InventoryUnchanged {
 		t.Errorf("hash not restored: %+v", res.Facts)
 	}
 

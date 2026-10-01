@@ -49,28 +49,42 @@ type Table struct {
 }
 
 var (
-	ServicesTable = Table{Name: "host_services", ScopeCol: "manager",
-		Columns: []string{"manager", "name", "display_name", "start_mode", "state", "run_as", "binary_path", "attrs"}}
-	ListenersTable = Table{Name: "host_listeners", ScopeCol: "transport",
-		Columns: []string{"transport", "proto", "local_addr", "port", "process_name"}}
-	UsersTable = Table{Name: "host_users",
-		Columns: []string{"name", "uid", "gid", "home", "shell", "groups", "login_shell", "admin"}}
+	ServicesTable = Table{
+		Name: "host_services", ScopeCol: "manager",
+		Columns: []string{"manager", "name", "display_name", "start_mode", "state", "run_as", "binary_path", "attrs"},
+	}
+	ListenersTable = Table{
+		Name: "host_listeners", ScopeCol: "transport",
+		Columns: []string{"transport", "proto", "local_addr", "port", "process_name"},
+	}
+	UsersTable = Table{
+		Name:    "host_users",
+		Columns: []string{"name", "uid", "gid", "home", "shell", "groups", "login_shell", "admin"},
+	}
 
 	// Docker (migration 0013). Containers and images belong to a host;
 	// SwarmServicesTable's rows belong to a (user, cluster) instead of a
 	// host (store.applySwarmServices).
-	ContainersTable = Table{Name: "host_containers",
-		Columns: []string{"container_id", "name", "image", "image_id", "state",
-			"compose_project", "compose_service", "swarm_stack", "swarm_service_id", "swarm_service_name", "swarm_task_id", "labels"},
+	ContainersTable = Table{
+		Name: "host_containers",
+		Columns: []string{
+			"container_id", "name", "image", "image_id", "state",
+			"compose_project", "compose_service", "swarm_stack", "swarm_service_id", "swarm_service_name", "swarm_task_id", "labels",
+		},
 		Detail: []string{"ports", "networks", "network_mode", "privileged", "restart_policy", "mounts"},
-		Live:   []string{"started_at", "inspect_error"}}
-	HostImagesTable = Table{Name: "host_images",
+		Live:   []string{"started_at", "inspect_error"},
+	}
+	HostImagesTable = Table{
+		Name:    "host_images",
 		Columns: []string{"image_id", "repo_tags", "repo_digests"},
 		Detail:  []string{"os", "arch", "variant"},
-		Live:    []string{"inspect_error"}}
-	SwarmServicesTable = Table{Name: "swarm_services",
+		Live:    []string{"inspect_error"},
+	}
+	SwarmServicesTable = Table{
+		Name:    "swarm_services",
 		Columns: []string{"service_id", "name", "image", "mode", "replicas", "swarm_stack", "labels", "ports"},
-		Live:    []string{"running_tasks", "desired_tasks"}}
+		Live:    []string{"running_tasks", "desired_tasks"},
+	}
 )
 
 // Row is one reported item. Key is its natural key within the table

@@ -66,7 +66,7 @@ func (s *Store) UpsertAdvisories(ctx context.Context, advs []osv.Advisory) (Advi
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	rows, err := tx.Query(ctx, `SELECT id, content_hash FROM advisories WHERE id = ANY($1)`, ids)
 	if err != nil {
@@ -134,8 +134,10 @@ func (s *Store) UpsertAdvisories(ctx context.Context, advs []osv.Advisory) (Advi
 		a := byID[id]
 		newSigs := map[osv.Key][]string{}
 		for _, r := range a.Affected {
-			copyRows = append(copyRows, []any{a.ID, r.Distro, r.Release, r.SourcePackage, r.Channel,
-				r.Introduced, r.FixedVersion, r.LastAffected, r.DistroSeverity, r.Status, r.Ecosystem, int16(r.Seq)})
+			copyRows = append(copyRows, []any{
+				a.ID, r.Distro, r.Release, r.SourcePackage, r.Channel,
+				r.Introduced, r.FixedVersion, r.LastAffected, r.DistroSeverity, r.Status, r.Ecosystem, int16(r.Seq),
+			})
 			newSigs[r.Key()] = append(newSigs[r.Key()], rowSig(r.Channel, r.Introduced, r.FixedVersion, r.LastAffected, r.DistroSeverity, r.Status))
 		}
 		for k := range diffKeys(old[id], newSigs) {
@@ -144,8 +146,10 @@ func (s *Store) UpsertAdvisories(ctx context.Context, advs []osv.Advisory) (Advi
 	}
 	if len(copyRows) > 0 {
 		n, err := tx.CopyFrom(ctx, pgx.Identifier{"advisory_affected"},
-			[]string{"advisory_id", "distro", "release", "source_package", "channel",
-				"introduced", "fixed_version", "last_affected", "distro_severity", "status", "ecosystem", "seq"},
+			[]string{
+				"advisory_id", "distro", "release", "source_package", "channel",
+				"introduced", "fixed_version", "last_affected", "distro_severity", "status", "ecosystem", "seq",
+			},
 			pgx.CopyFromRows(copyRows))
 		if err != nil {
 			return res, fmt.Errorf("copy advisory_affected: %w", err)
@@ -173,18 +177,18 @@ func rowSig(channel, introduced string, fixed, last, sev *string, status string)
 	return strings.Join([]string{channel, introduced, p(fixed), p(last), p(sev), status}, "\x00")
 }
 
-// diffKeys returns the keys whose row signatures differ between old and new.
-func diffKeys(old, new map[osv.Key][]string) map[osv.Key]bool {
+// diffKeys returns the keys whose row signatures differ between old and fresh.
+func diffKeys(old, fresh map[osv.Key][]string) map[osv.Key]bool {
 	out := map[osv.Key]bool{}
 	for k, o := range old {
-		n := new[k]
+		n := fresh[k]
 		slices.Sort(o)
 		slices.Sort(n)
 		if !slices.Equal(o, n) {
 			out[k] = true
 		}
 	}
-	for k := range new {
+	for k := range fresh {
 		if _, ok := old[k]; !ok {
 			out[k] = true
 		}
@@ -301,12 +305,12 @@ func (s *Store) DeleteAdvisoriesExcept(ctx context.Context, source string, keep 
 	return s.deleteAdvisoriesWhere(ctx, `source = $1 AND id NOT IN (SELECT unnest($2::text[]))`, source, keep)
 }
 
-func (s *Store) deleteAdvisoriesWhere(ctx context.Context, where string, source string, ids []string) (int, error) {
+func (s *Store) deleteAdvisoriesWhere(ctx context.Context, where, source string, ids []string) (int, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO advisory_changes (distro, release, source_package, changed_at)
 		SELECT DISTINCT aa.distro, aa.release, aa.source_package, now()

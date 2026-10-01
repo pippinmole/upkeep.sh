@@ -45,35 +45,51 @@ func finding(typ, sev string, kev bool) notify.Event {
 	if kev {
 		prefix = "KEV "
 	}
-	return withState(notify.Event{ID: 7, Type: typ, URL: "https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094",
-		Alert: &notify.Alert{ID: "a1", Property: "vulnerability", Subject: "pkg:xz-utils:CVE-2024-3094",
-			Title: prefix + "CVE-2024-3094 in xz-utils"},
+	return withState(notify.Event{
+		ID: 7, Type: typ, URL: "https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094",
+		Alert: &notify.Alert{
+			ID: "a1", Property: "vulnerability", Subject: "pkg:xz-utils:CVE-2024-3094",
+			Title: prefix + "CVE-2024-3094 in xz-utils",
+		},
 		Host: &notify.Host{ID: "h1", Hostname: "web-1"},
-		Finding: &notify.Finding{ID: "f", VulnKey: "CVE-2024-3094", SourcePackage: "xz-utils",
+		Finding: &notify.Finding{
+			ID: "f", VulnKey: "CVE-2024-3094", SourcePackage: "xz-utils",
 			Packages: []string{"xz-utils", "liblzma5"}, InstalledVersion: "5.6.0-1",
-			FixedVersion: ptr("5.6.1-1"), Severity: sev, KEV: kev, EPSS: ptr(0.853)}})
+			FixedVersion: ptr("5.6.1-1"), Severity: sev, KEV: kev, EPSS: ptr(0.853),
+		},
+	})
 }
 
 // notSeen is a host_not_seen rule's event.
 func notSeen(typ string) notify.Event {
-	return withState(notify.Event{ID: 8, Type: typ, URL: "https://app.example/dashboard/alerts?host=h2",
+	return withState(notify.Event{
+		ID: 8, Type: typ, URL: "https://app.example/dashboard/alerts?host=h2",
 		Host: &notify.Host{ID: "h2", Hostname: "db-1", Label: ptr("database")},
-		Alert: &notify.Alert{ID: "a2", Property: "host_not_seen", Title: "Not seen for more than 30 minutes",
-			Details: json.RawMessage(`{"last_seen_at":"2026-09-27T10:30:00Z"}`)}})
+		Alert: &notify.Alert{
+			ID: "a2", Property: "host_not_seen", Title: "Not seen for more than 30 minutes",
+			Details: json.RawMessage(`{"last_seen_at":"2026-09-27T10:30:00Z"}`),
+		},
+	})
 }
 
 // port is a listening_port rule's event.
 func port(typ string) notify.Event {
-	return withState(notify.Event{ID: 9, Type: typ, URL: "https://app.example/dashboard/alerts?host=h1",
+	return withState(notify.Event{
+		ID: 9, Type: typ, URL: "https://app.example/dashboard/alerts?host=h1",
 		Host: &notify.Host{ID: "h1", Hostname: "web-1"},
-		Alert: &notify.Alert{ID: "a3", Property: "listening_port", Subject: "tcp/22", Title: "Port 22/tcp is listening",
-			Details: json.RawMessage(`{"addresses":["0.0.0.0","::"],"port":22,"processes":["sshd"],"transport":"tcp"}`)}})
+		Alert: &notify.Alert{
+			ID: "a3", Property: "listening_port", Subject: "tcp/22", Title: "Port 22/tcp is listening",
+			Details: json.RawMessage(`{"addresses":["0.0.0.0","::"],"port":22,"processes":["sshd"],"transport":"tcp"}`),
+		},
+	})
 }
 
 func alert(events ...notify.Event) notify.Notification {
-	return notify.Notification{Version: notify.PayloadVersion, ID: "n-1", DeliveryID: "d-1", Kind: notify.KindAlert,
+	return notify.Notification{
+		Version: notify.PayloadVersion, ID: "n-1", DeliveryID: "d-1", Kind: notify.KindAlert,
 		CreatedAt: time.Unix(1700000000, 0).UTC(), Rule: &notify.RuleRef{ID: "r-1", Name: "Critical"},
-		Summary: "summary line", Events: events}
+		Summary: "summary line", Events: events,
+	}
 }
 
 func TestSendPublishesJSON(t *testing.T) {
@@ -95,7 +111,7 @@ func TestSendPublishesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.StatusCode != 200 || !strings.Contains(res.Response, `"abc"`) {
+	if res.StatusCode != http.StatusOK || !strings.Contains(res.Response, `"abc"`) {
 		t.Fatalf("result %+v", res)
 	}
 	if got.method != http.MethodPost || got.path != "/" {
@@ -114,8 +130,10 @@ func TestSendPublishesJSON(t *testing.T) {
 		!slices.Equal(m.Tags, []string{"rotating_light", "kev", "high", "web-1"}) {
 		t.Fatalf("message %s", got.body)
 	}
-	for _, want := range []string{"Package: xz-utils 5.6.0-1 (liblzma5)", "Fix: upgrade to 5.6.1-1",
-		"Severity: high, known exploited (CISA KEV), EPSS 85.3%", "Rule: Critical"} {
+	for _, want := range []string{
+		"Package: xz-utils 5.6.0-1 (liblzma5)", "Fix: upgrade to 5.6.1-1",
+		"Severity: high, known exploited (CISA KEV), EPSS 85.3%", "Rule: Critical",
+	} {
 		if !strings.Contains(m.Message, want) {
 			t.Errorf("message lacks %q:\n%s", want, m.Message)
 		}
@@ -308,8 +326,10 @@ func TestSendBlocksPrivateDestinations(t *testing.T) {
 	g := tlsGuard(srv)
 	g.AllowPrivate = false
 	n := New(g)
-	for _, u := range []string{srv.URL, "https://127.0.0.1/", "https://169.254.169.254/", "http://ntfy.example.com/",
-		"https://ntfy.example.com:2586/"} {
+	for _, u := range []string{
+		srv.URL, "https://127.0.0.1/", "https://169.254.169.254/", "http://ntfy.example.com/",
+		"https://ntfy.example.com:2586/",
+	} {
 		_, err := n.Send(context.Background(), notify.Config{"server": u, "topic": "alerts"}, alert(notSeen(notify.EventAlertFiring)))
 		if !notify.IsPermanent(err) || !errors.Is(err, netguard.ErrBlocked) {
 			t.Errorf("%s: want permanent ErrBlocked, got %v", u, err)
@@ -342,7 +362,7 @@ func TestValidate(t *testing.T) {
 		"port":           {"server": "https://ntfy.example.com:2586", "topic": "a"},
 		"query":          {"server": "https://ntfy.example.com/?x=1", "topic": "a"},
 		"bad priority":   {"topic": "a", "priority": "6"},
-		"token newline":  {"topic": "a", "token": "tk_a\r\nX-Evil: 1"},
+		"token newline":  {"topic": "a", "token": "tk_a\r\nX-Evil: 1"}, //nolint:gosec // test fixture, not a credential
 		"token space":    {"topic": "a", "token": "tk a"},
 	} {
 		if err := n.Validate(cfg); err == nil {

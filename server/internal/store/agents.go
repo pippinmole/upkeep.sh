@@ -99,7 +99,7 @@ func (s *Store) EnrollAgent(ctx context.Context, in EnrollInput) (agentID string
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// The token belongs to the workspace; created_by (the admin who issued
 	// it, NULL once that user is removed) is kept on the agent as enrolled_by.
@@ -210,7 +210,7 @@ func resolveHost(ctx context.Context, tx pgx.Tx, agentID string, claim HostClaim
 }
 
 func resolveLocalHost(ctx context.Context, tx pgx.Tx, workspaceID, agentID, agentName string, claim HostClaim) (res HostResolution, err error) {
-	// The identity is serialised per (user, kind, value) so two agents
+	// The identity is serialized per (user, kind, value) so two agents
 	// claiming the same machine-id at once resolve one after the other.
 	if claim.MachineID != "" {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
@@ -320,9 +320,9 @@ func resolveRemoteHost(ctx context.Context, tx pgx.Tx, workspaceID, agentID, ref
 	if err != nil {
 		return res, err
 	}
-	switch {
-	case owner == res.HostID:
-	case owner == "":
+	switch owner {
+	case res.HostID:
+	case "":
 		err = addIdentity(ctx, tx, workspaceID, IdentityMachineID, claim.MachineID, res.HostID)
 	default:
 		var flagged bool

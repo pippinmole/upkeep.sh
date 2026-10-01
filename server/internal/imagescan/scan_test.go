@@ -1,6 +1,7 @@
 package imagescan
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -121,13 +122,19 @@ func (r *fakeRegistry) pushImage(t *testing.T, tag string) (string, registry.Ref
 		layers = append(layers, map[string]any{"mediaType": mtGzip, "digest": d, "size": n})
 	}
 	cfg, cfgSize := r.put(t, []byte(`{"architecture":"arm64","os":"linux"}`))
-	man, manSize := r.put(t, map[string]any{"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
+	man, manSize := r.put(t, map[string]any{
+		"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
 		"config": map[string]any{"mediaType": "application/vnd.oci.image.config.v1+json", "digest": cfg, "size": cfgSize},
-		"layers": layers})
-	idx, _ := r.put(t, map[string]any{"schemaVersion": 2, "mediaType": registry.MediaTypeOCIIndex,
-		"manifests": []any{map[string]any{"mediaType": registry.MediaTypeOCIManifest, "digest": man, "size": manSize,
-			"platform": map[string]string{"os": "linux", "architecture": "arm64"}}},
-		"annotations": map[string]string{"tag": tag}})
+		"layers": layers,
+	})
+	idx, _ := r.put(t, map[string]any{
+		"schemaVersion": 2, "mediaType": registry.MediaTypeOCIIndex,
+		"manifests": []any{map[string]any{
+			"mediaType": registry.MediaTypeOCIManifest, "digest": man, "size": manSize,
+			"platform": map[string]string{"os": "linux", "architecture": "arm64"},
+		}},
+		"annotations": map[string]string{"tag": tag},
+	})
 	ref, err := registry.ParseRepoDigest(strings.TrimPrefix(r.srv.URL, "https://") + "/library/alpine@" + idx)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +197,7 @@ func TestScan(t *testing.T) {
 	}
 	a, _ := json.Marshal(res)
 	b, _ := json.Marshal(again)
-	if string(a) != string(b) {
+	if !bytes.Equal(a, b) {
 		t.Error("second scan differs")
 	}
 }

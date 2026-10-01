@@ -12,7 +12,7 @@ import (
 // (t.TempDir is long on macOS).
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "sk")
+	d, err := os.MkdirTemp("/tmp", "sk") //nolint:usetesting // t.TempDir is too long for sun_path on macOS
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,10 +97,18 @@ func TestResolveUnder(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(host, "run/lock"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	os.MkdirAll(filepath.Join(host, "var"), 0o755)
-	os.Symlink("/run", filepath.Join(host, "var/run"))
-	os.Symlink("../run/lock", filepath.Join(host, "var/lock"))
-	os.Symlink("loop", filepath.Join(host, "loop"))
+	if err := os.MkdirAll(filepath.Join(host, "var"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for target, link := range map[string]string{
+		"/run":        "var/run",
+		"../run/lock": "var/lock",
+		"loop":        "loop",
+	} {
+		if err := os.Symlink(target, filepath.Join(host, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cases := map[string]string{
 		"var/run/lock": "run/lock",
 		"var/lock":     "run/lock",

@@ -114,41 +114,61 @@ func TestCollectSystemdServices(t *testing.T) {
 	}
 
 	want := map[string]Service{
-		"ssh.service": {Manager: "systemd", Name: "ssh.service", DisplayName: "OpenBSD Secure Shell server",
+		"ssh.service": {
+			Manager: "systemd", Name: "ssh.service", DisplayName: "OpenBSD Secure Shell server",
 			StartMode: "auto", State: "running", RunAs: "root", BinaryPath: "/usr/sbin/sshd",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/ssh.service"}},
-		"cron.service": {Manager: "systemd", Name: "cron.service", DisplayName: "Regular background program processing daemon",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/ssh.service"},
+		},
+		"cron.service": {
+			Manager: "systemd", Name: "cron.service", DisplayName: "Regular background program processing daemon",
 			StartMode: "auto", State: "stopped", RunAs: "nobody", BinaryPath: "/usr/sbin/cron",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/cron.service"}},
-		"postgresql@15-main.service": {Manager: "systemd", Name: "postgresql@15-main.service", DisplayName: "PostgreSQL Cluster %i",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/cron.service"},
+		},
+		"postgresql@15-main.service": {
+			Manager: "systemd", Name: "postgresql@15-main.service", DisplayName: "PostgreSQL Cluster %i",
 			StartMode: "auto", State: "running", RunAs: "postgres", BinaryPath: "/usr/bin/pg_ctlcluster",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/postgresql@.service"}},
-		"systemd-fsck@dev-sda1.service": {Manager: "systemd", Name: "systemd-fsck@dev-sda1.service", DisplayName: "File System Check on %f",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/postgresql@.service"},
+		},
+		"systemd-fsck@dev-sda1.service": {
+			Manager: "systemd", Name: "systemd-fsck@dev-sda1.service", DisplayName: "File System Check on %f",
 			StartMode: "static", State: "running", RunAs: "root", BinaryPath: "/lib/systemd/systemd-fsck",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/systemd-fsck@.service"}},
-		"systemd-journald.service": {Manager: "systemd", Name: "systemd-journald.service", DisplayName: "Journal Service",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/systemd-fsck@.service"},
+		},
+		"systemd-journald.service": {
+			Manager: "systemd", Name: "systemd-journald.service", DisplayName: "Journal Service",
 			StartMode: "auto", State: "stopped", RunAs: "root", BinaryPath: "/lib/systemd/systemd-journald",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/systemd-journald.service"}},
-		"cups.service": {Manager: "systemd", Name: "cups.service", DisplayName: "CUPS Scheduler",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/systemd-journald.service"},
+		},
+		"cups.service": {
+			Manager: "systemd", Name: "cups.service", DisplayName: "CUPS Scheduler",
 			StartMode: "manual", State: "stopped", RunAs: "root", BinaryPath: "/usr/sbin/cupsd",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/cups.service", "activated_by": "cups.socket"}},
-		"apt-daily.service": {Manager: "systemd", Name: "apt-daily.service", DisplayName: "Daily apt download activities",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/cups.service", "activated_by": "cups.socket"},
+		},
+		"apt-daily.service": {
+			Manager: "systemd", Name: "apt-daily.service", DisplayName: "Daily apt download activities",
 			StartMode: "manual", State: "stopped", RunAs: "root", BinaryPath: "/usr/lib/apt/apt.systemd.daily",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/apt-daily.service", "activated_by": "apt-daily.timer"}},
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/apt-daily.service", "activated_by": "apt-daily.timer"},
+		},
 		"snapd.service":        {Manager: "systemd", Name: "snapd.service", StartMode: "masked", State: "stopped"},
 		"empty-masked.service": {Manager: "systemd", Name: "empty-masked.service", StartMode: "masked", State: "stopped"},
 		// Drop-ins: ExecStart reset and replaced, User added; [Install] in a
 		// drop-in doesn't count, the main file's does.
-		"nginx.service": {Manager: "systemd", Name: "nginx.service", DisplayName: "A high performance web server",
+		"nginx.service": {
+			Manager: "systemd", Name: "nginx.service", DisplayName: "A high performance web server",
 			StartMode: "disabled", State: "stopped", RunAs: "www-data", BinaryPath: "/opt/nginx/sbin/nginx",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/nginx.service"}},
-		"dyn.service": {Manager: "systemd", Name: "dyn.service", StartMode: "disabled", State: "stopped",
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/nginx.service"},
+		},
+		"dyn.service": {
+			Manager: "systemd", Name: "dyn.service", StartMode: "disabled", State: "stopped",
 			BinaryPath: "/opt/my app/bin",
-			Attrs:      map[string]any{"unit_path": "/lib/systemd/system/dyn.service", "dynamic_user": true}},
+			Attrs:      map[string]any{"unit_path": "/lib/systemd/system/dyn.service", "dynamic_user": true},
+		},
 		// Linked from outside the unit dirs with an absolute symlink: re-rooted.
-		"custom.service": {Manager: "systemd", Name: "custom.service", DisplayName: "Custom",
+		"custom.service": {
+			Manager: "systemd", Name: "custom.service", DisplayName: "Custom",
 			StartMode: "static", State: "stopped", RunAs: "root", BinaryPath: "/opt/custom/bin/custom",
-			Attrs: map[string]any{"unit_path": "/opt/custom/custom.service"}},
+			Attrs: map[string]any{"unit_path": "/opt/custom/custom.service"},
+		},
 	}
 	for name, w := range want {
 		if g := got[name]; !reflect.DeepEqual(g, w) {
@@ -256,25 +276,43 @@ func TestCollectSystemdServicesUnreadableFiles(t *testing.T) {
 	}
 	want := map[string]Service{
 		// Not wanted and unread: disabled vs static, and User=, unknown.
-		"netplan-ovs-cleanup.service": {Manager: "systemd", Name: "netplan-ovs-cleanup.service", State: "running",
-			Attrs: map[string]any{"unit_path": "/run/systemd/system/netplan-ovs-cleanup.service",
-				"unreadable": []string{"/run/systemd/system/netplan-ovs-cleanup.service"}}},
+		"netplan-ovs-cleanup.service": {
+			Manager: "systemd", Name: "netplan-ovs-cleanup.service", State: "running",
+			Attrs: map[string]any{
+				"unit_path":  "/run/systemd/system/netplan-ovs-cleanup.service",
+				"unreadable": []string{"/run/systemd/system/netplan-ovs-cleanup.service"},
+			},
+		},
 		// Enablement comes from the index, not the file.
-		"netplan-wanted.service": {Manager: "systemd", Name: "netplan-wanted.service", StartMode: "auto", State: "stopped",
-			Attrs: map[string]any{"unit_path": "/run/systemd/system/netplan-wanted.service",
-				"unreadable": []string{"/run/systemd/system/netplan-wanted.service"}}},
-		"apt-daily.service": {Manager: "systemd", Name: "apt-daily.service", StartMode: "manual", State: "stopped",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/apt-daily.service", "activated_by": "apt-daily.timer",
-				"unreadable": []string{"/lib/systemd/system/apt-daily.service"}}},
+		"netplan-wanted.service": {
+			Manager: "systemd", Name: "netplan-wanted.service", StartMode: "auto", State: "stopped",
+			Attrs: map[string]any{
+				"unit_path":  "/run/systemd/system/netplan-wanted.service",
+				"unreadable": []string{"/run/systemd/system/netplan-wanted.service"},
+			},
+		},
+		"apt-daily.service": {
+			Manager: "systemd", Name: "apt-daily.service", StartMode: "manual", State: "stopped",
+			Attrs: map[string]any{
+				"unit_path": "/lib/systemd/system/apt-daily.service", "activated_by": "apt-daily.timer",
+				"unreadable": []string{"/lib/systemd/system/apt-daily.service"},
+			},
+		},
 		// Main file read, drop-in not: the drop-in may set User=, so run_as is unknown.
-		"cron.service": {Manager: "systemd", Name: "cron.service", DisplayName: "Regular background program processing daemon",
+		"cron.service": {
+			Manager: "systemd", Name: "cron.service", DisplayName: "Regular background program processing daemon",
 			StartMode: "auto", State: "stopped", BinaryPath: "/usr/sbin/cron",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/cron.service",
-				"unreadable": []string{"/etc/systemd/system/cron.service.d/override.conf"}}},
+			Attrs: map[string]any{
+				"unit_path":  "/lib/systemd/system/cron.service",
+				"unreadable": []string{"/etc/systemd/system/cron.service.d/override.conf"},
+			},
+		},
 		// Unaffected services are unchanged.
-		"ssh.service": {Manager: "systemd", Name: "ssh.service", DisplayName: "OpenBSD Secure Shell server",
+		"ssh.service": {
+			Manager: "systemd", Name: "ssh.service", DisplayName: "OpenBSD Secure Shell server",
 			StartMode: "auto", State: "stopped", RunAs: "root", BinaryPath: "/usr/sbin/sshd",
-			Attrs: map[string]any{"unit_path": "/lib/systemd/system/ssh.service"}},
+			Attrs: map[string]any{"unit_path": "/lib/systemd/system/ssh.service"},
+		},
 	}
 	for name, w := range want {
 		if g := got[name]; !reflect.DeepEqual(g, w) {

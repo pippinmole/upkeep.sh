@@ -37,9 +37,11 @@ func fixture(t *testing.T) (*reports.Snapshot, []byte) {
 }
 
 func reportNote(s *reports.Snapshot, url string) notify.Notification {
-	return notify.Notification{Version: notify.PayloadVersion, ID: "n-r", DeliveryID: "d-report", Kind: notify.KindReport,
+	return notify.Notification{
+		Version: notify.PayloadVersion, ID: "n-r", DeliveryID: "d-report", Kind: notify.KindReport,
 		Summary: reports.Title(*s), Events: []notify.Event{},
-		Report: &notify.Report{ID: "r-1", URL: url, Snapshot: s}}
+		Report: &notify.Report{ID: "r-1", URL: url, Snapshot: s},
+	}
 }
 
 // Without a renderer, a report email is the plain-text headline with the
@@ -357,7 +359,7 @@ func TestPlainEmailsUnchanged(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile("testdata/"+name+".eml", msg, 0o644); err != nil {
+			if err := os.WriteFile("testdata/"+name+".eml", msg, 0o644); err != nil { //nolint:gosec // committed file, stays world-readable
 				t.Fatal(err)
 			}
 		}

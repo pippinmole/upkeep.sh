@@ -145,8 +145,10 @@ func (f *Fetcher) Run(ctx context.Context, key store.ImageKey) (Outcome, error) 
 		out.Ref, out.Via = d, s.Via
 		doc, err := sbom.Parse(s.Format, s.Document)
 		if err != nil {
-			fails = append(fails, failure{status: store.SBOMStatusUnavailable, rank: 3,
-				reason: "registry SBOM could not be read", err: err})
+			fails = append(fails, failure{
+				status: store.SBOMStatusUnavailable, rank: 3,
+				reason: "registry SBOM could not be read", err: err,
+			})
 			continue
 		}
 		if err := f.store(ctx, &out, doc, store.SBOMSourceAttestation); err != nil {

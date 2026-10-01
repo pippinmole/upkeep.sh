@@ -1,8 +1,8 @@
 package alerting
 
-// The property catalogue: every host property a rule condition can test,
+// The property catalog: every host property a rule condition can test,
 // its operators, the value each operator takes and its options
-// (docs/ALERTING.md "MVP property catalogue"). The dashboard renders the
+// (docs/ALERTING.md "MVP property catalog"). The dashboard renders the
 // rule form from the same declaration: `go test ./internal/alerting
 // -update` writes web/src/lib/alert-properties.json (golden test).
 //
@@ -124,15 +124,18 @@ var Catalog = []Property{
 		},
 		Options: []OptionSpec{
 			{Key: "protocol", Label: "Protocol", Default: "tcp", Choices: []Choice{
-				{"tcp", "TCP"}, {"udp", "UDP"}, {"any", "TCP or UDP"}}},
-			{Key: "bind", Label: "Bound to", Default: BindNonLoopback,
+				{"tcp", "TCP"}, {"udp", "UDP"}, {"any", "TCP or UDP"},
+			}},
+			{
+				Key: "bind", Label: "Bound to", Default: BindNonLoopback,
 				Help: "Which listening addresses count.",
 				Choices: []Choice{
 					{BindNonLoopback, "Any address except loopback"},
 					{BindAllInterfaces, "All interfaces (0.0.0.0 or ::)"},
 					{BindLoopback, "Loopback only (127.0.0.0/8, ::1)"},
 					{BindAny, "Any address"},
-				}},
+				},
+			},
 		},
 	},
 	{
@@ -163,7 +166,9 @@ var Catalog = []Property{
 		Operators: []Operator{
 			{Key: "severity_at_least", Label: "severity is at least", Value: ValueSpec{
 				Kind: ValueEnum, Label: "Severity", Choices: []Choice{
-					{"low", "Low"}, {"medium", "Medium"}, {"high", "High"}, {"critical", "Critical"}}}},
+					{"low", "Low"}, {"medium", "Medium"}, {"high", "High"}, {"critical", "Critical"},
+				},
+			}},
 			{Key: "kev", Label: "is known exploited (CISA KEV)", Value: ValueSpec{Kind: ValueNone}},
 		},
 		Options: []OptionSpec{
@@ -178,7 +183,8 @@ var Catalog = []Property{
 		Key: PropHostNotSeen, Label: "Host not seen",
 		Description: "No snapshot has arrived for the host for a while.",
 		Operators: []Operator{{Key: "for_more_than", Label: "for more than", Value: ValueSpec{
-			Kind: ValueInt, Label: "Minutes", Min: 5, Max: 43200, Unit: "minutes", Placeholder: "30"}}},
+			Kind: ValueInt, Label: "Minutes", Min: 5, Max: 43200, Unit: "minutes", Placeholder: "30",
+		}}},
 	},
 	{
 		Key: PropCollectorFailed, Label: "Collector failed", Subject: "collector",
@@ -187,7 +193,8 @@ var Catalog = []Property{
 			{Key: "any", Label: "for any collector", Value: ValueSpec{Kind: ValueNone}},
 			{Key: "in", Label: "for one of", Value: ValueSpec{
 				Kind: ValueStrings, Label: "Collectors", Placeholder: "deb_packages, tcp_listeners",
-				MaxItems: 30, MaxLength: 64, Pattern: `^[a-z0-9_]+$`, Lower: true}},
+				MaxItems: 30, MaxLength: 64, Pattern: `^[a-z0-9_]+$`, Lower: true,
+			}},
 		},
 	},
 }
@@ -208,7 +215,7 @@ func withHelp(v ValueSpec, help string) ValueSpec {
 	return v
 }
 
-// PropertyByKey returns a catalogue entry.
+// PropertyByKey returns a catalog entry.
 func PropertyByKey(key string) (Property, bool) {
 	for _, p := range Catalog {
 		if p.Key == key {

@@ -61,7 +61,7 @@ func imageFixable(f InputFinding) bool {
 func Build(in Inputs, sched ScheduleRef, trigger string, period Period, now time.Time) Snapshot {
 	hosts := make(map[string]HostRef, len(in.Hosts))
 	for _, h := range in.Hosts {
-		hosts[h.ID] = HostRef{ID: h.ID, Name: h.Name}
+		hosts[h.ID] = HostRef(h)
 	}
 	ref := func(id string) HostRef {
 		if h, ok := hosts[id]; ok {

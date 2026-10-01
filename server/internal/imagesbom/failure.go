@@ -44,8 +44,10 @@ func classify(err error) failure {
 	}
 	switch registry.KindOf(err) {
 	case registry.KindRateLimited:
-		return failure{status: store.SBOMStatusError, rank: 0, err: err, retryAt: registry.RetryAt(err),
-			reason: host + " is rate limiting requests, will retry"}
+		return failure{
+			status: store.SBOMStatusError, rank: 0, err: err, retryAt: registry.RetryAt(err),
+			reason: host + " is rate limiting requests, will retry",
+		}
 	case registry.KindTransient:
 		return failure{status: store.SBOMStatusError, rank: 0, err: err, reason: transientReason(host, e)}
 	case registry.KindNoAttestation:

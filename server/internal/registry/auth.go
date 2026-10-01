@@ -100,7 +100,7 @@ func (c *Client) fetchToken(ctx context.Context, ref Ref, h string) (string, err
 	q.Set("scope", "repository:"+ref.Repository+":pull")
 	realm.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, realm.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, realm.String(), http.NoBody)
 	if err != nil {
 		return "", newErr(KindTransient, ref.Host, "token request: %v", err)
 	}

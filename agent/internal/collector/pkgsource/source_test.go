@@ -91,12 +91,16 @@ func TestNewRegistryRejectsDuplicateNames(t *testing.T) {
 
 func TestRegistryCollectStatus(t *testing.T) {
 	linux := familyIs(detect.FamilyLinux)
-	okSrc := fakeSource{name: "good", ecosystem: "deb", applies: linux,
-		pkgs: []collector.Package{{Name: "a", Version: "1"}}}
+	okSrc := fakeSource{
+		name: "good", ecosystem: "deb", applies: linux,
+		pkgs: []collector.Package{{Name: "a", Version: "1"}},
+	}
 	emptySrc := fakeSource{name: "empty", ecosystem: "apk", applies: linux, pkgs: nil}
-	badSrc := fakeSource{name: "bad", ecosystem: "rpm", applies: linux,
+	badSrc := fakeSource{
+		name: "bad", ecosystem: "rpm", applies: linux,
 		// A failing source's partial results must never leak through.
-		pkgs: []collector.Package{{Name: "partial"}}, err: errors.New("database locked")}
+		pkgs: []collector.Package{{Name: "partial"}}, err: errors.New("database locked"),
+	}
 	winSrc := fakeSource{name: "win", ecosystem: "windows", applies: familyIs(detect.FamilyWindows)}
 
 	tests := []struct {

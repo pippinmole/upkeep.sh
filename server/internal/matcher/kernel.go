@@ -146,11 +146,13 @@ var nonKernelSources = map[string]bool{
 
 // binaryLike are prefixes of kernel *binary* names; a source named like
 // this is an inferred (binary-named) source, not a kernel source.
-var binaryLike = []string{"linux-image-", "linux-modules-", "linux-headers-", "linux-tools-",
-	"linux-cloud-tools-", "linux-buildinfo-", "linux-libc-dev", "linux-source-", "linux-doc"}
+var binaryLike = []string{
+	"linux-image-", "linux-modules-", "linux-headers-", "linux-tools-",
+	"linux-cloud-tools-", "linux-buildinfo-", "linux-libc-dev", "linux-source-", "linux-doc",
+}
 
 // IsKernelSource reports whether an (already unwrapped) source package is
-// a Linux kernel: "linux" or "linux-<flavour>[-<version>]".
+// a Linux kernel: "linux" or "linux-<flavor>[-<version>]".
 func IsKernelSource(src string) bool {
 	if src == "linux" {
 		return true

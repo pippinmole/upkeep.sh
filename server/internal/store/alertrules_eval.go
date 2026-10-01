@@ -1,7 +1,7 @@
 package store
 
 // Property evaluators for alert rules (docs/ALERTING.md "MVP property
-// catalogue"): one per internal/alerting catalogue property, each a
+// catalog"): one per internal/alerting catalog property, each a
 // set-based query over the normalised host tables for a set of hosts.
 // They report what currently matches and which hosts can't be read
 // (unknown never resolves an alert).

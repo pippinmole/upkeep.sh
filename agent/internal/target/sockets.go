@@ -66,13 +66,13 @@ func (l *Local) ReachableSockets(optIn string) []string {
 		// absolute and would otherwise escape into the container), so
 		// run/docker.sock and var/run/docker.sock count once, and never
 		// match the container's own /var/run/docker.sock (the opt-in).
-		real, ok := resolveUnder(root, rel)
-		if !ok || real == skip {
+		resolved, ok := resolveUnder(root, rel)
+		if !ok || resolved == skip {
 			return
 		}
-		fi, err := os.Lstat(filepath.Join(root, real))
+		fi, err := os.Lstat(filepath.Join(root, resolved))
 		if err == nil && fi.Mode().Type() == fs.ModeSocket {
-			found[real] = true
+			found[resolved] = true
 		}
 	}
 
@@ -97,7 +97,8 @@ func (l *Local) ReachableSockets(optIn string) []string {
 		if err != nil {
 			return nil
 		}
-		if n++; n > socketWalkEntries {
+		n++
+		if n > socketWalkEntries {
 			return filepath.SkipAll
 		}
 		rel, _ := filepath.Rel(root, p)
@@ -149,7 +150,8 @@ func resolveUnder(root, rel string) (string, bool) {
 			cur = next
 			continue
 		}
-		if hops++; hops > 40 {
+		hops++
+		if hops > 40 {
 			return "", false
 		}
 		target, err := os.Readlink(p)

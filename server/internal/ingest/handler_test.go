@@ -24,15 +24,28 @@ func TestHostClaim(t *testing.T) {
 		want store.HostClaim
 	}{
 		{"v1 without host block", SnapshotPayload{}, store.HostClaim{Ref: "local"}},
-		{"full", SnapshotPayload{Collectors: ok, Host: &Host{Ref: "local", Hostname: " web-1 ",
-			Identity: HostIdentity{MachineID: "ABCDEF0123456789abcdef0123456789"}}},
-			store.HostClaim{Ref: "local", Hostname: "web-1", MachineID: "abcdef0123456789abcdef0123456789"}},
+		{
+			"full",
+			SnapshotPayload{Collectors: ok, Host: &Host{
+				Ref: "local", Hostname: " web-1 ",
+				Identity: HostIdentity{MachineID: "ABCDEF0123456789abcdef0123456789"},
+			}},
+			store.HostClaim{Ref: "local", Hostname: "web-1", MachineID: "abcdef0123456789abcdef0123456789"},
+		},
 		{"empty ref is local", SnapshotPayload{Host: &Host{}}, store.HostClaim{Ref: "local"}},
-		{"failed identity collector keeps hostname only", SnapshotPayload{Collectors: failed,
-			Host: &Host{Ref: "local", Hostname: "h", Identity: HostIdentity{MachineID: "0123"}}},
-			store.HostClaim{Ref: "local", Hostname: "h"}},
-		{"uninitialized", SnapshotPayload{Host: &Host{Identity: HostIdentity{MachineID: "uninitialized"}}},
-			store.HostClaim{Ref: "local"}},
+		{
+			"failed identity collector keeps hostname only",
+			SnapshotPayload{
+				Collectors: failed,
+				Host:       &Host{Ref: "local", Hostname: "h", Identity: HostIdentity{MachineID: "0123"}},
+			},
+			store.HostClaim{Ref: "local", Hostname: "h"},
+		},
+		{
+			"uninitialized",
+			SnapshotPayload{Host: &Host{Identity: HostIdentity{MachineID: "uninitialized"}}},
+			store.HostClaim{Ref: "local"},
+		},
 		{"remote ref passes through", SnapshotPayload{Host: &Host{Ref: "db-01"}}, store.HostClaim{Ref: "db-01"}},
 	}
 	for _, tt := range tests {
@@ -129,8 +142,10 @@ func TestEnrollAndPushHTTP(t *testing.T) {
 	}
 
 	auth := map[string]string{"X-Agent-ID": creds.AgentID, "Authorization": "Bearer " + creds.AgentSecret}
-	v1 := map[string]any{"schema_version": 1, "collected_at": time.Now().UTC().Format(time.RFC3339),
-		"os": map[string]any{"id": "ubuntu", "version_id": "22.04", "codename": "jammy"}}
+	v1 := map[string]any{
+		"schema_version": 1, "collected_at": time.Now().UTC().Format(time.RFC3339),
+		"os": map[string]any{"id": "ubuntu", "version_id": "22.04", "codename": "jammy"},
+	}
 	for i := range 2 {
 		if rec := do(h.Snapshot, v1, auth); rec.Code != http.StatusAccepted {
 			t.Fatalf("push %d: %d %s", i, rec.Code, rec.Body)

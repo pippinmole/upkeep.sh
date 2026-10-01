@@ -39,8 +39,10 @@ func TestCollectSwarmServices(t *testing.T) {
 				Labels:  map[string]string{"org.opencontainers.image.version": "container-label"},
 				Secrets: []*swarm.SecretReference{{SecretName: "db_password", SecretID: "sec1"}},
 				Configs: []*swarm.ConfigReference{{ConfigName: "cfg", ConfigID: "cfg1"}},
-				Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: "creds", Target: "/data",
-					VolumeOptions: &mount.VolumeOptions{DriverConfig: &mount.Driver{Options: map[string]string{"password": "hunter2"}}}}},
+				Mounts: []mount.Mount{{
+					Type: mount.TypeVolume, Source: "creds", Target: "/data",
+					VolumeOptions: &mount.VolumeOptions{DriverConfig: &mount.Driver{Options: map[string]string{"password": "hunter2"}}},
+				}},
 			}},
 			Mode: swarm.ServiceMode{Replicated: &swarm.ReplicatedService{Replicas: u64(2)}},
 			EndpointSpec: &swarm.EndpointSpec{Ports: []swarm.PortConfig{
@@ -104,19 +106,23 @@ func TestCollectSwarmServices(t *testing.T) {
 		t.Fatalf("err=%v truncated=%v", err, truncated)
 	}
 	want := []SwarmService{
-		{ID: "svc-a", Name: "monitoring_agent", Image: "agent:2", Mode: "global",
+		{
+			ID: "svc-a", Name: "monitoring_agent", Image: "agent:2", Mode: "global",
 			Ports: []SwarmPort{
 				{Target: 80, Proto: "tcp", PublishMode: "ingress"},
 				{Published: 9100, Target: 9100, Proto: "tcp", PublishMode: "host"},
-			}},
-		{ID: "svc-b", Name: "web_api", Image: "ghcr.io/me/api:1@sha256:abc", Mode: "replicated", Replicas: intp(2),
+			},
+		},
+		{
+			ID: "svc-b", Name: "web_api", Image: "ghcr.io/me/api:1@sha256:abc", Mode: "replicated", Replicas: intp(2),
 			RunningTasks: intp(1), DesiredTasks: intp(2),
 			Labels: map[string]string{"com.docker.stack.namespace": "web", "com.docker.stack.image": "ghcr.io/me/api:1"},
 			Ports: []SwarmPort{
 				{Published: 443, Target: 8443, Proto: "tcp", PublishMode: "ingress"},
 				{Published: 443, Target: 8443, Proto: "udp", PublishMode: "ingress"},
 				{Published: 30001, Target: 9000, Proto: "tcp", PublishMode: "ingress"},
-			}},
+			},
+		},
 		{ID: "svc-c", Name: "migrate", Image: "migrate:1", Mode: "replicated-job"},
 		{ID: "svc-d", Name: "prune", Image: "docker:cli", Mode: "global-job", RunningTasks: intp(0), DesiredTasks: intp(0)},
 		{ID: "svc-e", Name: "idle", Mode: "replicated", Replicas: intp(0)},
@@ -194,8 +200,8 @@ func TestCollectSwarmServicesErrors(t *testing.T) {
 			t.Errorf("%q: err = %v", tt.msg, err)
 		}
 		for _, s := range []error{ErrNotSwarmManager, ErrNotInSwarm, ErrSwarmLocked} {
-			if errors.Is(err, s) != (s == tt.want) {
-				t.Errorf("%q: errors.Is(%v) = %v", tt.msg, s, !(s == tt.want))
+			if errors.Is(err, s) != errors.Is(s, tt.want) {
+				t.Errorf("%q: errors.Is(%v) = %v", tt.msg, s, !errors.Is(s, tt.want))
 			}
 		}
 	}

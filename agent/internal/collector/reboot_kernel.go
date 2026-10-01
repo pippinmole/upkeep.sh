@@ -32,7 +32,7 @@ func kernelRelease(name string) string {
 // kernelFlavour is the part of a release after its version: "generic" in
 // 6.8.0-45-generic, "cloud-amd64" in 6.1.0-18-cloud-amd64, "rpi-v8" in
 // 6.6.31+rpt-rpi-v8. A reboot is only pending for a newer kernel of the
-// same flavour: installing linux-image-lowlatency next to a running
+// same flavor: installing linux-image-lowlatency next to a running
 // generic kernel doesn't change what boots by default.
 func kernelFlavour(release string) string {
 	parts := strings.Split(release, "-")
@@ -63,7 +63,7 @@ func kernelRebootRequired(running string, pkgs []Package) (bool, []string, error
 	}
 	var runningVer *debversion.Version
 	var sameFlavour []kpkg
-	flavour := kernelFlavour(running)
+	flavor := kernelFlavour(running)
 	for _, p := range pkgs {
 		if p.Ecosystem != "" && p.Ecosystem != "deb" {
 			continue
@@ -82,7 +82,7 @@ func kernelRebootRequired(running string, pkgs []Package) (bool, []string, error
 			}
 			continue
 		}
-		if kernelFlavour(rel) == flavour {
+		if kernelFlavour(rel) == flavor {
 			sameFlavour = append(sameFlavour, kpkg{p.Name, v})
 		}
 	}

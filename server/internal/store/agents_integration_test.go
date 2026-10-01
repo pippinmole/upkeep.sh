@@ -62,8 +62,10 @@ func (f *agentFixture) enroll(tokenName string) string {
 		VALUES ($1, $2, now() + interval '1 hour', $3)`, token, f.workspaceID, name); err != nil {
 		f.t.Fatal(err)
 	}
-	id, err := f.s.EnrollAgent(ctx, EnrollInput{Token: token, Hostname: "container-" + f.tag,
-		Version: "0.9.0", Platform: "linux/amd64", SecretHash: "hash"})
+	id, err := f.s.EnrollAgent(ctx, EnrollInput{
+		Token: token, Hostname: "container-" + f.tag,
+		Version: "0.9.0", Platform: "linux/amd64", SecretHash: "hash",
+	})
 	if err != nil {
 		f.t.Fatal(err)
 	}

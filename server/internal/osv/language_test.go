@@ -215,8 +215,10 @@ func TestNormalizeLanguageSameIntroduced(t *testing.T) {
 }
 
 func TestLanguageNamePyPI(t *testing.T) {
-	for in, want := range map[string]string{"Django": "django", "zope.interface": "zope-interface",
-		"Foo__Bar-.baz": "foo-bar-baz", "jinja2": "jinja2"} {
+	for in, want := range map[string]string{
+		"Django": "django", "zope.interface": "zope-interface",
+		"Foo__Bar-.baz": "foo-bar-baz", "jinja2": "jinja2",
+	} {
 		if got := languageName("PyPI", in); got != want {
 			t.Errorf("languageName(%q) = %q, want %q", in, got, want)
 		}

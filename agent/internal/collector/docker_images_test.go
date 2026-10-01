@@ -36,8 +36,10 @@ func TestCollectDockerImages(t *testing.T) {
 				Variant:      "v7",
 				RootFS:       image.RootFS{Type: "layers", Layers: []string{"sha256:base", "sha256:mid", "sha256:app"}},
 			},
-			dangling: {ID: dangling, RepoTags: []string{"<none>:<none>"}, RepoDigests: []string{"<none>@<none>"},
-				Os: "linux", Architecture: "amd64"},
+			dangling: {
+				ID: dangling, RepoTags: []string{"<none>:<none>"}, RepoDigests: []string{"<none>@<none>"},
+				Os: "linux", Architecture: "amd64",
+			},
 		},
 	}
 	// The image config holds Env and Cmd, which must never be read.
@@ -89,11 +91,15 @@ func TestCollectDockerImagesDisappearedAndErrors(t *testing.T) {
 	// A failed inspect keeps the image as a partial entry from its list
 	// data; the collector stays ok.
 	f.ImageInspectErr = errors.New("boom")
-	f.Images = []image.Summary{{ID: a, Created: 1700000000, RepoTags: []string{"<none>:<none>", "b:1", "a:1"},
-		RepoDigests: []string{"<none>@<none>"}, Labels: map[string]string{"org.opencontainers.image.source": "x", "k": "v"}}}
+	f.Images = []image.Summary{{
+		ID: a, Created: 1700000000, RepoTags: []string{"<none>:<none>", "b:1", "a:1"},
+		RepoDigests: []string{"<none>@<none>"}, Labels: map[string]string{"org.opencontainers.image.source": "x", "k": "v"},
+	}}
 	got, truncated, err = CollectDockerImages(context.Background(), f)
-	want := []DockerImage{{ID: a, RepoTags: []string{"a:1", "b:1"}, Created: "2023-11-14T22:13:20Z",
-		Labels: map[string]string{"org.opencontainers.image.source": "x"}, InspectError: "boom"}}
+	want := []DockerImage{{
+		ID: a, RepoTags: []string{"a:1", "b:1"}, Created: "2023-11-14T22:13:20Z",
+		Labels: map[string]string{"org.opencontainers.image.source": "x"}, InspectError: "boom",
+	}}
 	if err != nil || truncated || !reflect.DeepEqual(got, want) {
 		t.Errorf("inspect error: got %+v, truncated %v, err %v", got, truncated, err)
 	}

@@ -120,7 +120,7 @@ func (s *Store) RecordAgentStatus(ctx context.Context, agentID string, rep Statu
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if rep.SSHPublicKey != "" {
 		if _, err := tx.Exec(ctx, `UPDATE agents SET ssh_public_key = $2 WHERE id = $1`, agentID, rep.SSHPublicKey); err != nil {

@@ -199,7 +199,7 @@ func TestTiesAndKeyProperties(t *testing.T) {
 	if lo <= 0 || hi >= 1<<40 {
 		t.Errorf("key range [%d, %d] unexpected", lo, hi)
 	}
-	// Out-of-range and NaN inputs are clamped, never overflow neighbours.
+	// Out-of-range and NaN inputs are clamped, never overflow neighbors.
 	weird := Assess(Input{DistroPriority: PriorityLow, EPSS: f(-3), CVSS: f(99)}).Key
 	sane := Assess(Input{DistroPriority: PriorityLow, CVSS: f(10)}).Key
 	if weird != sane {

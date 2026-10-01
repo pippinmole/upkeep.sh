@@ -147,7 +147,7 @@ func main() {
 	db, err := store.Open(openCtx, dsn)
 	cancel()
 	if err != nil {
-		log.Fatalf("connect to postgres: %v", err)
+		log.Fatalf("connect to postgres: %v", err) //nolint:gocritic // exiting releases the deferred resources
 	}
 	defer db.Close()
 

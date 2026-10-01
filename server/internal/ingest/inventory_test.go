@@ -39,8 +39,10 @@ func TestPlanLegacyAgentDefaults(t *testing.T) {
 	if s.Ecosystem != "deb" || s.Distro != "ubuntu" || s.Release != "jammy" {
 		t.Fatalf("scope = %s/%s/%s", s.Ecosystem, s.Distro, s.Release)
 	}
-	want := inventory.Item{Name: "libssl3", Version: "3.0.2-0ubuntu1.15", Arch: "amd64",
-		Source: "libssl3", SourceVersion: "3.0.2-0ubuntu1.15", SourceInferred: true}
+	want := inventory.Item{
+		Name: "libssl3", Version: "3.0.2-0ubuntu1.15", Arch: "amd64",
+		Source: "libssl3", SourceVersion: "3.0.2-0ubuntu1.15", SourceInferred: true,
+	}
 	if s.Items[0] != want {
 		t.Fatalf("item = %#v, want %#v", s.Items[0], want)
 	}
@@ -128,8 +130,10 @@ func TestDefaultPackage(t *testing.T) {
 	if eco != "deb" || it.Source != "foo" || it.SourceVersion != "1.2-3+b1" || it.SourceInferred {
 		t.Fatalf("Source: foo form: eco=%s %#v", eco, it)
 	}
-	_, it = defaultPackage(Package{Name: "libfoo1", Version: "1.2-3+b1", Arch: "amd64",
-		Source: "foo", SourceVersion: "1.2-3", Ecosystem: "deb"})
+	_, it = defaultPackage(Package{
+		Name: "libfoo1", Version: "1.2-3+b1", Arch: "amd64",
+		Source: "foo", SourceVersion: "1.2-3", Ecosystem: "deb",
+	})
 	if it.SourceVersion != "1.2-3" {
 		t.Fatalf("explicit source version lost: %#v", it)
 	}
@@ -188,8 +192,10 @@ func TestKernelRelease(t *testing.T) {
 		{"collector ok", SnapshotPayload{OS: OSRelease{Kernel: "6.8.0-45-generic"}, Collectors: ok}, "6.8.0-45-generic"},
 		{"trimmed", SnapshotPayload{OS: OSRelease{Kernel: " 6.8.0-45-generic\n"}, Collectors: ok}, "6.8.0-45-generic"},
 		{"collector failed", SnapshotPayload{OS: OSRelease{Kernel: "6.8.0-45-generic"}, Collectors: failed}, ""},
-		{"collector missing from map (older agent with collectors)", SnapshotPayload{OS: OSRelease{Kernel: "6.8.0-45-generic"},
-			Collectors: map[string]CollectorStatus{}}, ""},
+		{"collector missing from map (older agent with collectors)", SnapshotPayload{
+			OS:         OSRelease{Kernel: "6.8.0-45-generic"},
+			Collectors: map[string]CollectorStatus{},
+		}, ""},
 		{"legacy payload without collectors", SnapshotPayload{OS: OSRelease{Kernel: "5.15.0-91-generic"}}, "5.15.0-91-generic"},
 		{"absent", SnapshotPayload{Collectors: ok}, ""},
 		{"garbage", SnapshotPayload{OS: OSRelease{Kernel: "a b"}, Collectors: ok}, ""},
@@ -199,8 +205,10 @@ func TestKernelRelease(t *testing.T) {
 			t.Errorf("%s: kernelRelease = %q, want %q", tt.name, got, tt.want)
 		}
 	}
-	in := buildSnapshotInput(SnapshotPayload{SchemaVersion: 1, OS: OSRelease{ID: "ubuntu", Kernel: "6.8.0-45-generic"},
-		Collectors: ok}, "h", time.Now(), time.Now(), "")
+	in := buildSnapshotInput(SnapshotPayload{
+		SchemaVersion: 1, OS: OSRelease{ID: "ubuntu", Kernel: "6.8.0-45-generic"},
+		Collectors: ok,
+	}, "h", time.Now(), time.Now(), "")
 	if in.KernelRelease != "6.8.0-45-generic" {
 		t.Errorf("SnapshotInput.KernelRelease = %q", in.KernelRelease)
 	}

@@ -197,13 +197,17 @@ func TestInventoryLifecycle(t *testing.T) {
 
 func TestInferredSourceIsUpgraded(t *testing.T) {
 	f := newFixture(t)
-	inferred := inventory.Item{Name: "libssl3", Version: "3.0.2", Arch: "amd64",
-		Source: "libssl3", SourceVersion: "3.0.2", SourceInferred: true}
-	real := inventory.Item{Name: "libssl3", Version: "3.0.2", Arch: "amd64",
-		Source: "openssl", SourceVersion: "3.0.2"}
+	inferred := inventory.Item{
+		Name: "libssl3", Version: "3.0.2", Arch: "amd64",
+		Source: "libssl3", SourceVersion: "3.0.2", SourceInferred: true,
+	}
+	actual := inventory.Item{
+		Name: "libssl3", Version: "3.0.2", Arch: "amd64",
+		Source: "openssl", SourceVersion: "3.0.2",
+	}
 
 	f.push(1, f.set(inferred))
-	r := outcome(t, f.push(2, f.set(real)))
+	r := outcome(t, f.push(2, f.set(actual)))
 	// Hash differs (source changed) so a diff runs, but it is the same
 	// interned version: no range churn.
 	if r.Outcome != InventoryDiffed || r.Added != 0 || r.Removed != 0 {
@@ -230,7 +234,7 @@ func TestConcurrentPushesSerialise(t *testing.T) {
 	f.push(1, f.set(pkg("a", "1")))
 
 	// Rounds of concurrent pushes with distinct timestamps and alternating
-	// sets. Serialised by the host lock, each sees a consistent previous
+	// sets. Serialized by the host lock, each sees a consistent previous
 	// state; without it, a push can close or open ranges from a stale read
 	// and leave the stored hash describing a different set than the open
 	// ranges (this test fails within a few rounds if the lock is removed).

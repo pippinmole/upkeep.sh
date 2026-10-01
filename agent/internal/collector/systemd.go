@@ -172,13 +172,14 @@ func indexUnits(fsys fs.FS) (*unitIndex, bool, error) {
 	var permErr error
 	for _, dir := range systemdUnitDirs {
 		entries, err := fs.ReadDir(fsys, dir)
-		if errors.Is(err, fs.ErrNotExist) {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
 			continue
-		} else if errors.Is(err, fs.ErrPermission) {
+		case errors.Is(err, fs.ErrPermission):
 			idx.unreadableDirs++
 			permErr = err
 			continue
-		} else if err != nil {
+		case err != nil:
 			return nil, false, err
 		}
 		found = true
@@ -238,8 +239,8 @@ func indexUnits(fsys fs.FS) (*unitIndex, bool, error) {
 	}
 	// A wanted alias enables the unit it points to.
 	for name := range idx.wanted {
-		if real, ok := idx.aliases[name]; ok {
-			idx.wanted[real] = true
+		if resolved, ok := idx.aliases[name]; ok {
+			idx.wanted[resolved] = true
 		}
 	}
 	return idx, found, nil

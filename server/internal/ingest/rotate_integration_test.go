@@ -72,8 +72,10 @@ func (e *rotateEnv) do(handler http.HandlerFunc, secret string, body any) *httpt
 }
 
 func (e *rotateEnv) push(secret string) *httptest.ResponseRecorder {
-	return e.do(e.h.Snapshot, secret, map[string]any{"schema_version": 1,
-		"collected_at": time.Now().UTC().Format(time.RFC3339), "os": map[string]any{"id": "debian"}})
+	return e.do(e.h.Snapshot, secret, map[string]any{
+		"schema_version": 1,
+		"collected_at":   time.Now().UTC().Format(time.RFC3339), "os": map[string]any{"id": "debian"},
+	})
 }
 
 func (e *rotateEnv) rotate(secret string) (string, int) {

@@ -58,7 +58,7 @@ func TestEnqueueAfterIngestIsTransactional(t *testing.T) {
 			                        AND EXISTS (SELECT 1 FROM software_versions sv
 			                                    WHERE sv.distro = $2 AND (args->'ids') @> to_jsonb(sv.id)))
 			FROM river_job WHERE args->>'host_id' = $1 OR kind = 'match_versions'`, hostID, tag).Scan(&reconcile, &match)
-		return
+		return match, reconcile
 	}
 	set := inventory.NewSet("deb", tag, "jammy", []inventory.Item{
 		{Name: "a", Version: "1", Arch: "amd64", Source: "a", SourceVersion: "1"},

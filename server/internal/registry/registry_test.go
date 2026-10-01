@@ -139,14 +139,20 @@ func TestFetchSBOMReferrers(t *testing.T) {
 	doc := spdxPredicate(t)
 	layer := f.addBlob(doc, "application/spdx+json")
 	emptyCfg := f.addBlob([]byte(`{}`), "application/vnd.oci.empty.v1+json")
-	art := f.addManifest(map[string]any{"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
+	art := f.addManifest(map[string]any{
+		"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
 		"artifactType": "application/spdx+json", "config": emptyCfg, "layers": []any{layer},
-		"subject": im.amd64}, MediaTypeOCIManifest)
+		"subject": im.amd64,
+	}, MediaTypeOCIManifest)
 	art.ArtifactType = "application/spdx+json"
-	sig := Descriptor{MediaType: MediaTypeOCIManifest, ArtifactType: "application/vnd.dev.cosign.artifact.sig.v1+json",
-		Digest: testDigest, Size: 10}
-	f.referrers[im.amd64.Digest] = mustJSON(t, map[string]any{"schemaVersion": 2, "mediaType": MediaTypeOCIIndex,
-		"manifests": []any{sig, art}})
+	sig := Descriptor{
+		MediaType: MediaTypeOCIManifest, ArtifactType: "application/vnd.dev.cosign.artifact.sig.v1+json",
+		Digest: testDigest, Size: 10,
+	}
+	f.referrers[im.amd64.Digest] = mustJSON(t, map[string]any{
+		"schemaVersion": 2, "mediaType": MediaTypeOCIIndex,
+		"manifests": []any{sig, art},
+	})
 
 	s, err := f.client(Config{}).FetchSBOM(context.Background(), f.ref(im.amd64),
 		Platform{OS: "linux", Architecture: "amd64"}, im.amd64.Digest)
@@ -270,7 +276,7 @@ func TestFetchSBOMDenied(t *testing.T) {
 func TestDockerHubCredentialsScoped(t *testing.T) {
 	f := newFakeRegistry(t, "org/app")
 	im := f.pushImage(map[string][]byte{"https://spdx.dev/Document": spdxPredicate(t)})
-	c := f.client(Config{DockerHubUsername: "u", DockerHubToken: "dckr_pat_x"})
+	c := f.client(Config{DockerHubUsername: "u", DockerHubToken: "dckr_pat_x"}) //nolint:gosec // test fixture, not a credential
 	if _, err := c.FetchSBOM(context.Background(), f.ref(im.index), Platform{OS: "linux", Architecture: "amd64"}, im.index.Digest); err != nil {
 		t.Fatal(err)
 	}

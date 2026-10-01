@@ -70,8 +70,10 @@ func Parse(s string) (Version, error) {
 		v.Release = append(v.Release, num(r))
 	}
 	if m[3] != "" {
-		v.Pre, v.PreN = map[string]string{"alpha": "a", "a": "a", "beta": "b", "b": "b",
-			"c": "rc", "pre": "rc", "preview": "rc", "rc": "rc"}[m[3]], num(m[4])
+		v.Pre, v.PreN = map[string]string{
+			"alpha": "a", "a": "a", "beta": "b", "b": "b",
+			"c": "rc", "pre": "rc", "preview": "rc", "rc": "rc",
+		}[m[3]], num(m[4])
 	}
 	switch {
 	case m[5] != "":

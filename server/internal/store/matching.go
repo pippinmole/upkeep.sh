@@ -82,7 +82,7 @@ func (s *Store) matchChunk(ctx context.Context, ids []int64) (MatchResult, error
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, matcherLock); err != nil {
 		return res, err
 	}
@@ -161,8 +161,10 @@ func (s *Store) matchChunk(ctx context.Context, ids []int64) (MatchResult, error
 				if m.FixChannel != "" {
 					fc = m.FixChannel
 				}
-				copyRows = append(copyRows, []any{r.id, m.VulnKey, m.AdvisoryIDs, m.FixedVersion, fc,
-					nilIfEmpty(m.FixAdvisoryID), m.Severity, matcher.Version})
+				copyRows = append(copyRows, []any{
+					r.id, m.VulnKey, m.AdvisoryIDs, m.FixedVersion, fc,
+					nilIfEmpty(m.FixAdvisoryID), m.Severity, matcher.Version,
+				})
 			}
 		}
 		upIDs = append(upIDs, r.id)
@@ -182,8 +184,10 @@ func (s *Store) matchChunk(ctx context.Context, ids []int64) (MatchResult, error
 		}
 		if len(copyRows) > 0 {
 			if _, err := tx.CopyFrom(ctx, pgx.Identifier{"software_vulnerabilities"},
-				[]string{"software_id", "vuln_key", "advisory_ids", "fixed_version", "fix_channel",
-					"fix_advisory_id", "distro_severity", "matcher_version"},
+				[]string{
+					"software_id", "vuln_key", "advisory_ids", "fixed_version", "fix_channel",
+					"fix_advisory_id", "distro_severity", "matcher_version",
+				},
 				pgx.CopyFromRows(copyRows)); err != nil {
 				return res, err
 			}

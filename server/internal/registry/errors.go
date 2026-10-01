@@ -91,6 +91,6 @@ func RetryAt(err error) time.Time {
 	return time.Time{}
 }
 
-func newErr(kind ErrorKind, host string, format string, a ...any) *Error {
+func newErr(kind ErrorKind, host, format string, a ...any) *Error {
 	return &Error{Kind: kind, Host: host, Err: fmt.Errorf(format, a...)}
 }

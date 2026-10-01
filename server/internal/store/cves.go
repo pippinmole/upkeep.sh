@@ -28,7 +28,7 @@ func (s *Store) ApplyKEV(ctx context.Context, cat cvefeeds.KEVCatalog) (flagged,
 	if err != nil {
 		return 0, 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO cves (id, is_kev, kev_added_at, kev_due_date, kev_ransomware)
 		SELECT id, true, added, due, ransom
@@ -64,7 +64,7 @@ func (s *Store) ApplyEPSS(ctx context.Context, r *cvefeeds.EPSSReader) (rows, up
 	if err != nil {
 		return 0, 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `
 		CREATE TEMP TABLE epss_stage (id text, score text, pct text) ON COMMIT DROP
 	`); err != nil {
@@ -103,7 +103,7 @@ type epssSource struct {
 
 func (e *epssSource) Next() bool {
 	e.cur, e.err = e.r.Next()
-	if e.err == io.EOF {
+	if errors.Is(e.err, io.EOF) {
 		e.err = nil
 		return false
 	}

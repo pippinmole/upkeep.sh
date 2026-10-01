@@ -11,8 +11,10 @@ func sp(s string) *string { return &s }
 
 // perCVE builds a per-CVE record row (UBUNTU-CVE-*).
 func perCVE(cve, channel, introduced string, fixed *string, sev string) Row {
-	r := Row{AdvisoryID: "UBUNTU-" + cve, VulnKey: cve, CVEIDs: []string{cve}, Channel: channel,
-		Introduced: introduced, Fixed: fixed, Status: "unfixed"}
+	r := Row{
+		AdvisoryID: "UBUNTU-" + cve, VulnKey: cve, CVEIDs: []string{cve}, Channel: channel,
+		Introduced: introduced, Fixed: fixed, Status: "unfixed",
+	}
 	if fixed != nil {
 		r.Status = "fixed"
 	}
@@ -23,13 +25,15 @@ func perCVE(cve, channel, introduced string, fixed *string, sev string) Row {
 }
 
 // notice builds a DSA/USN-style row citing cves.
-func notice(id string, cves []string, channel string, fixed *string) Row {
+func notice(id string, cves []string, fixed *string) Row {
 	key := id
 	if len(cves) == 1 {
 		key = cves[0]
 	}
-	return Row{AdvisoryID: id, VulnKey: key, CVEIDs: cves, Channel: channel, Introduced: "0",
-		Fixed: fixed, Status: "fixed"}
+	return Row{
+		AdvisoryID: id, VulnKey: key, CVEIDs: cves, Channel: ChannelStandard, Introduced: "0",
+		Fixed: fixed, Status: "fixed",
+	}
 }
 
 func eval(t *testing.T, v string, rows ...Row) []Match {
@@ -89,8 +93,10 @@ func TestPredicate(t *testing.T) {
 }
 
 func TestLastAffected(t *testing.T) {
-	r := Row{AdvisoryID: "DEBIAN-CVE-2024-2", VulnKey: "CVE-2024-2", CVEIDs: []string{"CVE-2024-2"},
-		Channel: ChannelStandard, Introduced: "0", LastAffected: sp("1.4-2"), Status: "unfixed"}
+	r := Row{
+		AdvisoryID: "DEBIAN-CVE-2024-2", VulnKey: "CVE-2024-2", CVEIDs: []string{"CVE-2024-2"},
+		Channel: ChannelStandard, Introduced: "0", LastAffected: sp("1.4-2"), Status: "unfixed",
+	}
 	for v, want := range map[string]bool{"1.4-1": true, "1.4-2": true, "1.4-2+b1": false, "1.5-1": false} {
 		ms := eval(t, v, r)
 		if got := len(ms) == 1; got != want {
@@ -104,8 +110,10 @@ func TestLastAffected(t *testing.T) {
 
 func TestMatchCarriesFix(t *testing.T) {
 	ms := eval(t, "1.0-1", perCVE("CVE-2024-3", ChannelStandard, "0", sp("1.0-2"), "medium"))
-	want := []Match{{VulnKey: "CVE-2024-3", AdvisoryIDs: []string{"UBUNTU-CVE-2024-3"},
-		FixedVersion: sp("1.0-2"), FixChannel: ChannelStandard, FixAdvisoryID: "UBUNTU-CVE-2024-3", Severity: sp("medium")}}
+	want := []Match{{
+		VulnKey: "CVE-2024-3", AdvisoryIDs: []string{"UBUNTU-CVE-2024-3"},
+		FixedVersion: sp("1.0-2"), FixChannel: ChannelStandard, FixAdvisoryID: "UBUNTU-CVE-2024-3", Severity: sp("medium"),
+	}}
 	if !reflect.DeepEqual(ms, want) {
 		t.Errorf("got %+v, want %+v", ms, want)
 	}
@@ -128,17 +136,32 @@ func TestProChannel(t *testing.T) {
 		fixChannel  string
 		requiresPro bool
 	}{
-		{"standard fix wins over pro fix", "1.0-1", []Row{std(sp("1.0-3")), pro(sp("1.0-1ubuntu0.1~esm1"))},
-			true, "1.0-3", ChannelStandard, false},
-		{"standard unfixed, pro fixed: requires pro", "1.0-1", []Row{std(nil), pro(sp("1.0-1ubuntu0.1~esm1"))},
-			true, "1.0-1ubuntu0.1~esm1", ChannelUbuntuPro, true},
-		{"pro-only tracking (ESM apps), fixed", "2.0-1", []Row{pro(sp("2.0-1ubuntu0.1~esm2"))},
-			true, "2.0-1ubuntu0.1~esm2", ChannelUbuntuPro, true},
+		{
+			"standard fix wins over pro fix", "1.0-1",
+			[]Row{std(sp("1.0-3")), pro(sp("1.0-1ubuntu0.1~esm1"))},
+			true, "1.0-3", ChannelStandard, false,
+		},
+		{
+			"standard unfixed, pro fixed: requires pro", "1.0-1",
+			[]Row{std(nil), pro(sp("1.0-1ubuntu0.1~esm1"))},
+			true, "1.0-1ubuntu0.1~esm1", ChannelUbuntuPro, true,
+		},
+		{
+			"pro-only tracking (ESM apps), fixed", "2.0-1",
+			[]Row{pro(sp("2.0-1ubuntu0.1~esm2"))},
+			true, "2.0-1ubuntu0.1~esm2", ChannelUbuntuPro, true,
+		},
 		{"pro-only tracking, unfixed", "2.0-1", []Row{pro(nil)}, true, "", "", false},
-		{"esm build installed: fixed", "1.0-1ubuntu0.1~esm1", []Row{std(nil), pro(sp("1.0-1ubuntu0.1~esm1"))},
-			false, "", "", false},
-		{"standard fix installed, pro unfixed: not affected", "1.0-3", []Row{std(sp("1.0-3")), pro(nil)},
-			false, "", "", false},
+		{
+			"esm build installed: fixed", "1.0-1ubuntu0.1~esm1",
+			[]Row{std(nil), pro(sp("1.0-1ubuntu0.1~esm1"))},
+			false, "", "", false,
+		},
+		{
+			"standard fix installed, pro unfixed: not affected", "1.0-3",
+			[]Row{std(sp("1.0-3")), pro(nil)},
+			false, "", "", false,
+		},
 		{"both unfixed", "1.0-1", []Row{std(nil), pro(nil)}, true, "", "", false},
 	}
 	for _, tt := range tests {
@@ -169,7 +192,7 @@ func TestPerCVERecordIsAuthoritative(t *testing.T) {
 	// The USN says fixed in .17; the per-CVE record (which follows
 	// regressions) says .18. The per-CVE record decides; both are cited.
 	rows := []Row{
-		notice("USN-6937-1", []string{cve}, ChannelStandard, sp("3.0.2-0ubuntu1.17")),
+		notice("USN-6937-1", []string{cve}, sp("3.0.2-0ubuntu1.17")),
 		perCVE(cve, ChannelStandard, "0", sp("3.0.2-0ubuntu1.18"), "low"),
 	}
 	ms := eval(t, "3.0.2-0ubuntu1.17", rows...)
@@ -189,7 +212,7 @@ func TestPerCVERecordIsAuthoritative(t *testing.T) {
 func TestNoticeExpandsToCVEs(t *testing.T) {
 	// A multi-CVE USN with no per-CVE records for this source: one match
 	// per cited CVE, not one keyed by the USN id.
-	usn := notice("USN-6154-1", []string{"CVE-2023-2426", "CVE-2023-2609", "CVE-2023-2610"}, ChannelStandard, sp("2:8.2.3995-1ubuntu2.8"))
+	usn := notice("USN-6154-1", []string{"CVE-2023-2426", "CVE-2023-2609", "CVE-2023-2610"}, sp("2:8.2.3995-1ubuntu2.8"))
 	ms := eval(t, "2:8.2.3995-1ubuntu2.7", usn)
 	if got := keys(ms); !reflect.DeepEqual(got, []string{"CVE-2023-2426", "CVE-2023-2609", "CVE-2023-2610"}) {
 		t.Fatalf("keys = %v", got)
@@ -217,8 +240,8 @@ func TestMultipleAdvisoriesOneCVE(t *testing.T) {
 	// record: the earliest fix resolves the CVE; later notices must not
 	// reopen it.
 	rows := []Row{
-		notice("USN-5570-1", []string{cve}, ChannelStandard, sp("1:1.2.11.dfsg-2ubuntu9.1")),
-		notice("USN-5570-2", []string{cve}, ChannelStandard, sp("1:1.2.11.dfsg-2ubuntu9.2")),
+		notice("USN-5570-1", []string{cve}, sp("1:1.2.11.dfsg-2ubuntu9.1")),
+		notice("USN-5570-2", []string{cve}, sp("1:1.2.11.dfsg-2ubuntu9.2")),
 	}
 	ms := eval(t, "1:1.2.11.dfsg-2ubuntu9", rows...)
 	if len(ms) != 1 || *ms[0].FixedVersion != "1:1.2.11.dfsg-2ubuntu9.1" || ms[0].FixAdvisoryID != "USN-5570-1" {
@@ -238,8 +261,8 @@ func TestMultipleAdvisoriesOneCVE(t *testing.T) {
 }
 
 func TestSeverityFallsBackToAnyAffectedRow(t *testing.T) {
-	a := notice("USN-1-1", []string{"CVE-2024-7"}, ChannelStandard, sp("1.1"))
-	b := notice("USN-1-2", []string{"CVE-2024-7"}, ChannelStandard, sp("1.2"))
+	a := notice("USN-1-1", []string{"CVE-2024-7"}, sp("1.1"))
+	b := notice("USN-1-2", []string{"CVE-2024-7"}, sp("1.2"))
 	b.Severity = sp("high")
 	ms := eval(t, "1.0", a, b)
 	if len(ms) != 1 || ms[0].Severity == nil || *ms[0].Severity != "high" {

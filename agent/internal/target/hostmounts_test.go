@@ -15,7 +15,7 @@ func write(t *testing.T, root, name, body string) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -99,12 +99,12 @@ func TestNotVisible(t *testing.T) {
 	}
 
 	// Bare metal: genuinely missing, no mount hint.
-	if err := NotVisible(NewLocal("/", "/proc"), errNX); err != errNX {
+	if err := NotVisible(NewLocal("/", "/proc"), errNX); !errors.Is(err, errNX) {
 		t.Errorf("bare metal: %v", err)
 	}
 	// Other errors pass through.
 	perm := &fs.PathError{Op: "open", Path: "x", Err: fs.ErrPermission}
-	if err := NotVisible(container, perm); err != perm {
+	if err := NotVisible(container, perm); !errors.Is(err, perm) {
 		t.Errorf("permission error rewritten: %v", err)
 	}
 	if err := NotVisible(container, nil); err != nil {

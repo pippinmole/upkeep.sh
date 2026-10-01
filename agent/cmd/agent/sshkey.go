@@ -72,16 +72,16 @@ func writeFileAtomic(path string, data []byte) (err error) {
 			_ = os.Remove(tmp)
 		}
 	}()
-	if err = f.Chmod(0o600); err != nil {
+	if err := f.Chmod(0o600); err != nil {
 		return err
 	}
 	if _, err = f.Write(data); err != nil {
 		return err
 	}
-	if err = f.Sync(); err != nil {
+	if err := f.Sync(); err != nil {
 		return err
 	}
-	if err = f.Close(); err != nil {
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

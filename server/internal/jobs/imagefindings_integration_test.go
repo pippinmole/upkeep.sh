@@ -39,8 +39,10 @@ func TestImageFindingsPipeline(t *testing.T) {
 	if _, err := f.s.UpsertAdvisories(ctx, []osv.Advisory{{
 		ID: "UBUNTU-" + cve, Source: f.tag, VulnKey: cve, CVEIDs: []string{cve}, Aliases: []string{},
 		Upstream: []string{cve}, Related: []string{}, Modified: time.Now().UTC(), Raw: []byte(`{}`), ContentHash: f.tag,
-		Affected: []osv.AffectedRow{{Distro: f.tag, Release: "jammy", SourcePackage: "openssl", Channel: osv.ChannelStandard,
-			Introduced: "0", FixedVersion: &fixed, DistroSeverity: &sev, Status: "fixed", Ecosystem: "Test:22.04"}},
+		Affected: []osv.AffectedRow{{
+			Distro: f.tag, Release: "jammy", SourcePackage: "openssl", Channel: osv.ChannelStandard,
+			Introduced: "0", FixedVersion: &fixed, DistroSeverity: &sev, Status: "fixed", Ecosystem: "Test:22.04",
+		}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -77,8 +79,10 @@ func TestImageFindingsPipeline(t *testing.T) {
 		_ = client.Stop(stopCtx)
 	})
 
-	pkg := store.ImagePackage{Package: purl.Package{Ecosystem: "deb", Distro: f.tag, Release: "jammy", KnownType: true,
-		Item: inventory.Item{Name: "libssl3", Version: "3.0.2-1", Arch: "amd64", Source: "openssl", SourceVersion: "3.0.2-1"}}}
+	pkg := store.ImagePackage{Package: purl.Package{
+		Ecosystem: "deb", Distro: f.tag, Release: "jammy", KnownType: true,
+		Item: inventory.Item{Name: "libssl3", Version: "3.0.2-1", Arch: "amd64", Source: "openssl", SourceVersion: "3.0.2-1"},
+	}}
 	if _, err := f.s.WriteImageSBOM(ctx, store.ImageSBOMInput{
 		Key: key, Source: store.SBOMSourceAttestation, Release: "jammy", Packages: []store.ImagePackage{pkg},
 		AfterWrite: func(ctx context.Context, tx pgx.Tx, res store.ImageSBOMResult) error {

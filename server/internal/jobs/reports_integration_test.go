@@ -160,7 +160,7 @@ func TestReportJobs(t *testing.T) {
 		t.Fatalf("first report: %+v (want period start %s)", first, wantPeriod.Start)
 	}
 	next, last := f.runTimes(weekly)
-	if next == nil || !next.After(time.Now()) || next.Sub(time.Now()) > 7*24*time.Hour || last == nil || !last.Equal(first.generatedAt) {
+	if next == nil || !next.After(time.Now()) || time.Until(*next) > 7*24*time.Hour || last == nil || !last.Equal(first.generatedAt) {
 		t.Fatalf("after run: next %v, last %v", next, last)
 	}
 	if l := next.In(mustLoc(t, "Europe/London")); l.Weekday() != time.Monday || l.Hour() != 7 {
@@ -253,20 +253,26 @@ func TestReportJobs(t *testing.T) {
 	prevID := rs[2].id
 	f.exec(`UPDATE report_schedules SET enabled = true WHERE id = $1`, weekly)
 	// A pass that saw an older next_run_at (another pass ran it first).
-	res, err := f.s.StoreReport(ctx, store.NewReport{Schedule: sched, Trigger: reports.TriggerScheduled, Snapshot: snap,
-		PreviousID: &prevID, Now: now, ExpectNextRunAt: missed, NextRunAt: now.Add(time.Hour)}, nil)
+	res, err := f.s.StoreReport(ctx, store.NewReport{
+		Schedule: sched, Trigger: reports.TriggerScheduled, Snapshot: snap,
+		PreviousID: &prevID, Now: now, ExpectNextRunAt: missed, NextRunAt: now.Add(time.Hour),
+	}, nil)
 	if err != nil || res.Skipped == "" {
 		t.Fatalf("stale scheduled run: %+v, %v", res, err)
 	}
 	// A retried send-now job whose report was already stored.
-	res, err = f.s.StoreReport(ctx, store.NewReport{Schedule: sched, Trigger: reports.TriggerManual, Snapshot: snap,
-		PreviousID: &prevID, Now: now, ManualSince: rs[2].generatedAt.Add(-time.Second)}, nil)
+	res, err = f.s.StoreReport(ctx, store.NewReport{
+		Schedule: sched, Trigger: reports.TriggerManual, Snapshot: snap,
+		PreviousID: &prevID, Now: now, ManualSince: rs[2].generatedAt.Add(-time.Second),
+	}, nil)
 	if err != nil || res.Skipped != "already sent" {
 		t.Fatalf("retried send now: %+v, %v", res, err)
 	}
 	// Built against a previous report that is no longer the latest.
-	if _, err := f.s.StoreReport(ctx, store.NewReport{Schedule: sched, Trigger: reports.TriggerManual, Snapshot: snap,
-		PreviousID: &first.id, Now: now}, nil); !errors.Is(err, store.ErrReportConflict) {
+	if _, err := f.s.StoreReport(ctx, store.NewReport{
+		Schedule: sched, Trigger: reports.TriggerManual, Snapshot: snap,
+		PreviousID: &first.id, Now: now,
+	}, nil); !errors.Is(err, store.ErrReportConflict) {
 		t.Fatalf("stale previous report: %v", err)
 	}
 	if n := len(f.reports(weekly)); n != 3 {
@@ -291,8 +297,10 @@ func TestReportJobs(t *testing.T) {
 	}
 	f.exec(`DELETE FROM report_schedules WHERE id = $1`, doomed)
 	w := &AlertDeliverWorker{Store: f.s, Cfg: AlertingConfig{Notifiers: notify.NewRegistry(fake)}}
-	if err := w.Work(ctx, &river.Job[AlertDeliverArgs]{JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: DeliverMaxAttempts},
-		Args: AlertDeliverArgs{DeliveryID: did}}); err != nil {
+	if err := w.Work(ctx, &river.Job[AlertDeliverArgs]{
+		JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: DeliverMaxAttempts},
+		Args:   AlertDeliverArgs{DeliveryID: did},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	var status, lastErr string
