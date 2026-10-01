@@ -48,7 +48,7 @@ func main() {
 
 	before, dirty, err := m.Version()
 	if err != nil {
-		log.Fatalf("read schema version: %v", err)
+		log.Fatalf("read schema version: %v", err) //nolint:gocritic // exiting releases the deferred resources
 	}
 	log.Printf("migrate %s: schema at version %d (dirty: %v), latest embedded %d", version, before, dirty, latest)
 

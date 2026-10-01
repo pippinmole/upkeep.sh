@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-var update = flag.Bool("update", false, "rewrite the dashboard's alert property catalogue file")
+var update = flag.Bool("update", false, "rewrite the dashboard's alert property catalog file")
 
-// catalogFile is the dashboard's copy of the catalogue: the rule dialog is
+// catalogFile is the dashboard's copy of the catalog: the rule dialog is
 // rendered and validated from it.
 const catalogFile = "../../../web/src/lib/alert-properties.json"
 
@@ -38,7 +38,7 @@ func CatalogJSON() []byte {
 func TestCatalogFileIsCurrent(t *testing.T) {
 	want := CatalogJSON()
 	if *update {
-		if err := os.WriteFile(catalogFile, want, 0o644); err != nil {
+		if err := os.WriteFile(catalogFile, want, 0o644); err != nil { //nolint:gosec // committed file, stays world-readable
 			t.Fatal(err)
 		}
 		return

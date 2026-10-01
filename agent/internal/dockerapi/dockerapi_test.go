@@ -58,7 +58,7 @@ func TestOpenSocketNotMounted(t *testing.T) {
 func fakeEngine(t *testing.T, apiVersion string) string {
 	t.Helper()
 	// Short dir: unix socket paths are limited to ~104-108 bytes.
-	dir, err := os.MkdirTemp("", "dapi")
+	dir, err := os.MkdirTemp("", "dapi") //nolint:usetesting // t.TempDir is too long for a unix socket path
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func fakeEngine(t *testing.T, apiVersion string) string {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"Version":"29.8.0","ApiVersion":"` + apiVersion + `","Os":"linux","Arch":"amd64"}`))
 	})
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { srv.Close() })
 	return path

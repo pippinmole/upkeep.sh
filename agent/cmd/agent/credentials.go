@@ -53,19 +53,19 @@ func saveCredentials(path string, c storedCredentials) (err error) {
 			_ = os.Remove(tmp)
 		}
 	}()
-	if err = f.Chmod(0o600); err != nil {
+	if err := f.Chmod(0o600); err != nil {
 		return err
 	}
 	if _, err = f.Write(b); err != nil {
 		return err
 	}
-	if err = f.Sync(); err != nil {
+	if err := f.Sync(); err != nil {
 		return err
 	}
-	if err = f.Close(); err != nil {
+	if err := f.Close(); err != nil {
 		return err
 	}
-	if err = os.Rename(tmp, path); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
 	// Make the rename itself durable. Not supported everywhere (Windows);

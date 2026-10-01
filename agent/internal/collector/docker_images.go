@@ -3,6 +3,7 @@ package collector
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -55,7 +56,7 @@ func CollectDockerImages(ctx context.Context, c dockerapi.Client) (images []Dock
 			cut bool
 		)
 		switch {
-		case errs[i] == errDockerGone:
+		case errors.Is(errs[i], errDockerGone):
 			continue
 		case errs[i] != nil:
 			img, cut = dockerImagePartial(s, errs[i])
@@ -123,7 +124,7 @@ func dockerUnixTime(sec int64) string {
 
 // dockerRefs drops the engine's placeholder and empty entries, then sorts,
 // dedupes and caps what's left.
-func dockerRefs(refs []string, placeholder string, max int) ([]string, bool) {
+func dockerRefs(refs []string, placeholder string, limit int) ([]string, bool) { //nolint:unparam // tag and digest caps are separate settings that happen to match
 	var out []string
 	for _, r := range refs {
 		if r != "" && r != placeholder {
@@ -132,5 +133,5 @@ func dockerRefs(refs []string, placeholder string, max int) ([]string, bool) {
 	}
 	slices.Sort(out)
 	out = slices.Compact(out)
-	return capList(out, max)
+	return capList(out, limit)
 }

@@ -58,9 +58,11 @@ func TestSummary(t *testing.T) {
 		return notify.Event{Type: typ, Host: host, Alert: &notify.Alert{Title: "Port 22/tcp is listening"}}
 	}
 	vuln := func(sev string, kev bool) notify.Event {
-		return notify.Event{Type: notify.EventAlertFiring, Host: h,
+		return notify.Event{
+			Type: notify.EventAlertFiring, Host: h,
 			Alert:   &notify.Alert{Title: VulnTitle("CVE-1", "openssl", sev, kev, "")},
-			Finding: &notify.Finding{VulnKey: "CVE-1", Severity: sev, KEV: kev}}
+			Finding: &notify.Finding{VulnKey: "CVE-1", Severity: sev, KEV: kev},
+		}
 	}
 	cases := []struct {
 		kind   string
@@ -70,10 +72,16 @@ func TestSummary(t *testing.T) {
 		{notify.KindAlert, []notify.Event{port(notify.EventAlertFiring, h)}, "Port 22/tcp is listening on web-1"},
 		{notify.KindAlert, []notify.Event{port(notify.EventAlertResolved, h)}, "Resolved: Port 22/tcp is listening on web-1"},
 		{notify.KindAlert, []notify.Event{vuln("critical", true)}, "KEV CVE-1 in openssl on web-1"},
-		{notify.KindDigest, []notify.Event{vuln("critical", true), vuln("high", false), port(notify.EventAlertResolved, h)},
-			"Digest: 2 firing, 1 resolved alerts on web-1 (1 critical, 1 KEV)"},
-		{notify.KindAlert, []notify.Event{port(notify.EventAlertFiring, h), port(notify.EventAlertFiring, &notify.Host{Hostname: "db-1"})},
-			"2 firing alerts across 2 hosts"},
+		{
+			notify.KindDigest,
+			[]notify.Event{vuln("critical", true), vuln("high", false), port(notify.EventAlertResolved, h)},
+			"Digest: 2 firing, 1 resolved alerts on web-1 (1 critical, 1 KEV)",
+		},
+		{
+			notify.KindAlert,
+			[]notify.Event{port(notify.EventAlertFiring, h), port(notify.EventAlertFiring, &notify.Host{Hostname: "db-1"})},
+			"2 firing alerts across 2 hosts",
+		},
 		{notify.KindTest, nil, "Test notification from upkeep.sh"},
 		{notify.KindAlert, nil, "No events"},
 	}

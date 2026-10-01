@@ -54,7 +54,7 @@ func (s *Store) ReconcileHostFindingsTx(ctx context.Context, hostID string, afte
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var workspaceID string
 	err = tx.QueryRow(ctx, `SELECT workspace_id FROM hosts WHERE id = $1 FOR NO KEY UPDATE`, hostID).Scan(&workspaceID)
@@ -204,12 +204,14 @@ func loadCVEs(ctx context.Context, tx pgx.Tx, keys map[string]bool) (map[string]
 	return out, rows.Err()
 }
 
-var findingCols = []string{"kind", "dedup_key", "vuln_key", "source_package", "installed_version",
+var findingCols = []string{
+	"kind", "dedup_key", "vuln_key", "source_package", "installed_version",
 	"fixed_version", "fix_channel", "requires_pro", "fix_advisory_id", "advisory_ids",
 	"distro_severity", "severity", "severity_rank", "severity_key", "is_kev", "epss_score",
 	"epss_percentile", "cvss_v3_score", "software_ids", "packages", "kernel_release",
 	"running_kernel_unknown", "first_seen_at", "reopened_at", "reopen_count",
-	"image_id", "image_os", "image_arch", "image_variant", "image_refs", "container_names"}
+	"image_id", "image_os", "image_arch", "image_variant", "image_refs", "container_names",
+}
 
 func writeFindings(ctx context.Context, tx pgx.Tx, hostID string, plan findings.Plan, now time.Time) error {
 	if len(plan.Upserts) > 0 {
@@ -237,13 +239,15 @@ func writeFindings(ctx context.Context, tx pgx.Tx, hostID string, plan findings.
 				imgID, imgOS, imgArch, imgVariant = im.ID, im.OS, im.Arch, im.Variant
 				refs, containers = orEmpty(im.Refs), orEmpty(im.Containers)
 			}
-			stage[i] = []any{u.Kind, u.DedupKey, u.VulnKey, u.Source, u.InstalledVersion,
+			stage[i] = []any{
+				u.Kind, u.DedupKey, u.VulnKey, u.Source, u.InstalledVersion,
 				u.FixedVersion, nilIfEmpty(u.FixChannel), u.RequiresPro(), nilIfEmpty(u.FixAdvisoryID),
 				u.AdvisoryIDs, u.DistroSeverity, u.Severity.Bucket.String(), int(u.Severity.Bucket),
 				int64(u.Severity.Key), u.CVE.KEV, u.CVE.EPSS, u.CVE.EPSSPercentile, u.CVE.CVSS,
 				u.SoftwareIDs, u.Packages, nilIfEmpty(u.KernelRelease), u.RunningKernelUnknown,
 				u.FirstSeenAt, u.ReopenedAt, u.ReopenCount,
-				imgID, imgOS, imgArch, imgVariant, refs, containers}
+				imgID, imgOS, imgArch, imgVariant, refs, containers,
+			}
 		}
 		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"findings_stage"}, findingCols, pgx.CopyFromRows(stage)); err != nil {
 			return fmt.Errorf("stage findings: %w", err)

@@ -27,7 +27,7 @@ type ScoreResult struct {
 }
 
 // ScoreImageSBOM (re)computes and stores the score of one ok package
-// list. It holds the list's image_sbom_state row lock, so it serialises
+// list. It holds the list's image_sbom_state row lock, so it serializes
 // with a rewrite of the list and with other scorings of it (the last
 // commit always read the newest data). While any of the list's versions
 // is not evaluated yet it writes nothing and reports Pending: the caller
@@ -39,7 +39,7 @@ func (s *Store) ScoreImageSBOM(ctx context.Context, sbomID int64) (ScoreResult, 
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var id int64
 	err = tx.QueryRow(ctx, `

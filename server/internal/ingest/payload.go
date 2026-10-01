@@ -267,5 +267,7 @@ type SwarmPort struct {
 
 // MinSupportedSchemaVersion is the oldest agent payload shape this server
 // still accepts. Bump only alongside a documented breaking change.
-const MinSupportedSchemaVersion = 1
-const CurrentSchemaVersion = 1
+const (
+	MinSupportedSchemaVersion = 1
+	CurrentSchemaVersion      = 1
+)

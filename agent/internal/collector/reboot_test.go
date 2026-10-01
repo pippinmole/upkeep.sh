@@ -23,7 +23,7 @@ var ubuntuKernels = []Package{
 func TestKernelRebootRequired(t *testing.T) {
 	newer := append(append([]Package{}, ubuntuKernels...),
 		deb("linux-image-6.11.0-19-generic", "6.11.0-19.19~24.04.1"),
-		deb("linux-image-6.8.0-47-lowlatency", "6.8.0-47.47"), // other flavour
+		deb("linux-image-6.8.0-47-lowlatency", "6.8.0-47.47"), // other flavor
 	)
 	older := append(append([]Package{}, ubuntuKernels...),
 		deb("linux-image-6.8.0-40-generic", "6.8.0-40.40"),

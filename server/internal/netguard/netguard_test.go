@@ -181,8 +181,7 @@ func TestRedirects(t *testing.T) {
 		t.Error("cross-origin redirect was followed")
 	}))
 	defer other.Close()
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/cross":
 			http.Redirect(w, r, other.URL+"/x", http.StatusTemporaryRedirect)
@@ -218,14 +217,14 @@ func TestRedirects(t *testing.T) {
 	// With the strict guard a redirect to metadata fails the scheme/address
 	// check even when it keeps the origin's host shape.
 	strict := (&Guard{Lookup: lookupTable(map[string][]string{"hook.test": {"93.184.216.34"}})}).Client(time.Second)
-	req, _ := http.NewRequest(http.MethodGet, "https://hook.test/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "https://hook.test/", http.NoBody)
 	if err := strict.CheckRedirect(mustReq(t, "https://169.254.169.254/"), []*http.Request{req}); !errors.Is(err, ErrBlocked) {
 		t.Errorf("redirect to metadata: %v", err)
 	}
 }
 
 func mustReq(t *testing.T, u string) *http.Request {
-	r, err := http.NewRequest(http.MethodGet, u, nil)
+	r, err := http.NewRequest(http.MethodGet, u, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,8 +265,10 @@ func TestCheckSMTP(t *testing.T) {
 			t.Errorf("%q: want blocked, got %v", bad, err)
 		}
 	}
-	for _, bad := range []string{"", "smtp.example.com:587", "smtp://smtp.example.com", "mail example.com",
-		"mail.example.com\r\nRCPT TO:<x@y>", "-bad.example.com", "a..b", "user@mail.example.com", "mail.example.com/x"} {
+	for _, bad := range []string{
+		"", "smtp.example.com:587", "smtp://smtp.example.com", "mail example.com",
+		"mail.example.com\r\nRCPT TO:<x@y>", "-bad.example.com", "a..b", "user@mail.example.com", "mail.example.com/x",
+	} {
 		if err := g.CheckSMTP(bad, 587); err == nil {
 			t.Errorf("%q: want error", bad)
 		}

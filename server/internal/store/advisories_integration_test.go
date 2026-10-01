@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -42,9 +43,11 @@ func newAdvFixture(t *testing.T) *advFixture {
 	}
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
-	f := &advFixture{t: t, s: s, tag: "swtest-" + hex.EncodeToString(b),
+	f := &advFixture{
+		t: t, s: s, tag: "swtest-" + hex.EncodeToString(b),
 		cve: fmt.Sprintf("CVE-1900-%d", 100000+int(b[0])<<16|int(b[1])<<8|int(b[2])),
-		mod: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+		mod: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
 	t.Cleanup(func() {
 		ctx := context.Background()
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM advisories WHERE source = $1`, f.tag)
@@ -247,7 +250,7 @@ func TestFeedState(t *testing.T) {
 	if err := f.s.FeedSucceeded(ctx, feed, FeedSuccess{Cursor: "c2"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.FeedFailed(ctx, feed, fmt.Errorf("boom")); err != nil {
+	if err := f.s.FeedFailed(ctx, feed, errors.New("boom")); err != nil {
 		t.Fatal(err)
 	}
 	st, err = f.s.GetFeedState(ctx, feed)

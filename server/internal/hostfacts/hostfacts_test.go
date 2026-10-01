@@ -141,9 +141,11 @@ func TestClip(t *testing.T) {
 }
 
 func ctrRow(state string, partial bool, started any) Row {
-	r := Row{Key: "c1",
+	r := Row{
+		Key:    "c1",
 		Values: []any{"c1", "db", "postgres", "sha256:x", state, nil, nil, nil, nil, nil, nil, map[string]string{}},
-		Live:   []any{started, nil}, Partial: partial}
+		Live:   []any{started, nil}, Partial: partial,
+	}
 	if partial {
 		r.Live[1] = "inspect failed"
 	} else {

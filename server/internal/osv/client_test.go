@@ -2,7 +2,7 @@ package osv
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // GCS x-goog-hash integrity check, not security
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +21,7 @@ func TestDownloadAllRetriesStall(t *testing.T) {
 	defer func() { StallTimeout = old }()
 
 	body := strings.Repeat("x", 4096)
-	sum := md5.Sum([]byte(body))
+	sum := md5.Sum([]byte(body)) //nolint:gosec // GCS x-goog-hash integrity check, not security
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/Debian/all.zip" {

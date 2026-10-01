@@ -82,13 +82,15 @@ func TestCompareHostsAddedAndArchived(t *testing.T) {
 	wantAdded := []HostChange{
 		{ID: "h2", Name: "clean", Contribution: map[string]int{}},
 		{ID: "h3", Name: "web-4", Contribution: map[string]int{
-			"patch_now": 1, "patch_this_week": 2, "images_to_update": 1, "no_fix_findings": 6, "total_open_findings": 9}},
+			"patch_now": 1, "patch_this_week": 2, "images_to_update": 1, "no_fix_findings": 6, "total_open_findings": 9,
+		}},
 	}
 	if !reflect.DeepEqual(c.HostsAdded, wantAdded) {
 		t.Errorf("added = %+v", c.HostsAdded)
 	}
 	wantArchived := []HostChange{{ID: "h9", Name: "old", Contribution: map[string]int{
-		"when_convenient": 1, "reboots_required": 1, "total_open_findings": 2}}}
+		"when_convenient": 1, "reboots_required": 1, "total_open_findings": 2,
+	}}}
 	if !reflect.DeepEqual(c.HostsArchived, wantArchived) {
 		t.Errorf("archived = %+v", c.HostsArchived)
 	}

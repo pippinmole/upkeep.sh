@@ -261,7 +261,7 @@ type Event struct {
 // Alert is the alert instance an event is about (alert_instances).
 type Alert struct {
 	ID       string `json:"id"`
-	Property string `json:"property"` // catalogue key, e.g. "listening_port"
+	Property string `json:"property"` // catalog key, e.g. "listening_port"
 	// Subject is what the alert is about within its host ("tcp/22",
 	// "openssl", a finding key, a collector); "" for host-level properties.
 	Subject    string          `json:"subject,omitempty"`

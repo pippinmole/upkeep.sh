@@ -90,7 +90,7 @@ func New(cfg Config) *Client {
 // newHTTPClient is netguard's client with one difference: redirects to
 // another origin are allowed (registries send blob GETs to a CDN), each
 // target re-checked by CheckURL (scheme, port, literal address) and, when
-// dialled, by the guard's dialer (every resolved address). The
+// dialed, by the guard's dialer (every resolved address). The
 // Authorization header is dropped on a redirect to another origin, so
 // registry tokens never reach the CDN. Timeouts are per request, via the
 // context.

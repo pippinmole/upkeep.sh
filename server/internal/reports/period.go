@@ -3,9 +3,7 @@ package reports
 import (
 	"fmt"
 	"time"
-	// Schedule timezones are IANA names; the server image (alpine, no
-	// tzdata package) has no zoneinfo, so embed it.
-	_ "time/tzdata"
+	_ "time/tzdata" // schedules use IANA zones; the alpine server image has no zoneinfo
 )
 
 // PeriodFor is what a report generated at now covers (reports.period_start

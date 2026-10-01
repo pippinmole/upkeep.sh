@@ -53,8 +53,10 @@ func TestSummary(t *testing.T) {
 		want string
 	}{
 		{"all clear", with(Headline{}), "all clear"},
-		{"plurals and order", with(Headline{PatchNow: 2, PatchThisWeek: 1, ImagesToUpdate: 3, StaleAgents: 1}, []string{"h1", "h2"}),
-			"2 urgent actions, 1 to patch this week, 3 images to update, 2 hosts not reporting"},
+		{
+			"plurals and order", with(Headline{PatchNow: 2, PatchThisWeek: 1, ImagesToUpdate: 3, StaleAgents: 1}, []string{"h1", "h2"}),
+			"2 urgent actions, 1 to patch this week, 3 images to update, 2 hosts not reporting",
+		},
 		{"hosts counted once across agents", with(Headline{StaleAgents: 2}, []string{"h1", "h2"}, []string{"h2"}), "2 hosts not reporting"},
 		{"stale agent with no hosts", with(Headline{StaleAgents: 1}, []string{}), "1 agent not reporting"},
 		{"stale agents fall back to agents", with(Headline{StaleAgents: 3}), "3 agents not reporting"},

@@ -44,7 +44,6 @@ type ruleRow struct {
 	notifyOnResolve       bool
 	hasChannels           bool
 	parsed                alerting.Condition
-	parseErr              error
 	hosts                 map[string]hostRef
 	status                map[string]alerting.HostStatus
 	evaluatedHostIDs      []string
@@ -74,7 +73,7 @@ func (s *Store) EvaluateAlertRules(ctx context.Context, now time.Time, hostID st
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, alertRulesLock); err != nil {
 		return res, err
 	}

@@ -41,7 +41,7 @@ type Source interface {
 	// worth reporting, not a reason to skip.
 	Applies(detect.OS) bool
 	// Collect returns the installed packages. It must only read (never
-	// execute anything or write) and should honour ctx for long reads.
+	// execute anything or write) and should honor ctx for long reads.
 	Collect(ctx context.Context, t target.Target) ([]collector.Package, error)
 }
 

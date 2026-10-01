@@ -67,7 +67,7 @@ func (e *dockerEnv) host(workspaceID, name string) string {
 
 // push ingests a payload with the given collectors and docker block at
 // t0 + minute.
-func (e *dockerEnv) push(hostID string, minute int, collectors map[string]any, docker map[string]any) store.SnapshotResult {
+func (e *dockerEnv) push(hostID string, minute int, collectors, docker map[string]any) store.SnapshotResult {
 	e.t.Helper()
 	at := e.t0.Add(time.Duration(minute) * time.Minute)
 	body, _ := json.Marshal(map[string]any{
@@ -95,8 +95,10 @@ func skipped(reason string) map[string]any {
 }
 
 func allDocker(status map[string]any) map[string]any {
-	return map[string]any{"docker_engine": status, "docker_containers": status, "docker_images": status,
-		"docker_networks": status, "swarm_services": skipped("not in a swarm")}
+	return map[string]any{
+		"docker_engine": status, "docker_containers": status, "docker_images": status,
+		"docker_networks": status, "swarm_services": skipped("not in a swarm"),
+	}
 }
 
 const (
@@ -125,16 +127,20 @@ func dbContainer(state, startedAt string) map[string]any {
 }
 
 func partialContainer(id, state string) map[string]any {
-	return map[string]any{"id": id, "name": "myapp-db-1", "image": "postgres:18", "image_id": img1, "state": state,
+	return map[string]any{
+		"id": id, "name": "myapp-db-1", "image": "postgres:18", "image_id": img1, "state": state,
 		"labels":        map[string]any{"com.docker.compose.project": "myapp", "com.docker.compose.service": "db"},
 		"inspect_error": "inspect: boom",
 		// Sent by a broken agent on a partial entry: ignored (unknown).
-		"privileged": false, "ports": []any{}}
+		"privileged": false, "ports": []any{},
+	}
 }
 
 func webContainer(startedAt string) map[string]any {
-	return map[string]any{"id": cWeb, "name": "web", "image": "nginx", "image_id": img2, "state": "running",
-		"started_at": startedAt, "network_mode": "host", "privileged": false, "restart_policy": "always"}
+	return map[string]any{
+		"id": cWeb, "name": "web", "image": "nginx", "image_id": img2, "state": "running",
+		"started_at": startedAt, "network_mode": "host", "privileged": false, "restart_policy": "always",
+	}
 }
 
 type ctrRange struct {
@@ -216,9 +222,11 @@ func TestDockerIngestContainers(t *testing.T) {
 		"engine":     map[string]any{"version": "29.8.0", "api_version": "1.56", "storage_driver": "overlayfs", "image_store": "containerd", "rootless": false},
 		"containers": []any{dbContainer("running", "2026-03-01T00:00:00Z"), webContainer("2026-03-01T00:00:00Z")},
 		"images": []any{
-			map[string]any{"id": img1, "repo_tags": []any{"postgres:18"}, "repo_digests": []any{"postgres@sha256:ab"},
+			map[string]any{
+				"id": img1, "repo_tags": []any{"postgres:18"}, "repo_digests": []any{"postgres@sha256:ab"},
 				"created": "2026-02-01T00:00:00Z", "os": "linux", "arch": "arm", "variant": "v7", "layers": []any{"sha256:l1", "sha256:l0"},
-				"labels": map[string]any{"org.opencontainers.image.version": "18.0"}},
+				"labels": map[string]any{"org.opencontainers.image.version": "18.0"},
+			},
 			map[string]any{"id": img2, "repo_tags": []any{"nginx:latest"}, "inspect_error": "boom"},
 		},
 		"networks": []any{map[string]any{"id": "n1", "name": "myapp_default", "driver": "bridge", "scope": "local", "subnets": []any{"172.18.0.0/16"}}},
@@ -249,11 +257,11 @@ func TestDockerIngestContainers(t *testing.T) {
 		h, img2).Scan(&os2, &ie2); err != nil || os2 != nil || ie2 == nil {
 		t.Errorf("img2 partial: os=%v err=%v %v", os2, ie2, err)
 	}
-	var engine, store_ string
+	var engine, st string
 	var nets string
 	if err := e.s.Pool.QueryRow(ctx, `SELECT engine_version, image_store, networks::text FROM host_docker WHERE host_id = $1`, h).
-		Scan(&engine, &store_, &nets); err != nil || engine != "29.8.0" || store_ != "containerd" || nets == "" {
-		t.Errorf("host_docker: %q %q %q %v", engine, store_, nets, err)
+		Scan(&engine, &st, &nets); err != nil || engine != "29.8.0" || st != "containerd" || nets == "" {
+		t.Errorf("host_docker: %q %q %q %v", engine, st, nets, err)
 	}
 
 	// +1: db's inspect fails, same state: the range stays as it was
@@ -282,8 +290,10 @@ func TestDockerIngestContainers(t *testing.T) {
 
 	// +3: collector skipped (socket unmounted) and error: nothing closes.
 	e.push(h, 3, allDocker(skipped("docker socket not mounted")), map[string]any{})
-	e.push(h, 4, map[string]any{"docker_engine": map[string]any{"status": "error", "error": "refused"},
-		"docker_containers": skipped("docker engine unavailable")}, nil)
+	e.push(h, 4, map[string]any{
+		"docker_engine":     map[string]any{"status": "error", "error": "refused"},
+		"docker_containers": skipped("docker engine unavailable"),
+	}, nil)
 	e.wantContainers(h, db1c, db2, web0)
 
 	// +5: truncated list without db: db stays open.
@@ -337,7 +347,8 @@ func TestDockerIngestPartialImage(t *testing.T) {
 	full := map[string]any{"id": img1, "repo_tags": []any{"postgres:18"}, "os": "linux", "arch": "amd64", "layers": []any{"sha256:l0"}}
 	e.push(h, 0, map[string]any{"docker_images": stOK()}, map[string]any{"images": []any{full}})
 	e.push(h, 1, map[string]any{"docker_images": stOK()}, map[string]any{"images": []any{
-		map[string]any{"id": img1, "repo_tags": []any{"postgres:18", "postgres:latest"}, "inspect_error": "x"}}})
+		map[string]any{"id": img1, "repo_tags": []any{"postgres:18", "postgres:latest"}, "inspect_error": "x"},
+	}})
 	rows, err := e.s.Pool.Query(context.Background(), `
 		SELECT hi.first_seen_at, hi.removed_at IS NULL, hi.os, hi.variant, hi.repo_tags, ci.image_id IS NOT NULL
 		FROM host_images hi LEFT JOIN container_images ci USING (image_id, os, arch, variant)
@@ -365,15 +376,20 @@ func TestDockerIngestPartialImage(t *testing.T) {
 	}
 }
 
-func manager(clusterID string) map[string]any {
-	return map[string]any{"state": "active", "node_id": "node-" + clusterID, "cluster_id": clusterID, "role": "manager"}
+// testClusterID is the swarm cluster every docker ingest test reports.
+const testClusterID = "C"
+
+func manager() map[string]any {
+	return map[string]any{"state": "active", "node_id": "node-" + testClusterID, "cluster_id": testClusterID, "role": "manager"}
 }
 
 func svc(id string, running int, image string) map[string]any {
-	return map[string]any{"id": id, "name": "web_" + id, "image": image, "mode": "replicated", "replicas": 2,
+	return map[string]any{
+		"id": id, "name": "web_" + id, "image": image, "mode": "replicated", "replicas": 2,
 		"running_tasks": running, "desired_tasks": 2,
 		"labels": map[string]any{"com.docker.stack.namespace": "web"},
-		"ports":  []any{map[string]any{"published": 443, "target": 8443, "proto": "tcp", "publish_mode": "ingress"}}}
+		"ports":  []any{map[string]any{"published": 443, "target": 8443, "proto": "tcp", "publish_mode": "ingress"}},
+	}
 }
 
 type svcRange struct {
@@ -382,11 +398,11 @@ type svcRange struct {
 	Running        int
 }
 
-func (e *dockerEnv) services(workspaceID, clusterID string) []svcRange {
+func (e *dockerEnv) services(workspaceID string) []svcRange {
 	e.t.Helper()
 	rows, err := e.s.Pool.Query(context.Background(), `
 		SELECT row_key, first_seen_at, removed_at, coalesce(running_tasks, -1) FROM swarm_services
-		WHERE workspace_id = $1 AND cluster_id = $2 ORDER BY row_key, first_seen_at`, workspaceID, clusterID)
+		WHERE workspace_id = $1 AND cluster_id = $2 ORDER BY row_key, first_seen_at`, workspaceID, testClusterID)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -415,10 +431,12 @@ func TestDockerIngestSwarm(t *testing.T) {
 	ctx := context.Background()
 	swarmOK := map[string]any{"docker_engine": stOK(), "swarm_services": stOK()}
 
-	e.push(m1, 0, swarmOK, map[string]any{"engine": map[string]any{"version": "29"}, "swarm": manager("C"),
-		"swarm_services": []any{svc("s1", 2, "api:1"), svc("s2", 1, "db:1")}})
+	e.push(m1, 0, swarmOK, map[string]any{
+		"engine": map[string]any{"version": "29"}, "swarm": manager(),
+		"swarm_services": []any{svc("s1", 2, "api:1"), svc("s2", 1, "db:1")},
+	})
 	want := []svcRange{{"s1", 0, -1, 2}, {"s2", 0, -1, 1}}
-	if got := e.services(u, "C"); !reflect.DeepEqual(got, want) {
+	if got := e.services(u); !reflect.DeepEqual(got, want) {
 		t.Fatalf("after m1: %+v", got)
 	}
 
@@ -429,41 +447,49 @@ func TestDockerIngestSwarm(t *testing.T) {
 	if err := e.s.Pool.QueryRow(ctx, `SELECT swarm_cluster_id FROM host_docker WHERE host_id = $1`, w).Scan(&wCluster); err != nil || wCluster != nil {
 		t.Errorf("worker cluster id = %v, %v (workers aren't told it)", wCluster, err)
 	}
-	res := e.push(w, 2, swarmOK, map[string]any{"engine": map[string]any{"version": "29"},
+	res := e.push(w, 2, swarmOK, map[string]any{
+		"engine":         map[string]any{"version": "29"},
 		"swarm":          map[string]any{"state": "active", "node_id": "wn", "cluster_id": "C", "role": "worker"},
-		"swarm_services": []any{}})
+		"swarm_services": []any{},
+	})
 	if res.SwarmServices != nil {
 		t.Errorf("worker push applied services: %+v", res.SwarmServices)
 	}
 
 	// Another manager of the cluster: s2 gone (closed), s1's running count
 	// changed (in place), s3 new.
-	e.push(m2, 3, swarmOK, map[string]any{"engine": map[string]any{"version": "29"}, "swarm": manager("C"),
-		"swarm_services": []any{svc("s1", 1, "api:1"), svc("s3", 1, "cache:1")}})
+	e.push(m2, 3, swarmOK, map[string]any{
+		"engine": map[string]any{"version": "29"}, "swarm": manager(),
+		"swarm_services": []any{svc("s1", 1, "api:1"), svc("s3", 1, "cache:1")},
+	})
 	want = []svcRange{{"s1", 0, -1, 1}, {"s2", 0, 3, 1}, {"s3", 3, -1, 1}}
-	if got := e.services(u, "C"); !reflect.DeepEqual(got, want) {
+	if got := e.services(u); !reflect.DeepEqual(got, want) {
 		t.Errorf("after m2: %+v", got)
 	}
 
 	// m1's late push (older than m2's) is stale for the cluster.
-	res = e.push(m1, 2, swarmOK, map[string]any{"engine": map[string]any{"version": "29"}, "swarm": manager("C"),
-		"swarm_services": []any{}})
+	res = e.push(m1, 2, swarmOK, map[string]any{
+		"engine": map[string]any{"version": "29"}, "swarm": manager(),
+		"swarm_services": []any{},
+	})
 	if res.SwarmServices == nil || res.SwarmServices.Outcome != store.InventoryStale {
 		t.Errorf("late push: %+v", res.SwarmServices)
 	}
 
 	// Image update opens a new range.
-	e.push(m1, 4, swarmOK, map[string]any{"engine": map[string]any{"version": "29"}, "swarm": manager("C"),
-		"swarm_services": []any{svc("s1", 1, "api:2"), svc("s3", 1, "cache:1")}})
+	e.push(m1, 4, swarmOK, map[string]any{
+		"engine": map[string]any{"version": "29"}, "swarm": manager(),
+		"swarm_services": []any{svc("s1", 1, "api:2"), svc("s3", 1, "cache:1")},
+	})
 	want = []svcRange{{"s1", 0, 4, 1}, {"s1", 4, -1, 1}, {"s2", 0, 3, 1}, {"s3", 3, -1, 1}}
-	if got := e.services(u, "C"); !reflect.DeepEqual(got, want) {
+	if got := e.services(u); !reflect.DeepEqual(got, want) {
 		t.Errorf("after update: %+v", got)
 	}
 
 	// Locked manager: services skipped, nothing closes, membership kept.
 	e.push(m1, 5, map[string]any{"docker_engine": stOK(), "swarm_services": skipped("swarm locked")},
 		map[string]any{"engine": map[string]any{"version": "29"}, "swarm": map[string]any{"state": "locked"}})
-	if got := e.services(u, "C"); !reflect.DeepEqual(got, want) {
+	if got := e.services(u); !reflect.DeepEqual(got, want) {
 		t.Errorf("after locked push: %+v", got)
 	}
 	var state, cluster, role string
@@ -475,9 +501,11 @@ func TestDockerIngestSwarm(t *testing.T) {
 	// Another user's manager with the same cluster id gets its own cluster.
 	u2 := e.user()
 	other := e.host(u2, "other")
-	e.push(other, 6, swarmOK, map[string]any{"engine": map[string]any{"version": "29"}, "swarm": manager("C"),
-		"swarm_services": []any{}})
-	if got := e.services(u, "C"); !reflect.DeepEqual(got, want) {
+	e.push(other, 6, swarmOK, map[string]any{
+		"engine": map[string]any{"version": "29"}, "swarm": manager(),
+		"swarm_services": []any{},
+	})
+	if got := e.services(u); !reflect.DeepEqual(got, want) {
 		t.Errorf("other user's push touched this cluster: %+v", got)
 	}
 	var clusters int

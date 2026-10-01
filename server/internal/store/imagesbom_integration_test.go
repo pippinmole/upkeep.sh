@@ -193,8 +193,10 @@ func TestImageSBOMOwnerScoping(t *testing.T) {
 	shared := f.pkg("pkg:deb/" + f.tag + "/bash@5.2.15-2?arch=amd64")
 
 	// The server can't get it: private or local.
-	ok, err := f.s.RecordImageSBOMFailure(ctx, ImageSBOMFailure{Key: key, Status: SBOMStatusUnavailable,
-		Reason: "private or local image, waiting for the agent"})
+	ok, err := f.s.RecordImageSBOMFailure(ctx, ImageSBOMFailure{
+		Key: key, Status: SBOMStatusUnavailable,
+		Reason: "private or local image, waiting for the agent",
+	})
 	if err != nil || !ok {
 		t.Fatalf("record failure: %v %v", ok, err)
 	}
@@ -273,8 +275,10 @@ func TestImageSBOMFailureBookkeeping(t *testing.T) {
 	key := f.image("flaky")
 	next := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	for range 2 {
-		if ok, err := f.s.RecordImageSBOMFailure(ctx, ImageSBOMFailure{Key: key, Status: SBOMStatusError,
-			Reason: "registry returned 429", NextAttemptAt: &next}); err != nil || !ok {
+		if ok, err := f.s.RecordImageSBOMFailure(ctx, ImageSBOMFailure{
+			Key: key, Status: SBOMStatusError,
+			Reason: "registry returned 429", NextAttemptAt: &next,
+		}); err != nil || !ok {
 			t.Fatalf("record: %v %v", ok, err)
 		}
 	}

@@ -48,7 +48,7 @@ var ecosystems = map[string]ecosystem{
 }
 
 // osvRanges wraps the comparator of a language ecosystem. Evaluate
-// recognises it and combines rows with OSV's range semantics instead of
+// recognizes it and combines rows with OSV's range semantics instead of
 // the distro rule (see the package doc, "Language ecosystems").
 type osvRanges struct{ Comparator }
 

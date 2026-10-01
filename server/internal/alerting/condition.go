@@ -45,7 +45,7 @@ func ParseCondition(raw []byte) (Condition, error) {
 	return Validate(c)
 }
 
-// Validate checks c against the catalogue and returns its normalised form:
+// Validate checks c against the catalog and returns its normalised form:
 // lists de-duplicated and sorted (strings trimmed, lower-cased where the
 // value says so), option defaults filled in, a ValueNone value dropped.
 // web/src/lib/alert-conditions.ts implements the same rules;

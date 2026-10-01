@@ -48,7 +48,7 @@ func BuildImage(img Image, rows []HostMatch, cves map[string]CVE) []Desired {
 	})
 }
 
-// Score summarises an image's vulnerabilities (image_sbom_scores): the
+// Score summarizes an image's vulnerabilities (image_sbom_scores): the
 // worst severity bucket plus counts per bucket, max CVSS and KEV, from the
 // same grouping and severity.Assess as findings.
 type Score struct {

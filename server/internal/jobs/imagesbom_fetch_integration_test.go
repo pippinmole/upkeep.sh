@@ -84,11 +84,15 @@ func (r *testRegistry) guard() *netguard.Guard {
 // digest (the image id on the containerd store) and the repo digest.
 func (r *testRegistry) pushImage(t *testing.T, tag string, withSBOM bool) (imageID, repoDigest string) {
 	cfg, cfgSize := r.put(t, []byte(`{"architecture":"amd64","os":"linux"}`))
-	man, manSize := r.put(t, map[string]any{"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
+	man, manSize := r.put(t, map[string]any{
+		"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
 		"config": map[string]any{"mediaType": "application/vnd.oci.image.config.v1+json", "digest": cfg, "size": cfgSize},
-		"layers": []any{}})
-	entries := []any{map[string]any{"mediaType": registry.MediaTypeOCIManifest, "digest": man, "size": manSize,
-		"platform": map[string]string{"os": "linux", "architecture": "amd64"}}}
+		"layers": []any{},
+	})
+	entries := []any{map[string]any{
+		"mediaType": registry.MediaTypeOCIManifest, "digest": man, "size": manSize,
+		"platform": map[string]string{"os": "linux", "architecture": "amd64"},
+	}}
 	if withSBOM {
 		raw, err := os.ReadFile("../sbom/testdata/postgres17-amd64.spdx.intoto.json")
 		if err != nil {
@@ -98,20 +102,30 @@ func (r *testRegistry) pushImage(t *testing.T, tag string, withSBOM bool) (image
 		if err := json.Unmarshal(raw, &st); err != nil {
 			t.Fatal(err)
 		}
-		st["subject"] = []any{map[string]any{"name": "pkg:docker/postgres@17",
-			"digest": map[string]string{"sha256": strings.TrimPrefix(man, "sha256:")}}}
+		st["subject"] = []any{map[string]any{
+			"name":   "pkg:docker/postgres@17",
+			"digest": map[string]string{"sha256": strings.TrimPrefix(man, "sha256:")},
+		}}
 		blob, blobSize := r.put(t, st)
 		attCfg, attCfgSize := r.put(t, []byte(`{}`))
-		att, attSize := r.put(t, map[string]any{"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
+		att, attSize := r.put(t, map[string]any{
+			"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
 			"config": map[string]any{"mediaType": "application/vnd.oci.image.config.v1+json", "digest": attCfg, "size": attCfgSize},
-			"layers": []any{map[string]any{"mediaType": "application/vnd.in-toto+json", "digest": blob, "size": blobSize,
-				"annotations": map[string]string{"in-toto.io/predicate-type": "https://spdx.dev/Document"}}}})
-		entries = append(entries, map[string]any{"mediaType": registry.MediaTypeOCIManifest, "digest": att, "size": attSize,
+			"layers": []any{map[string]any{
+				"mediaType": "application/vnd.in-toto+json", "digest": blob, "size": blobSize,
+				"annotations": map[string]string{"in-toto.io/predicate-type": "https://spdx.dev/Document"},
+			}},
+		})
+		entries = append(entries, map[string]any{
+			"mediaType": registry.MediaTypeOCIManifest, "digest": att, "size": attSize,
 			"platform":    map[string]string{"os": "unknown", "architecture": "unknown"},
-			"annotations": map[string]string{"vnd.docker.reference.type": "attestation-manifest", "vnd.docker.reference.digest": man}})
+			"annotations": map[string]string{"vnd.docker.reference.type": "attestation-manifest", "vnd.docker.reference.digest": man},
+		})
 	}
-	idx, _ := r.put(t, map[string]any{"schemaVersion": 2, "mediaType": registry.MediaTypeOCIIndex, "manifests": entries,
-		"annotations": map[string]string{"test": tag}})
+	idx, _ := r.put(t, map[string]any{
+		"schemaVersion": 2, "mediaType": registry.MediaTypeOCIIndex, "manifests": entries,
+		"annotations": map[string]string{"test": tag},
+	})
 	return idx, strings.TrimPrefix(r.srv.URL, "https://") + "/library/postgres@" + idx
 }
 
@@ -209,8 +223,10 @@ func TestImageSBOMJobEndToEnd(t *testing.T) {
 
 	client, err := NewClient(f.s.Pool, f.s, &feeds.Syncer{Store: f.s, Cfg: feeds.DefaultConfig()}, Config{
 		DisableMatcherSchedule: true, DisableAlertSchedule: true, DisableMaintenanceSchedule: true,
-		Images: ImagesConfig{FetchEnabled: true, DisableSchedule: true,
-			Registry: registry.Config{Guard: reg.guard()}},
+		Images: ImagesConfig{
+			FetchEnabled: true, DisableSchedule: true,
+			Registry: registry.Config{Guard: reg.guard()},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -289,8 +305,10 @@ func TestImageSBOMFailures(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
 	fetcher := func(enabled bool) *imagesbom.Fetcher {
-		return &imagesbom.Fetcher{Store: f.s, Cfg: imagesbom.Config{Enabled: enabled, Now: func() time.Time { return now },
-			Registry: registry.New(registry.Config{Guard: reg.guard()})}}
+		return &imagesbom.Fetcher{Store: f.s, Cfg: imagesbom.Config{
+			Enabled: enabled, Now: func() time.Time { return now },
+			Registry: registry.New(registry.Config{Guard: reg.guard()}),
+		}}
 	}
 	state := func(id string) *store.ImageSBOMState {
 		st, err := f.s.ServerImageSBOMState(ctx, store.ImageKey{ImageID: id, OS: "linux", Arch: "amd64"})
@@ -355,8 +373,10 @@ func TestImageSBOMFailures(t *testing.T) {
 	// A repo digest pointing at a private address: private or local.
 	priv, _ := reg.pushImage(t, f.tag+"-priv", true)
 	f.pushHost(priv, "10.1.2.3/library/postgres@"+priv)
-	strict := &imagesbom.Fetcher{Store: f.s, Cfg: imagesbom.Config{Enabled: true,
-		Registry: registry.New(registry.Config{Guard: &netguard.Guard{}})}}
+	strict := &imagesbom.Fetcher{Store: f.s, Cfg: imagesbom.Config{
+		Enabled:  true,
+		Registry: registry.New(registry.Config{Guard: &netguard.Guard{}}),
+	}}
 	if _, err := strict.Run(ctx, store.ImageKey{ImageID: priv, OS: "linux", Arch: "amd64"}); err != nil {
 		t.Fatal(err)
 	}

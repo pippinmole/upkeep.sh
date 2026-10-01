@@ -42,7 +42,7 @@ func (f *agentFixture) target(agentID, hostID string) (hostKey, pending, code *s
 	`, agentID, hostID).Scan(&hostKey, &pending, &code); err != nil {
 		f.t.Fatal(err)
 	}
-	return
+	return hostKey, pending, code
 }
 
 func str(p *string) string {

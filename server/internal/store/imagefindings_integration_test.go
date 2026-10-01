@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -102,8 +103,10 @@ func (f *imageFixture) removeContainer(host, id string, minute int) {
 // deb is an image package in the fixture's distro, release jammy (where
 // its advisories are).
 func (f *imageFixture) deb(name, source, version string) ImagePackage {
-	return ImagePackage{Package: purl.Package{Ecosystem: "deb", Distro: f.distro, Release: "jammy", KnownType: true,
-		Item: inventory.Item{Name: name, Version: version, Arch: "amd64", Source: source, SourceVersion: version}}}
+	return ImagePackage{Package: purl.Package{
+		Ecosystem: "deb", Distro: f.distro, Release: "jammy", KnownType: true,
+		Item: inventory.Item{Name: name, Version: version, Arch: "amd64", Source: source, SourceVersion: version},
+	}}
 }
 
 // list writes a package list and runs what its jobs would: match the new
@@ -111,8 +114,10 @@ func (f *imageFixture) deb(name, source, version string) ImagePackage {
 func (f *imageFixture) list(k ImageKey, owner, source string, pkgs ...ImagePackage) ImageSBOMResult {
 	f.t.Helper()
 	ctx := context.Background()
-	res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{Key: k, OwnerWorkspaceID: owner, Source: source,
-		OS: purl.OSRelease{ID: f.distro}, Release: "jammy", Packages: pkgs})
+	res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{
+		Key: k, OwnerWorkspaceID: owner, Source: source,
+		OS: purl.OSRelease{ID: f.distro}, Release: "jammy", Packages: pkgs,
+	})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -191,8 +196,10 @@ func TestImageFindingsLifecycle(t *testing.T) {
 	f.onHost(f.hostV, used, "nginx:latest")
 	web := f.container(f.hostID, used, "web", "exited", 1) // any state counts
 	f.container(f.hostV, used, "proxy", "running", 1)
-	pkgs := []ImagePackage{f.deb("libssl3", "openssl", "3.0.2-1"), f.deb("openssl", "openssl", "3.0.2-1"),
-		f.deb("zlib1g", "zlib", "1.2.13-1")}
+	pkgs := []ImagePackage{
+		f.deb("libssl3", "openssl", "3.0.2-1"), f.deb("openssl", "openssl", "3.0.2-1"),
+		f.deb("zlib1g", "zlib", "1.2.13-1"),
+	}
 	f.list(used, "", SBOMSourceAttestation, pkgs...)
 	unusedList := f.list(unused, "", SBOMSourceAttestation, pkgs...)
 
@@ -308,8 +315,10 @@ func TestImageFindingsAgentListScope(t *testing.T) {
 	f.onHost(f.hostV, local, "myapp:dev")
 	f.container(f.hostID, local, "app", "running", 1)
 	f.container(f.hostV, local, "app", "running", 1)
-	if ok, err := f.s.RecordImageSBOMFailure(ctx, ImageSBOMFailure{Key: local, Status: SBOMStatusUnavailable,
-		Reason: "private or local image, waiting for the agent"}); err != nil || !ok {
+	if ok, err := f.s.RecordImageSBOMFailure(ctx, ImageSBOMFailure{
+		Key: local, Status: SBOMStatusUnavailable,
+		Reason: "private or local image, waiting for the agent",
+	}); err != nil || !ok {
 		t.Fatalf("server failure: %v %v", ok, err)
 	}
 	f.list(local, f.userU, SBOMSourceAgentSyft, f.deb("openssl", "openssl", "3.0.2-1"))
@@ -347,12 +356,14 @@ func TestImageFindingsWaitForMatcher(t *testing.T) {
 	k := f.image("pending")
 	f.onHost(f.hostID, k, "x:1")
 	f.container(f.hostID, k, "x", "created", 1)
-	res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{Key: k, Source: SBOMSourceAttestation,
-		Release: "jammy", Packages: []ImagePackage{f.deb("libfoo", "foo", "1.0-1")}})
+	res, err := f.s.WriteImageSBOM(ctx, ImageSBOMInput{
+		Key: k, Source: SBOMSourceAttestation,
+		Release: "jammy", Packages: []ImagePackage{f.deb("libfoo", "foo", "1.0-1")},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.s.ReconcileHostFindings(ctx, f.hostID); err != ErrUnevaluated {
+	if _, err := f.s.ReconcileHostFindings(ctx, f.hostID); !errors.Is(err, ErrUnevaluated) {
 		t.Errorf("reconcile before matching: %v, want ErrUnevaluated", err)
 	}
 	if r, err := f.s.ScoreImageSBOM(ctx, res.SBOMID); err != nil || r.Pending != 1 {

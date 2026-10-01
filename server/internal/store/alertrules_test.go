@@ -6,7 +6,7 @@ import (
 	"github.com/pippinmole/upkeep.sh/server/internal/alerting"
 )
 
-// Adding a property to the catalogue needs an evaluator here (and the
+// Adding a property to the catalog needs an evaluator here (and the
 // other way round).
 func TestEveryPropertyHasAnEvaluator(t *testing.T) {
 	for _, p := range alerting.Catalog {

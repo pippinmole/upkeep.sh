@@ -171,7 +171,7 @@ func (s *Store) evaluateBatch(ctx context.Context, now time.Time, opt AlertOptio
 	if err != nil {
 		return res, 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(alertingLock)); err != nil {
 		return res, 0, err
 	}
@@ -323,7 +323,7 @@ func (s *Store) FlushDigests(ctx context.Context, now time.Time, opt AlertOption
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(alertingLock)); err != nil {
 		return res, err
 	}
@@ -521,7 +521,7 @@ func (s *Store) RecordAttempt(ctx context.Context, deliveryID string, a Attempt,
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	var code, errText any
 	if a.StatusCode != 0 {
 		code = a.StatusCode

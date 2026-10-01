@@ -161,10 +161,12 @@ type ImageSBOMWorker struct {
 func (w *ImageSBOMWorker) Timeout(*river.Job[ImageSBOMArgs]) time.Duration { return 10 * time.Minute }
 
 func (w *ImageSBOMWorker) Work(ctx context.Context, job *river.Job[ImageSBOMArgs]) error {
-	f := &imagesbom.Fetcher{Store: w.Store, Cfg: w.Cfg,
+	f := &imagesbom.Fetcher{
+		Store: w.Store, Cfg: w.Cfg,
 		AfterWrite: func(ctx context.Context, tx pgx.Tx, res store.ImageSBOMResult) error {
 			return EnqueueAfterImageSBOM(ctx, river.ClientFromContext[pgx.Tx](ctx), tx, res)
-		}}
+		},
+	}
 	start := time.Now()
 	out, err := f.Run(ctx, job.Args.key())
 	if err != nil {
@@ -206,10 +208,12 @@ func (w *ImageScanWorker) Timeout(*river.Job[ImageScanArgs]) time.Duration {
 }
 
 func (w *ImageScanWorker) Work(ctx context.Context, job *river.Job[ImageScanArgs]) error {
-	f := &imagesbom.Fetcher{Store: w.Store, Cfg: w.Cfg,
+	f := &imagesbom.Fetcher{
+		Store: w.Store, Cfg: w.Cfg,
 		AfterWrite: func(ctx context.Context, tx pgx.Tx, res store.ImageSBOMResult) error {
 			return EnqueueAfterImageSBOM(ctx, river.ClientFromContext[pgx.Tx](ctx), tx, res)
-		}}
+		},
+	}
 	start := time.Now()
 	out, err := f.Scan(ctx, job.Args.key())
 	if err != nil {

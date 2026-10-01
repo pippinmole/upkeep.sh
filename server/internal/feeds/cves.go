@@ -147,7 +147,7 @@ func (s *Syncer) SyncEPSS(ctx context.Context) (stats EPSSStats, err error) {
 // fetch GETs url (following redirects), optionally conditional on etag.
 // The caller closes the body; statuses other than 200/304 are errors.
 func (s *Syncer) fetch(ctx context.Context, url, etag string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}

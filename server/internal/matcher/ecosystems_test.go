@@ -46,8 +46,10 @@ func TestReleaseStatusOf(t *testing.T) {
 
 // alpineCVE builds an ALPINE-CVE-* row (per-CVE, standard channel).
 func alpineCVE(cve, introduced string, fixed *string) Row {
-	r := Row{AdvisoryID: "ALPINE-" + cve, VulnKey: cve, CVEIDs: []string{cve}, Channel: ChannelStandard,
-		Introduced: introduced, Fixed: fixed, Status: "unfixed"}
+	r := Row{
+		AdvisoryID: "ALPINE-" + cve, VulnKey: cve, CVEIDs: []string{cve}, Channel: ChannelStandard,
+		Introduced: introduced, Fixed: fixed, Status: "unfixed",
+	}
 	if fixed != nil {
 		r.Status = "fixed"
 	}
@@ -107,8 +109,10 @@ func TestEvaluateApk(t *testing.T) {
 // langRow builds a language advisory row (GHSA-/PYSEC-/GO-, keyed like a
 // notice: by its CVE aliases, else vulnKey).
 func langRow(id, vulnKey string, cves []string, introduced string, fixed, last *string) Row {
-	r := Row{AdvisoryID: id, VulnKey: vulnKey, CVEIDs: cves, Channel: ChannelStandard,
-		Introduced: introduced, Fixed: fixed, LastAffected: last, Status: "unfixed"}
+	r := Row{
+		AdvisoryID: id, VulnKey: vulnKey, CVEIDs: cves, Channel: ChannelStandard,
+		Introduced: introduced, Fixed: fixed, LastAffected: last, Status: "unfixed",
+	}
 	if fixed != nil {
 		r.Status = "fixed"
 	}
@@ -212,8 +216,14 @@ func TestEvaluatePyPI(t *testing.T) {
 		v    string
 		want bool
 	}{
-		{"3.1.5", true}, {"3.1.6rc1", true}, {"3.1.6.dev0", true}, {"3.1.6", false},
-		{"3.1.6.post1", false}, {"3.1.6+local", false}, {"3.1.10", false}, {"3.1", true},
+		{"3.1.5", true},
+		{"3.1.6rc1", true},
+		{"3.1.6.dev0", true},
+		{"3.1.6", false},
+		{"3.1.6.post1", false},
+		{"3.1.6+local", false},
+		{"3.1.10", false},
+		{"3.1", true},
 	} {
 		ms, st := Evaluate(tt.v, py, rows)
 		if st.BadVersions != 0 || (len(ms) == 1) != tt.want {

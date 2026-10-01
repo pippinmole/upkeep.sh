@@ -61,8 +61,10 @@ func Catalog(ctx context.Context, rootfs string, parallelism int) (*Result, erro
 
 	res := &Result{ToolName: ToolName, ToolVersion: cfg.ToolVersion}
 	if d := s.Artifacts.LinuxDistribution; d != nil {
-		res.OS = purl.OSRelease{ID: d.ID, VersionID: d.VersionID, VersionCodename: d.VersionCodename,
-			PrettyName: d.PrettyName}
+		res.OS = purl.OSRelease{
+			ID: d.ID, VersionID: d.VersionID, VersionCodename: d.VersionCodename,
+			PrettyName: d.PrettyName,
+		}
 	}
 	for _, p := range s.Artifacts.Packages.Sorted() {
 		if p.PURL == "" {

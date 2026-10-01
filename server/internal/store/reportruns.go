@@ -102,7 +102,7 @@ func (s *Store) DueReportSchedules(ctx context.Context, now time.Time) (DueRepor
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(reportsLock)); err != nil {
 		return res, err
 	}
@@ -187,7 +187,7 @@ func (s *Store) StoreReport(ctx context.Context, r NewReport, enqueue EnqueueDel
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
 		nextRunAt *time.Time

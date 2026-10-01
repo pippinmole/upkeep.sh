@@ -74,8 +74,10 @@ func TestCollectDockerEngine(t *testing.T) {
 			version: dockerVersion("28.0.0", "1.48"),
 			info: system.Info{
 				Driver: "overlay2",
-				Swarm: swarm.Info{LocalNodeState: swarm.LocalNodeStateLocked, NodeAddr: "10.0.0.5",
-					Error: "Swarm is encrypted and needs to be unlocked before it can be used."},
+				Swarm: swarm.Info{
+					LocalNodeState: swarm.LocalNodeStateLocked, NodeAddr: "10.0.0.5",
+					Error: "Swarm is encrypted and needs to be unlocked before it can be used.",
+				},
 			},
 			wantEng:   DockerEngine{Version: "28.0.0", APIVersion: "1.48", StorageDriver: "overlay2", ImageStore: "graphdriver"},
 			wantSwarm: &DockerSwarm{State: "locked"},

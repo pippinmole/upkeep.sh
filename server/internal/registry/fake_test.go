@@ -41,9 +41,11 @@ type fakeRegistry struct {
 }
 
 func newFakeRegistry(t *testing.T, repo string) *fakeRegistry {
-	f := &fakeRegistry{t: t, repo: repo, manifests: map[string][]byte{}, types: map[string]string{},
+	f := &fakeRegistry{
+		t: t, repo: repo, manifests: map[string][]byte{}, types: map[string]string{},
 		blobs: map[string][]byte{}, referrers: map[string][]byte{}, tamper: map[string]bool{},
-		status: map[string]int{}, header: http.Header{}}
+		status: map[string]int{}, header: http.Header{},
+	}
 	f.cdn = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.cdnAuth = append(f.cdnAuth, r.Header.Get("Authorization"))
@@ -109,7 +111,7 @@ func (f *fakeRegistry) serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", f.types[digest])
 		_, _ = w.Write(b)
 	case "blobs":
-		http.Redirect(w, r, f.cdn.URL+"/blob/"+digest, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, f.cdn.URL+"/blob/"+digest, http.StatusTemporaryRedirect) //nolint:gosec // fake registry redirecting to its own test CDN
 	case "referrers":
 		b, ok := f.referrers[digest]
 		if !ok {
@@ -213,11 +215,15 @@ type testImage struct {
 func (f *fakeRegistry) pushImage(predicates map[string][]byte) testImage {
 	var im testImage
 	im.config = f.addBlob([]byte(`{"architecture":"amd64","os":"linux"}`), "application/vnd.oci.image.config.v1+json")
-	im.amd64 = f.addManifest(map[string]any{"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
-		"config": im.config, "layers": []any{}}, MediaTypeOCIManifest)
+	im.amd64 = f.addManifest(map[string]any{
+		"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
+		"config": im.config, "layers": []any{},
+	}, MediaTypeOCIManifest)
 	armCfg := f.addBlob([]byte(`{"architecture":"arm64","os":"linux"}`), "application/vnd.oci.image.config.v1+json")
-	im.arm64 = f.addManifest(map[string]any{"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
-		"config": armCfg, "layers": []any{}}, MediaTypeOCIManifest)
+	im.arm64 = f.addManifest(map[string]any{
+		"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
+		"config": armCfg, "layers": []any{},
+	}, MediaTypeOCIManifest)
 	amd, arm := im.amd64, im.arm64
 	amd.Platform = &Platform{OS: "linux", Architecture: "amd64"}
 	arm.Platform = &Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}
@@ -233,8 +239,10 @@ func (f *fakeRegistry) pushImage(predicates map[string][]byte) testImage {
 			layers = append(layers, l)
 		}
 		attCfg := f.addBlob([]byte(`{}`), "application/vnd.oci.image.config.v1+json")
-		att := f.addManifest(map[string]any{"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
-			"config": attCfg, "layers": layers}, MediaTypeOCIManifest)
+		att := f.addManifest(map[string]any{
+			"schemaVersion": 2, "mediaType": MediaTypeOCIManifest,
+			"config": attCfg, "layers": layers,
+		}, MediaTypeOCIManifest)
 		att.Platform = &Platform{OS: "unknown", Architecture: "unknown"}
 		att.Annotations = map[string]string{annotationRefType: refTypeAttestation, annotationRefDigest: im.amd64.Digest}
 		entries = append(entries, att)

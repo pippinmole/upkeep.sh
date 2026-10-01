@@ -54,8 +54,10 @@ func (f *matchFixture) cve() string {
 
 // row is an advisory_affected row in the fixture's distro, release jammy.
 func row(source, channel string, fixed *string, sev string) osv.AffectedRow {
-	r := osv.AffectedRow{Release: "jammy", SourcePackage: source, Channel: channel, Introduced: "0",
-		FixedVersion: fixed, Status: "unfixed", Ecosystem: "Test:22.04"}
+	r := osv.AffectedRow{
+		Release: "jammy", SourcePackage: source, Channel: channel, Introduced: "0",
+		FixedVersion: fixed, Status: "unfixed", Ecosystem: "Test:22.04",
+	}
 	if fixed != nil {
 		r.Status = "fixed"
 	}
@@ -346,8 +348,8 @@ func TestMatcherAndFindingsLifecycle(t *testing.T) {
 	}
 
 	// Back on 91; remove swlib entirely: its findings resolve, K88 resolves.
-	res = f.pushK(6, k91, kernels...)
-	r = f.reconcile()
+	f.pushK(6, k91, kernels...)
+	f.reconcile()
 	st = f.statuses()
 	for _, c := range []string{cveA, cveB, cveP, cveC} {
 		if st[findings.DedupKey("swlib", c)] != "resolved" {

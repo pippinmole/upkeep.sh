@@ -287,8 +287,10 @@ func TestParseEcosystem(t *testing.T) {
 func TestRangeRows(t *testing.T) {
 	s := func(v string) *string { return &v }
 	rows := rangeRows([]Event{
-		{Introduced: s("0")}, {Fixed: s("1.0-1")},
-		{Introduced: s("2.0-1")}, {LastAffected: s("2.0-3")},
+		{Introduced: s("0")},
+		{Fixed: s("1.0-1")},
+		{Introduced: s("2.0-1")},
+		{LastAffected: s("2.0-3")},
 		{Introduced: s("3.0-1")},
 	})
 	if len(rows) != 3 ||

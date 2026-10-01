@@ -40,9 +40,11 @@ func pkgF(host, source, vuln string, fixed *string, sev severity.Bucket, mods ..
 }
 
 // imgF is an open vulnerable_image finding for image k on host.
-func imgF(host string, k ImageKey, source, vuln string, fixChannel string, sev severity.Bucket, mods ...func(*InputFinding)) InputFinding {
-	f := InputFinding{HostID: host, Kind: findings.KindVulnerableImage, VulnKey: vuln, SourcePackage: source,
-		Packages: []string{source}, Severity: sev, FirstSeenAt: t0, Image: &k, FixChannel: fixChannel}
+func imgF(host string, k ImageKey, source, vuln, fixChannel string, sev severity.Bucket, mods ...func(*InputFinding)) InputFinding {
+	f := InputFinding{
+		HostID: host, Kind: findings.KindVulnerableImage, VulnKey: vuln, SourcePackage: source,
+		Packages: []string{source}, Severity: sev, FirstSeenAt: t0, Image: &k, FixChannel: fixChannel,
+	}
 	if fixChannel != "" {
 		f.FixedVersion = sp("9.9")
 	}
@@ -244,8 +246,10 @@ func TestImageActions(t *testing.T) {
 	if s.Estate != (Estate{Hosts: 3, Containers: 6, Images: 3}) {
 		t.Errorf("estate = %+v", s.Estate)
 	}
-	if !reflect.DeepEqual(s.Coverage.ImagesNotScored, []ImageNotScored{{ImageID: "sha256:private",
-		ImageRefs: []string{"ghcr.io/me/api:1"}, OS: "linux", Arch: "amd64", Status: "unavailable"}}) {
+	if !reflect.DeepEqual(s.Coverage.ImagesNotScored, []ImageNotScored{{
+		ImageID:   "sha256:private",
+		ImageRefs: []string{"ghcr.io/me/api:1"}, OS: "linux", Arch: "amd64", Status: "unavailable",
+	}}) {
 		t.Errorf("not scored = %+v", s.Coverage.ImagesNotScored)
 	}
 	if s.Headline.ImagesToUpdate != 1 || s.Headline.PatchThisWeek != 1 {

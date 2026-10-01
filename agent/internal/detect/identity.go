@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Identity is what the server uses to recognise a host across agent
+// Identity is what the server uses to recognize a host across agent
 // reinstalls (DOMAIN_MODEL.md §4.3), plus its current hostname.
 type Identity struct {
 	MachineID string // Linux /etc/machine-id

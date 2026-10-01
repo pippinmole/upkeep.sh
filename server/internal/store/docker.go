@@ -74,7 +74,7 @@ func internContainerImages(ctx context.Context, tx pgx.Tx, images []ContainerIma
 	}
 	recs := make([]rec, len(images))
 	for i, im := range images {
-		recs[i] = rec{im.ImageID, im.OS, im.Arch, im.Variant, im.Created, im.Layers, im.Labels}
+		recs[i] = rec(im)
 		if recs[i].Layers == nil {
 			recs[i].Layers = []string{}
 		}
@@ -165,7 +165,7 @@ func applyDockerHost(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, 
 // applied one, from any manager) are ignored, an unchanged set hash only
 // moves confirmed_at, a truncated set is additive. Clusters are scoped by
 // the pushing host's user. The cluster row is locked for the diff, so
-// managers of one cluster pushing at once serialise.
+// managers of one cluster pushing at once serialize.
 func applySwarmServices(ctx context.Context, tx pgx.Tx, hostID, snapshotID string, at time.Time, in SwarmServicesInput) (FactResult, error) {
 	res := FactResult{Kind: in.Set.Kind}
 	var workspaceID string

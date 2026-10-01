@@ -39,10 +39,14 @@ func inventoryFake() *dockerapitest.Fake {
 		Mounts: []container.MountPoint{{Type: mount.TypeVolume, Name: "secretvol", Source: "/var/lib/docker/volumes/secretvol/_data", Destination: "/data", RW: true}},
 	}}
 	f.Images = []image.Summary{{ID: "sha256:i1"}}
-	f.ImageInspects = map[string]image.InspectResponse{"sha256:i1": {ID: "sha256:i1", RepoTags: []string{"nginx:1"},
-		Created: "2026-09-01T00:00:00Z", Os: "linux", Architecture: "amd64", RootFS: image.RootFS{Layers: []string{"sha256:l1"}}}}
-	f.Networks = []network.Summary{{Network: network.Network{ID: "n1", Name: "bridge", Driver: "bridge", Scope: "local",
-		IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: netip.MustParsePrefix("172.17.0.0/16")}}}}}}
+	f.ImageInspects = map[string]image.InspectResponse{"sha256:i1": {
+		ID: "sha256:i1", RepoTags: []string{"nginx:1"},
+		Created: "2026-09-01T00:00:00Z", Os: "linux", Architecture: "amd64", RootFS: image.RootFS{Layers: []string{"sha256:l1"}},
+	}}
+	f.Networks = []network.Summary{{Network: network.Network{
+		ID: "n1", Name: "bridge", Driver: "bridge", Scope: "local",
+		IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: netip.MustParsePrefix("172.17.0.0/16")}}},
+	}}}
 	return f
 }
 
@@ -141,8 +145,10 @@ func (c *callOrder) ImageList(ctx context.Context) ([]image.Summary, error) {
 // Single-call collectors run before the inspect fan-out, so a huge host
 // can't spend the Docker budget before they get a turn.
 func TestDockerCollectorOrder(t *testing.T) {
-	fake := engineFake(swarm.Info{NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
-		Cluster: &swarm.ClusterInfo{ID: "c1"}})
+	fake := engineFake(swarm.Info{
+		NodeID: "n1", LocalNodeState: swarm.LocalNodeStateActive, ControlAvailable: true,
+		Cluster: &swarm.ClusterInfo{ID: "c1"},
+	})
 	rec := &callOrder{Fake: fake}
 	c := testCollector()
 	c.DockerSocket = "/var/run/docker.sock"

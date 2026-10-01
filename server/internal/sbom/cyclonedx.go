@@ -3,6 +3,7 @@ package sbom
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/pippinmole/upkeep.sh/server/internal/purl"
@@ -109,7 +110,7 @@ func cdxTools(raw json.RawMessage) [][2]string {
 		if json.Unmarshal(raw, &obj) != nil {
 			return nil
 		}
-		list = append(obj.Components, obj.Services...)
+		list = slices.Concat(obj.Components, obj.Services)
 	}
 	out := make([][2]string, 0, len(list))
 	for _, t := range list {

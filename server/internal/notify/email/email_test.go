@@ -268,32 +268,46 @@ func finding(typ, sev string, kev bool) notify.Event {
 	if kev {
 		prefix = "KEV "
 	}
-	return withState(notify.Event{ID: 7, Type: typ, URL: "https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094",
-		Alert: &notify.Alert{ID: "a1", Property: "vulnerability", Subject: "pkg:xz-utils:CVE-2024-3094",
-			Title: prefix + "CVE-2024-3094 in xz-utils"},
+	return withState(notify.Event{
+		ID: 7, Type: typ, URL: "https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094",
+		Alert: &notify.Alert{
+			ID: "a1", Property: "vulnerability", Subject: "pkg:xz-utils:CVE-2024-3094",
+			Title: prefix + "CVE-2024-3094 in xz-utils",
+		},
 		Host: &notify.Host{ID: "h1", Hostname: "web-1"},
-		Finding: &notify.Finding{ID: "f", VulnKey: "CVE-2024-3094", SourcePackage: "xz-utils",
+		Finding: &notify.Finding{
+			ID: "f", VulnKey: "CVE-2024-3094", SourcePackage: "xz-utils",
 			Packages: []string{"xz-utils", "liblzma5"}, InstalledVersion: "5.6.0-1",
-			FixedVersion: ptr("5.6.1-1"), Severity: sev, KEV: kev, EPSS: ptr(0.853)}})
+			FixedVersion: ptr("5.6.1-1"), Severity: sev, KEV: kev, EPSS: ptr(0.853),
+		},
+	})
 }
 
 // notSeen is a host_not_seen rule's event.
 func notSeen(typ string) notify.Event {
-	return withState(notify.Event{ID: 8, Type: typ, URL: "https://app.example/dashboard/alerts?host=h2",
+	return withState(notify.Event{
+		ID: 8, Type: typ, URL: "https://app.example/dashboard/alerts?host=h2",
 		Host: &notify.Host{ID: "h2", Hostname: "db-1", Label: ptr("database")},
-		Alert: &notify.Alert{ID: "a2", Property: "host_not_seen", Title: "Not seen for more than 30 minutes",
-			Details: json.RawMessage(`{"last_seen_at":"2026-09-27T10:30:00Z"}`)}})
+		Alert: &notify.Alert{
+			ID: "a2", Property: "host_not_seen", Title: "Not seen for more than 30 minutes",
+			Details: json.RawMessage(`{"last_seen_at":"2026-09-27T10:30:00Z"}`),
+		},
+	})
 }
 
 func alert(events ...notify.Event) notify.Notification {
-	return notify.Notification{Version: notify.PayloadVersion, ID: "n-1", DeliveryID: "0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11",
+	return notify.Notification{
+		Version: notify.PayloadVersion, ID: "n-1", DeliveryID: "0b7c6c1e-2f0e-4d4e-9a39-5b6f1f0d7e11",
 		Kind: notify.KindAlert, CreatedAt: time.Unix(1700000000, 0).UTC(), Rule: &notify.RuleRef{ID: "r-1", Name: "Critical"},
-		Summary: "summary line", Events: events}
+		Summary: "summary line", Events: events,
+	}
 }
 
 func (f *fakeSMTP) cfg(security string, kv ...string) notify.Config {
-	c := notify.Config{"host": "127.0.0.1", "port": f.port(), "security": security,
-		"from": "alerts@example.com", "to": "ops@example.com, oncall@example.org"}
+	c := notify.Config{
+		"host": "127.0.0.1", "port": f.port(), "security": security,
+		"from": "alerts@example.com", "to": "ops@example.com, oncall@example.org",
+	}
 	for i := 0; i+1 < len(kv); i += 2 {
 		c[kv[i]] = kv[i+1]
 	}
@@ -360,9 +374,11 @@ func TestSendSTARTTLSWithAuth(t *testing.T) {
 			t.Errorf("%s: %q, want %q", k, got, want)
 		}
 	}
-	for _, want := range []string{"KEV CVE-2024-3094 in xz-utils on web-1", "Package: xz-utils 5.6.0-1 (liblzma5)",
+	for _, want := range []string{
+		"KEV CVE-2024-3094 in xz-utils on web-1", "Package: xz-utils 5.6.0-1 (liblzma5)",
 		"Fix: upgrade to 5.6.1-1", "Severity: high, known exploited (CISA KEV), EPSS 85.3%",
-		"Open in upkeep.sh: https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094", "Rule: Critical"} {
+		"Open in upkeep.sh: https://app.example/dashboard/hosts/h1/vulnerabilities?v=CVE-2024-3094", "Rule: Critical",
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %q:\n%s", want, body)
 		}
@@ -449,8 +465,10 @@ func TestInsecureAuthRefusedOnLiveConnection(t *testing.T) {
 	f := newFake(t, func(f *fakeSMTP) { f.auth, f.user, f.pass = "PLAIN", "u", "p" })
 	n := newNotifier(f.guard())
 	port, _ := strconv.Atoi(f.port())
-	s := settings{host: "127.0.0.1", port: port, security: SecurityNone, username: "u", password: "p",
-		from: "a@example.com", to: []string{"b@example.com"}}
+	s := settings{
+		host: "127.0.0.1", port: port, security: SecurityNone, username: "u", password: "p",
+		from: "a@example.com", to: []string{"b@example.com"},
+	}
 	err := n.deliver(context.Background(), s, []byte("Subject: x\r\n\r\nx\r\n"))
 	if !notify.IsPermanent(err) || !errors.Is(err, ErrInsecureAuth) {
 		t.Fatalf("err %v", err)
@@ -716,8 +734,13 @@ func TestSendBlocksPrivateDestinations(t *testing.T) {
 	g.AllowPrivate = false
 	n := newNotifier(g)
 	for _, hp := range [][2]string{
-		{"127.0.0.1", f.port()}, {"127.0.0.1", "587"}, {"10.0.0.8", "25"}, {"169.254.169.254", "465"},
-		{"::1", "587"}, {"smtp.example.com", "2526"}, {"smtp.example.com", "443"},
+		{"127.0.0.1", f.port()},
+		{"127.0.0.1", "587"},
+		{"10.0.0.8", "25"},
+		{"169.254.169.254", "465"},
+		{"::1", "587"},
+		{"smtp.example.com", "2526"},
+		{"smtp.example.com", "443"},
 	} {
 		cfg := notify.Config{"host": hp[0], "port": hp[1], "from": "a@example.com", "to": "b@example.com"}
 		_, err := n.Send(context.Background(), cfg, alert(notSeen(notify.EventAlertFiring)))

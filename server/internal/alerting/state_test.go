@@ -16,8 +16,10 @@ func TestDiff(t *testing.T) {
 		return Match{HostID: host, Subject: subject, Title: "Port 22/tcp is listening", Details: det}
 	}
 	f := func(id, host, subject string, c json.RawMessage) Firing {
-		return Firing{ID: id, HostID: host, Subject: subject, Condition: c, Title: "Port 22/tcp is listening",
-			Details: json.RawMessage(`{"addresses": ["0.0.0.0"]}`)}
+		return Firing{
+			ID: id, HostID: host, Subject: subject, Condition: c, Title: "Port 22/tcp is listening",
+			Details: json.RawMessage(`{"addresses": ["0.0.0.0"]}`),
+		}
 	}
 	hosts := map[string]HostStatus{
 		"h1": HostOK, "h2": HostOK, "h3": HostOK,
@@ -55,8 +57,11 @@ func TestDiff(t *testing.T) {
 		t.Errorf("keep: %v", p.Keep)
 	}
 	wantResolve := []Resolution{
-		{"clear", ReasonCleared}, {"changed", ReasonRuleChanged}, {"arch", ReasonHostArchived},
-		{"scope", ReasonOutOfScope}, {"gone", ReasonOutOfScope},
+		{"clear", ReasonCleared},
+		{"changed", ReasonRuleChanged},
+		{"arch", ReasonHostArchived},
+		{"scope", ReasonOutOfScope},
+		{"gone", ReasonOutOfScope},
 	}
 	if !reflect.DeepEqual(p.Resolve, wantResolve) {
 		t.Errorf("resolve: %v", p.Resolve)

@@ -232,7 +232,7 @@ func TestParseErrors(t *testing.T) {
 
 func TestSplitTool(t *testing.T) {
 	for in, want := range map[string][2]string{
-		" docker-scout-1.18.1":   {"docker-scout", "1.18.1"},
+		" docker-scout-1.18.1":   {"docker-scout", "1.18.1"}, //nolint:gocritic // leading space is the case under test
 		"syft-v1.51.0":           {"syft", "v1.51.0"},
 		"buildkit-0.16.0-tianon": {"buildkit", "0.16.0-tianon"},
 		"trivy":                  {"trivy", ""},

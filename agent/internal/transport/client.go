@@ -165,7 +165,7 @@ var ErrRemoteUnsupported = errors.New("server does not support remote targets")
 // config the agent already has ("" for none); when unchanged, it returns
 // (nil, etag, nil).
 func (c *Client) FetchConfig(agentID, agentSecret, etag string) (*AgentConfig, string, error) {
-	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/v1/agent/config", nil)
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/v1/agent/config", http.NoBody)
 	if err != nil {
 		return nil, etag, err
 	}

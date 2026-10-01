@@ -43,7 +43,7 @@ func TestReportInputs(t *testing.T) {
 	day := 24 * time.Hour
 	period := reports.Period{Start: ago(7 * day), End: now}
 
-	// Hosts: web (the fixture's, labelled), db, and an archived one whose
+	// Hosts: web (the fixture's, labeled), db, and an archived one whose
 	// data must not show anywhere.
 	web := f.hostID
 	exec(`UPDATE hosts SET label = 'web-1' WHERE id = $1`, web)
@@ -109,26 +109,42 @@ func TestReportInputs(t *testing.T) {
 	reopenedAt, resolvedAt := ago(day), ago(2*day)
 	for _, x := range []fnd{
 		// openssl on web and db: CVE-A needs 1.2-1, CVE-B (KEV) 1.10-1.
-		{host: web, kind: "vulnerable_package", key: "pkg:openssl:CVE-A", vuln: "CVE-A", fixed: sp("1.2-1"), channel: std,
-			sev: "high", rank: 5, status: "open", firstSeen: ago(30 * day), reopened: &reopenedAt},
-		{host: web, kind: "vulnerable_package", key: "pkg:openssl:CVE-B", vuln: "CVE-B", fixed: sp("1.10-1"), channel: std,
-			sev: "critical", rank: 6, kev: true, status: "open", firstSeen: ago(3 * day)},
-		{host: dbHost, kind: "vulnerable_package", key: "pkg:openssl:CVE-A", vuln: "CVE-A", fixed: sp("1.2-1"), channel: std,
-			sev: "high", rank: 5, status: "open", firstSeen: ago(40 * day)},
+		{
+			host: web, kind: "vulnerable_package", key: "pkg:openssl:CVE-A", vuln: "CVE-A", fixed: sp("1.2-1"), channel: std,
+			sev: "high", rank: 5, status: "open", firstSeen: ago(30 * day), reopened: &reopenedAt,
+		},
+		{
+			host: web, kind: "vulnerable_package", key: "pkg:openssl:CVE-B", vuln: "CVE-B", fixed: sp("1.10-1"), channel: std,
+			sev: "critical", rank: 6, kev: true, status: "open", firstSeen: ago(3 * day),
+		},
+		{
+			host: dbHost, kind: "vulnerable_package", key: "pkg:openssl:CVE-A", vuln: "CVE-A", fixed: sp("1.2-1"), channel: std,
+			sev: "high", rank: 5, status: "open", firstSeen: ago(40 * day),
+		},
 		// No fix yet.
-		{host: dbHost, kind: "vulnerable_package", key: "pkg:zlib:CVE-C", vuln: "CVE-C", sev: "medium", rank: 4,
-			status: "open", firstSeen: ago(40 * day)},
+		{
+			host: dbHost, kind: "vulnerable_package", key: "pkg:zlib:CVE-C", vuln: "CVE-C", sev: "medium", rank: 4,
+			status: "open", firstSeen: ago(40 * day),
+		},
 		// Resolved in the period, and one resolved before it.
-		{host: web, kind: "vulnerable_package", key: "pkg:curl:CVE-D", vuln: "CVE-D", fixed: sp("8-1"), channel: std,
-			sev: "low", rank: 2, status: "resolved", firstSeen: ago(20 * day), resolved: &resolvedAt},
-		{host: web, kind: "vulnerable_package", key: "pkg:curl:CVE-E", vuln: "CVE-E", fixed: sp("8-1"), channel: std,
-			sev: "low", rank: 2, status: "resolved", firstSeen: ago(20 * day), resolved: ptrTime(ago(10 * day))},
+		{
+			host: web, kind: "vulnerable_package", key: "pkg:curl:CVE-D", vuln: "CVE-D", fixed: sp("8-1"), channel: std,
+			sev: "low", rank: 2, status: "resolved", firstSeen: ago(20 * day), resolved: &resolvedAt,
+		},
+		{
+			host: web, kind: "vulnerable_package", key: "pkg:curl:CVE-E", vuln: "CVE-E", fixed: sp("8-1"), channel: std,
+			sev: "low", rank: 2, status: "resolved", firstSeen: ago(20 * day), resolved: ptrTime(ago(10 * day)),
+		},
 		// An image finding with a standard fix.
-		{host: web, kind: "vulnerable_image", key: "img:app:zlib:CVE-F", vuln: "CVE-F", fixed: sp("1.3"), channel: std,
-			sev: "medium", rank: 4, status: "open", firstSeen: ago(2 * day), image: img1},
+		{
+			host: web, kind: "vulnerable_image", key: "img:app:zlib:CVE-F", vuln: "CVE-F", fixed: sp("1.3"), channel: std,
+			sev: "medium", rank: 4, status: "open", firstSeen: ago(2 * day), image: img1,
+		},
 		// The archived host's findings count nowhere.
-		{host: archived, kind: "vulnerable_package", key: "pkg:openssl:CVE-A", vuln: "CVE-A", fixed: sp("9-1"), channel: std,
-			sev: "critical", rank: 6, kev: true, status: "open", firstSeen: ago(day)},
+		{
+			host: archived, kind: "vulnerable_package", key: "pkg:openssl:CVE-A", vuln: "CVE-A", fixed: sp("9-1"), channel: std,
+			sev: "critical", rank: 6, kev: true, status: "open", firstSeen: ago(day),
+		},
 	} {
 		var imgID, imgOS, imgArch, imgVariant *string
 		if x.image != "" {
@@ -221,8 +237,10 @@ func TestReportInputs(t *testing.T) {
 	}
 	// Opened: CVE-B and CVE-F first seen, CVE-A on web reopened; resolved:
 	// CVE-D (CVE-E was resolved before the period).
-	want := reports.Headline{PatchNow: 1, WhenConvenient: 1, ImagesToUpdate: 1, RebootsRequired: 1, NoFixFindings: 1,
-		TotalOpenFindings: 5, OpenedSinceLast: 3, ResolvedSinceLast: 1, StaleAgents: 1}
+	want := reports.Headline{
+		PatchNow: 1, WhenConvenient: 1, ImagesToUpdate: 1, RebootsRequired: 1, NoFixFindings: 1,
+		TotalOpenFindings: 5, OpenedSinceLast: 3, ResolvedSinceLast: 1, StaleAgents: 1,
+	}
 	if s.Headline != want {
 		t.Errorf("headline = %+v, want %+v", s.Headline, want)
 	}
@@ -265,7 +283,7 @@ func TestReportInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	p, err := f.s.LatestReport(ctx, tx, schedID)
 	if err != nil || p == nil {
 		t.Fatalf("latest report = %+v, %v", p, err)

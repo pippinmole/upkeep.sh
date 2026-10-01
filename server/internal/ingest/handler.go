@@ -149,13 +149,14 @@ func (h *Handler) Snapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.Store.InsertSnapshot(ctx, in)
-	if errors.Is(err, store.ErrUnknownHostRef) {
+	switch {
+	case errors.Is(err, store.ErrUnknownHostRef):
 		http.Error(w, "unknown host ref", http.StatusUnprocessableEntity)
 		return
-	} else if errors.Is(err, store.ErrAgentNotFound) {
+	case errors.Is(err, store.ErrAgentNotFound):
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
-	} else if err != nil {
+	case err != nil:
 		log.Printf("agent %s: insert snapshot: %v", agentID, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -332,19 +333,19 @@ func buildSnapshotInput(payload SnapshotPayload, agentID string, collectedAt, no
 	sets, skipped := planInventory(payload)
 	in.Inventory = sets
 	for _, sk := range skipped {
-		log.Printf("agent %s: %s inventory not diffed: %s", agentID, sk.Ecosystem, sk.Reason)
+		log.Printf("agent %s: %q inventory not diffed: %s", agentID, sk.Ecosystem, sk.Reason)
 	}
 
 	factSets, notes := planFacts(payload)
 	in.FactSets = factSets
 	for _, n := range notes {
-		log.Printf("agent %s: %s", agentID, n)
+		log.Printf("agent %s: %q", agentID, n)
 	}
 	in.UptimeSeconds = uptimeSeconds(payload)
 	in.Arch = hostArch(payload)
 	facts, err := linuxFacts(payload, in.OSFamily)
 	if err != nil {
-		log.Printf("agent %s: facts block dropped: %v", agentID, err)
+		log.Printf("agent %s: facts block dropped: %q", agentID, err)
 	}
 	in.Facts = facts
 
@@ -355,7 +356,7 @@ func buildSnapshotInput(payload SnapshotPayload, agentID string, collectedAt, no
 	in.DockerNetworks = dp.networks
 	in.SwarmServices = dp.swarm
 	for _, n := range dp.notes {
-		log.Printf("agent %s: %s", agentID, n)
+		log.Printf("agent %s: %q", agentID, n)
 	}
 	return in
 }

@@ -61,12 +61,13 @@ const reportTimeout = 5 * time.Minute
 // store.NewReport); for a manual one, manualSince guards against a retried
 // job sending twice.
 func runReport(ctx context.Context, st *store.Store, sched store.ReportSchedule, trigger string, now time.Time,
-	expect, nextRun, manualSince time.Time) (store.StoredReport, error) {
+	expect, nextRun, manualSince time.Time,
+) (store.StoredReport, error) {
 	tx, err := st.BeginReportRead(ctx)
 	if err != nil {
 		return store.StoredReport{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	prev, err := st.LatestReport(ctx, tx, sched.ID)
 	if err != nil {
 		return store.StoredReport{}, err

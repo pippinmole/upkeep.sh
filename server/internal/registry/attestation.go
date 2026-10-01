@@ -133,10 +133,12 @@ func (c *Client) fromAttestationManifest(ctx context.Context, ref Ref, att Descr
 // 1.1 referrers API. A registry without it (404, 400, 405, 501) simply
 // has none.
 func (c *Client) fromReferrers(ctx context.Context, ref Ref, manifestDigest string) (*SBOM, error) {
-	b, _, err := c.get(ctx, ref, "/referrers/"+manifestDigest, MediaTypeOCIIndex, c.cfg.MaxManifestBytes, c.cfg.RequestTimeout)
+	b, err := c.get(ctx, ref, "/referrers/"+manifestDigest, MediaTypeOCIIndex, c.cfg.MaxManifestBytes, c.cfg.RequestTimeout)
 	var e *Error
-	if errors.As(err, &e) && slices.Contains([]int{http.StatusNotFound, http.StatusBadRequest,
-		http.StatusMethodNotAllowed, http.StatusNotImplemented}, e.Status) {
+	if errors.As(err, &e) && slices.Contains([]int{
+		http.StatusNotFound, http.StatusBadRequest,
+		http.StatusMethodNotAllowed, http.StatusNotImplemented,
+	}, e.Status) {
 		return nil, newErr(KindNoAttestation, ref.Host, "no SBOM attestation for %s (no referrers API)", ref)
 	}
 	if err != nil {

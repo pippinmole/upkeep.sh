@@ -17,7 +17,8 @@ func netSummary(n network.Network) network.Summary { return network.Summary{Netw
 
 func TestCollectDockerNetworks(t *testing.T) {
 	f := &dockerapitest.Fake{Networks: []network.Summary{
-		netSummary(network.Network{ID: "n2", Name: "myapp_default", Driver: "bridge", Scope: "local",
+		netSummary(network.Network{
+			ID: "n2", Name: "myapp_default", Driver: "bridge", Scope: "local",
 			Options: map[string]string{"com.docker.network.bridge.name": "br-x"},
 			Labels:  map[string]string{"com.docker.compose.network": "default"},
 			IPAM: network.IPAM{Config: []network.IPAMConfig{
@@ -25,10 +26,13 @@ func TestCollectDockerNetworks(t *testing.T) {
 				{Subnet: netip.MustParsePrefix("172.18.0.0/16"), Gateway: netip.MustParseAddr("172.18.0.1")},
 				{Subnet: netip.MustParsePrefix("172.18.0.0/16")},
 				{}, // no subnet
-			}}}),
+			}},
+		}),
 		netSummary(network.Network{ID: "n1", Name: "none", Driver: "null", Scope: "local"}),
-		netSummary(network.Network{ID: "n3", Name: "backend", Driver: "overlay", Scope: "swarm", Internal: true,
-			IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: netip.MustParsePrefix("10.0.1.0/24")}}}}),
+		netSummary(network.Network{
+			ID: "n3", Name: "backend", Driver: "overlay", Scope: "swarm", Internal: true,
+			IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: netip.MustParsePrefix("10.0.1.0/24")}}},
+		}),
 	}}
 	got, truncated, err := CollectDockerNetworks(context.Background(), f)
 	if err != nil || truncated {

@@ -185,7 +185,7 @@ func (r *remoteRunner) run(ctx context.Context, creds storedCredentials, t *remo
 		}
 		st.ErrorCode, st.HostKey = target.CodeHostKeyUnconfirmed, keyLine(key)
 		st.Error = "host key " + ssh.FingerprintSHA256(key) + " waits for confirmation in the dashboard"
-		log.Printf("[%s] %s", t.cfg.Ref, st.Error)
+		log.Printf("[%s] %q", t.cfg.Ref, st.Error)
 		return st, false
 	}
 

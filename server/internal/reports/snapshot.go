@@ -193,7 +193,7 @@ type Reboot struct {
 	Since *time.Time `json:"since"`
 }
 
-// NoFix summarises open findings with no fix yet: tracked, nothing to do.
+// NoFix summarizes open findings with no fix yet: tracked, nothing to do.
 type NoFix struct {
 	Findings            int     `json:"findings"`
 	KEVFindings         int     `json:"kev_findings"`

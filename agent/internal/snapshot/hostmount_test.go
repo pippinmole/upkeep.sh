@@ -48,7 +48,7 @@ func nonRecursiveHost(t *testing.T, extraStatus string) (host, extra string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(status, append(b, (kernelRecords+extraStatus)...), 0o644); err != nil {
+	if err := os.WriteFile(status, append(b, (kernelRecords+extraStatus)...), 0o600); err != nil { //nolint:gosec // path is under t.TempDir
 		t.Fatal(err)
 	}
 	return host, extra
@@ -62,8 +62,10 @@ Architecture: amd64
 Version: 6.11.0-19.19~24.04.1
 `)
 	snap := testCollector().Collect(context.Background(), target.NewLocalWithExtra(host, extra, "testdata/proc"))
-	for _, name := range []string{"deb_packages", collector.CollectorSystemdServices, collector.CollectorLocalUsers,
-		collector.CollectorUnattendedUpgrades, collector.CollectorRebootRequired, collector.CollectorHostMount} {
+	for _, name := range []string{
+		"deb_packages", collector.CollectorSystemdServices, collector.CollectorLocalUsers,
+		collector.CollectorUnattendedUpgrades, collector.CollectorRebootRequired, collector.CollectorHostMount,
+	} {
 		if st := snap.Collectors[name]; st.Status != collector.StatusOK {
 			t.Errorf("%s = %+v, want ok", name, st)
 		}

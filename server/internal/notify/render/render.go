@@ -163,16 +163,16 @@ func detailLines(raw json.RawMessage) []string {
 	return lines
 }
 
-// List lists up to max events, one "• title" line each, ending in
+// List lists up to limit events, one "• title" line each, ending in
 // "…and N more" when there are more.
-func List(events []notify.Event, max int) string {
+func List(events []notify.Event, limit int) string {
 	if len(events) == 0 {
 		return "No events."
 	}
 	var b strings.Builder
 	for i, e := range events {
-		if i == max {
-			fmt.Fprintf(&b, "…and %d more", len(events)-max)
+		if i == limit {
+			fmt.Fprintf(&b, "…and %d more", len(events)-limit)
 			break
 		}
 		b.WriteString("• " + Title(e))
@@ -234,12 +234,12 @@ func orUnknown(s string) string {
 	return s
 }
 
-// Truncate cuts s to at most max bytes on a rune boundary, ending in "…".
-func Truncate(s string, max int) string {
-	if len(s) <= max {
+// Truncate cuts s to at most limit bytes on a rune boundary, ending in "…".
+func Truncate(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	cut := max - len("…")
+	cut := limit - len("…")
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}

@@ -61,21 +61,29 @@ func (r *testRegistry) pushScannable(t *testing.T, tag string) (string, string) 
 			"P:busybox-binsh\nV:1.37.0-r18\nA:x86_64\no:busybox\n\n",
 	}))
 	cfg, cfgSize := r.put(t, []byte(`{"architecture":"amd64","os":"linux"}`))
-	man, manSize := r.put(t, map[string]any{"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
+	man, manSize := r.put(t, map[string]any{
+		"schemaVersion": 2, "mediaType": registry.MediaTypeOCIManifest,
 		"config": map[string]any{"mediaType": "application/vnd.oci.image.config.v1+json", "digest": cfg, "size": cfgSize},
-		"layers": []any{map[string]any{"mediaType": "application/vnd.oci.image.layer.v1.tar+gzip", "digest": layer, "size": layerSize}}})
-	idx, _ := r.put(t, map[string]any{"schemaVersion": 2, "mediaType": registry.MediaTypeOCIIndex,
-		"manifests": []any{map[string]any{"mediaType": registry.MediaTypeOCIManifest, "digest": man, "size": manSize,
-			"platform": map[string]string{"os": "linux", "architecture": "amd64"}}},
-		"annotations": map[string]string{"test": tag}})
+		"layers": []any{map[string]any{"mediaType": "application/vnd.oci.image.layer.v1.tar+gzip", "digest": layer, "size": layerSize}},
+	})
+	idx, _ := r.put(t, map[string]any{
+		"schemaVersion": 2, "mediaType": registry.MediaTypeOCIIndex,
+		"manifests": []any{map[string]any{
+			"mediaType": registry.MediaTypeOCIManifest, "digest": man, "size": manSize,
+			"platform": map[string]string{"os": "linux", "architecture": "amd64"},
+		}},
+		"annotations": map[string]string{"test": tag},
+	})
 	return idx, strings.TrimPrefix(r.srv.URL, "https://") + "/library/alpine@" + idx
 }
 
 func scanConfig(t *testing.T, reg *testRegistry, scan imagescan.Config) ImagesConfig {
 	scan.Dir = t.TempDir()
 	scan.Command = []string{os.Args[0], imagescan.CatalogCommand}
-	return ImagesConfig{FetchEnabled: true, DisableSchedule: true, Registry: registry.Config{Guard: reg.guard()},
-		Scan: true, Scanner: scan}
+	return ImagesConfig{
+		FetchEnabled: true, DisableSchedule: true, Registry: registry.Config{Guard: reg.guard()},
+		Scan: true, Scanner: scan,
+	}
 }
 
 // End to end: no attestation, so image_sbom hands over to image_scan,

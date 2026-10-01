@@ -84,7 +84,7 @@ func TestProLabelAndSeverity(t *testing.T) {
 	}, "", map[string]CVE{"CVE-2024-3": {EPSS: fp(0.2)}})
 	pro, std := ds[1], ds[0]
 	if pro.VulnKey != "CVE-2012-1148" || !pro.RequiresPro() || std.RequiresPro() {
-		t.Fatalf("pro labelling: %+v / %+v", pro, std)
+		t.Fatalf("pro labeling: %+v / %+v", pro, std)
 	}
 	// EPSS >= 0.10 escalates to high; fix availability counts only the
 	// standard channel.
@@ -99,10 +99,9 @@ func TestProLabelAndSeverity(t *testing.T) {
 
 // host simulates a host's current matches through several reconciles.
 type host struct {
-	t        *testing.T
-	stored   map[string]*Existing
-	nextID   int
-	lastPlan Plan
+	t      *testing.T
+	stored map[string]*Existing
+	nextID int
 }
 
 func newHost(t *testing.T) *host { return &host{t: t, stored: map[string]*Existing{}} }
@@ -195,7 +194,7 @@ func TestLifecycle(t *testing.T) {
 
 	// Reopen again keeps counting; the reopened_at of the previous reopen
 	// is carried while it stays open.
-	p = h.reconcile(t0.Add(6*time.Hour), vuln, other)
+	h.reconcile(t0.Add(6*time.Hour), vuln, other)
 	if h.stored["pkg:zlib:CVE-2022-37434"].ReopenCount != 1 || h.stored[key].ReopenCount != 1 ||
 		!h.stored[key].ReopenedAt.Equal(t4) {
 		t.Fatalf("counts after second cycle: %+v %+v", h.stored["pkg:zlib:CVE-2022-37434"], h.stored[key])

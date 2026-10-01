@@ -121,7 +121,7 @@ func (s *Store) WriteImageSBOM(ctx context.Context, in ImageSBOMInput) (res Imag
 	if err != nil {
 		return res, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	paths, err := internImagePackages(ctx, tx, in.Packages, &res)
 	if err != nil {
@@ -134,7 +134,7 @@ func (s *Store) WriteImageSBOM(ctx context.Context, in ImageSBOMInput) (res Imag
 		generated = time.Now()
 	}
 	// Upserting the state row first also locks it, so concurrent writes of
-	// one list serialise.
+	// one list serialize.
 	err = tx.QueryRow(ctx, `
 		INSERT INTO image_sbom_state
 			(image_id, os, arch, variant, owner_workspace_id, status, source, tool_name, tool_version,

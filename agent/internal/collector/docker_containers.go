@@ -3,6 +3,7 @@ package collector
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -58,7 +59,7 @@ func CollectDockerContainers(ctx context.Context, c dockerapi.Client) (container
 	containers = make([]DockerContainer, 0, len(list))
 	for i, s := range list {
 		switch {
-		case errs[i] == errDockerGone:
+		case errors.Is(errs[i], errDockerGone):
 			continue
 		case errs[i] != nil:
 			containers = append(containers, dockerContainerPartial(s, errs[i]))
@@ -220,10 +221,10 @@ func dockerTime(s string) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// capList cuts a sorted list to max, reporting whether it did.
-func capList[T any](s []T, max int) ([]T, bool) {
-	if len(s) > max {
-		return s[:max], true
+// capList cuts a sorted list to limit, reporting whether it did.
+func capList[T any](s []T, limit int) ([]T, bool) {
+	if len(s) > limit {
+		return s[:limit], true
 	}
 	return s, false
 }

@@ -149,8 +149,10 @@ func osFromPURLs(pkgs []Package) purl.OSRelease {
 			continue
 		}
 		if n := p.PURL.Qualifier("os_name"); n != "" {
-			votes[purl.OSRelease{ID: strings.ToLower(n), VersionID: p.PURL.Qualifier("os_version"),
-				VersionCodename: strings.ToLower(p.PURL.Qualifier("os_distro"))}]++
+			votes[purl.OSRelease{
+				ID: strings.ToLower(n), VersionID: p.PURL.Qualifier("os_version"),
+				VersionCodename: strings.ToLower(p.PURL.Qualifier("os_distro")),
+			}]++
 		} else if o, ok := purl.OSFromQualifier(p.PURL); ok {
 			votes[o]++
 		}

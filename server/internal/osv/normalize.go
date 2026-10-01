@@ -77,7 +77,7 @@ func (rs Releases) Lookup(ecosystem string) (rel Release, channel string, ok boo
 	return rel, channel, true
 }
 
-var releaseVersionRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
+var releaseVersionRe = regexp.MustCompile(`^\d+(\.\d+)*$`)
 
 // ParseEcosystem splits an OSV Debian/Ubuntu/Alpine ecosystem name.
 //
@@ -195,7 +195,7 @@ func (a AffectedRow) pk() string {
 		"\x00" + strconv.Itoa(a.Seq)
 }
 
-var cveRe = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]+$`)
+var cveRe = regexp.MustCompile(`^CVE-\d{4}-\d+$`)
 
 // IsCVE reports whether s is a CVE id.
 func IsCVE(s string) bool { return cveRe.MatchString(s) }
@@ -598,9 +598,11 @@ func contentHash(a Advisory) string {
 		Mod                               time.Time
 		Rows                              []AffectedRow
 		Raw                               json.RawMessage
-	}{NormalizeVersion, a.ID, a.VulnKey, a.Summary, a.Details, a.CVSSv3Vector,
+	}{
+		NormalizeVersion, a.ID, a.VulnKey, a.Summary, a.Details, a.CVSSv3Vector,
 		a.CVEIDs, a.Aliases, a.Upstream, a.Related, a.Severity, a.Published, a.Withdrawn,
-		a.Modified, a.Affected, a.Raw})
+		a.Modified, a.Affected, a.Raw,
+	})
 	return hex.EncodeToString(h.Sum(nil))
 }
 
