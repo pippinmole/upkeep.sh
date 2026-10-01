@@ -52,7 +52,7 @@ Both scripts print progress as they go and leave the agent running in the foregr
 
 ### Which account the test host lands in
 
-The dashboard only shows a user their own hosts, so the enrollment token must belong to the account you sign in with. Both scripts get the token from `scripts/enroll-token.sh`, which uses `SW_TEST_USER_EMAIL` if set, else the only user if there is exactly one, and otherwise **stops and lists the users** instead of guessing (a `LIMIT 1` used to enroll into a leftover test account, so hosts silently never appeared). Ask the user which account they sign in with, or read it from the dev DB, then run e.g.:
+Hosts belong to the install's one workspace (migration 0023), so every signed-in member sees them; the account only matters as the token's issuer (`created_by`, then the agent's `enrolled_by`). Both scripts get the token from `scripts/enroll-token.sh`, which uses `SW_TEST_USER_EMAIL` if set, else the only user if there is exactly one, and otherwise **stops and lists the users** instead of guessing. An optional first argument sets the agent's name. Ask the user which account they sign in with, or read it from the dev DB, then run e.g.:
 
 ```
 SW_TEST_USER_EMAIL=admin@admin.com bash .claude/skills/start-dev/scripts/test-agent-mac.sh
