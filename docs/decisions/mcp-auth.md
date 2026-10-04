@@ -18,15 +18,19 @@ No secret to copy, paste or leak into shell history, and revoking access is one 
   metadata). Dynamic Client Registration is deprecated in MCP and Better Auth leaves it off by default; enable
   it only if Claude Code still requires it when the endpoint is built.
 
-## Better Auth 1.8 beta, pinned
+## Better Auth 1.7.7, pinned exactly
 
-The MCP plugin needs Better Auth 1.8, which is in beta (we run 1.7.6). **Decided: adopt it now, pinned to an
-exact version** (no `^`) for `better-auth` and every `@better-auth/*` package, in its own PR with a full
-regression pass of the existing auth (bootstrap sign-up, closed sign-up, admin-created accounts, temporary
-passwords, disable, role change).
+The MCP plugin is stable: `@better-auth/mcp` 1.7.7 (with `@better-auth/oauth-provider` and `@better-auth/cimd`
+at the same version) requires `better-auth ^1.7.7`; we ran `^1.7.6`. **Decided: pin `better-auth` and every
+`@better-auth/*` package to exactly 1.7.7** (no `^`), the bump in its own PR with a full regression pass of the
+existing auth (bootstrap sign-up, closed sign-up, admin-created accounts, temporary passwords, disable, role
+change).
 
-Auth is security-sensitive, so the pin is deliberate: upgrades are explicit PRs, read against the changelog.
-**Follow-up:** move to 1.8 stable when it ships, and drop this beta note.
+Auth is security-sensitive, so the pin is deliberate: upgrades are explicit PRs, read against the changelog,
+and every `@better-auth/*` package moves in lockstep with `better-auth`.
+
+An earlier draft of this plan said the plugin needed a "1.8 beta": that came from a docs-site banner. npm had no
+1.8 build on 2026-10-04 (`latest` 1.7.7; the `beta` tag is an old 1.7.0 prerelease).
 
 ## API tokens second, for headless agents
 

@@ -17,7 +17,7 @@ roughly by when they were made.
 - [Scheduled reports: a separate feature, about state rather than events](scheduled-reports.md) — weekly/monthly estate reports about state, separate from alert rules, stored as snapshots and sent to existing channels.
 - [Report email HTML: React Email, rendered by Next.js](report-email-html.md) — report emails are React Email HTML rendered by an internal Next.js endpoint and sent by the Go worker.
 - [MCP server in the Next.js app, not the Go API or its own container](mcp-server-in-web.md) — `/api/mcp` is a Next.js route handler reusing the dashboard's queries and auth; the Go API stays agent-protocol only.
-- [MCP auth: Better Auth OAuth plus API tokens, no installer CLI](mcp-auth.md) — Clerk-style browser sign-in via Better Auth's MCP plugin (1.8 beta, pinned), API tokens for headless agents, roles read per call, setup by copy-paste.
+- [MCP auth: Better Auth OAuth plus API tokens, no installer CLI](mcp-auth.md) — Clerk-style browser sign-in via Better Auth's MCP plugin (Better Auth 1.7.7, pinned exactly), API tokens for headless agents, roles read per call, setup by copy-paste.
 - [Next.js deploys as a Docker standalone image, not on Vercel](nextjs-docker-standalone.md) — the web app ships as a standalone Docker image for self-hosting, not on Vercel.
 - [Package manager: Bun (migrated from npm)](package-manager-bun.md) — Bun for install/build in `web/`; the runtime image stays plain Node.
 - [Linting/formatting: oxlint + oxfmt (migrated from ESLint)](linting-oxlint-oxfmt.md) — oxlint + oxfmt replaced ESLint.

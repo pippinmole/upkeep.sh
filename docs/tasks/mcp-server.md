@@ -21,7 +21,7 @@ extension. Each PR is based on the one below it, not on `main`, so each diff is 
 ```text
 main
  └─ feat/mcp/0-docs                  docs: plan the MCP server
-     └─ feat/mcp/1-better-auth-1-8   chore(web): pin Better Auth 1.8 beta
+     └─ feat/mcp/1-pin-better-auth   chore(web): pin Better Auth 1.7.7
          └─ feat/mcp/2-schema        feat(server): add MCP OAuth and call log tables
              └─ feat/mcp/3-endpoint  feat(web): serve /api/mcp with OAuth sign-in
                  └─ feat/mcp/4-settings        feat(web): add Settings → Integrations
@@ -36,10 +36,10 @@ main
 
 ```sh
 # Each branch is created from the one below it as work starts.
-git switch -c feat/mcp/1-better-auth-1-8 feat/mcp/0-docs
+git switch -c feat/mcp/1-pin-better-auth feat/mcp/0-docs
 
 # Once the branches exist, adopt them bottom to top, then push and open the PRs.
-gh stack init feat/mcp/0-docs feat/mcp/1-better-auth-1-8 feat/mcp/2-schema …
+gh stack init feat/mcp/0-docs feat/mcp/1-pin-better-auth feat/mcp/2-schema …
 gh stack submit --auto --open
 # submit generates titles: set the titles above (and bodies) with `gh pr edit <n>`.
 ```
@@ -60,15 +60,18 @@ gh stack submit --auto --open
       [decisions/README.md](../decisions/README.md), [tasks/README.md](README.md) and
       [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-### PR 1: `feat/mcp/1-better-auth-1-8` (chore(web): pin Better Auth 1.8 beta)
+### PR 1: `feat/mcp/1-pin-better-auth` (chore(web): pin Better Auth 1.7.7)
 
 No MCP code. Only the upgrade, so a regression bisects to this PR.
 
-- [ ] Bump `better-auth` (and `@better-auth/*` if any) to the latest 1.8 beta, **exact pins** (no `^`) in
-      `web/package.json`; `bun install`, commit `bun.lock`.
-- [ ] Apply any 1.7 → 1.8 breaking changes from the changelog to `lib/auth.ts` and `lib/auth-client.ts`.
-- [ ] Check whether 1.8 wants schema changes to `users`, `sessions`, `accounts`, `verifications`
-      (`@better-auth/cli generate` against a scratch database, compared with migration 0018). If so, add a
+- [ ] Pin `better-auth` to exactly `1.7.7` (no `^`) in `web/package.json`, the lowest version
+      `@better-auth/mcp` 1.7.7 accepts; `bun install`, commit `bun.lock`. Later PRs add `@better-auth/*`
+      packages at the same exact version.
+- [ ] Apply anything the 1.7.6 → 1.7.7 changelog calls for to `lib/auth.ts` and `lib/auth-client.ts`
+      (a patch release, so likely nothing).
+- [ ] Check whether 1.7.7 wants schema changes to `users`, `sessions`, `accounts`, `verifications`
+      (Better Auth's schema generator against a scratch database, compared with migration 0018; note that
+      `@better-auth/cli` on npm lagged at 1.4.x, so check it matches 1.7 first). If so, add a
       migration in this PR, mapped to our snake_case names like 0018.
 - [ ] Regression pass, by hand against the dev stack (start-dev skill): fresh install bootstrap sign-up
       becomes admin; second sign-up refused (form and direct API call); admin creates a member with a temporary
@@ -83,9 +86,10 @@ Migrations live in `server/migrations/` (the contract between `server/` and `web
 
 - [ ] Migration `00NN_mcp` (next free number; 0026 at the time of writing), up and down:
   - [ ] The `@better-auth/mcp` / OAuth provider models (`oauthClient`, `oauthAccessToken`, `oauthRefreshToken`,
-        `oauthConsent`, `oauthClientAssertion`) and the `jwt()` plugin's `jwks`, generated with
-        `@better-auth/cli generate` and translated to snake_case tables (`oauth_clients`, …) with `uuid` ids and
-        `users(id) ON DELETE CASCADE`, following 0018. Record the model → table/field mapping in the migration
+        `oauthConsent`, `oauthClientAssertion`, and in 1.7.7 also `oauthResource` and `oauthClientResource`;
+        check `packages/oauth-provider/src/schema.ts` at the pinned version) and the `jwt()` plugin's `jwks`,
+        generated with Better Auth's schema generator (see the PR 1 caveat about the CLI) and translated to
+        snake_case tables (`oauth_clients`, …) with `uuid` ids and `users(id) ON DELETE CASCADE`, following 0018. Record the model → table/field mapping in the migration
         header; PR 3 repeats it in `lib/auth.ts`.
   - [ ] `mcp_calls` as specified in [MCP.md](../MCP.md#activity-log), with `workspace_id`, foreign keys to the
         user and OAuth client (`ON DELETE SET NULL` for the client, so the log outlives a revoked grant), and an
@@ -188,4 +192,3 @@ The whole auth path end to end, with one tool to prove it.
 - [ ] Claude Code plugin with `patch-host` / `patch-image` skills.
 - [ ] MCP prompts and resources.
 - [ ] Claude Desktop and claude.ai connectors as supported clients.
-- [ ] Move Better Auth from the 1.8 beta to 1.8 stable.
