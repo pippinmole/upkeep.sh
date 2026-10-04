@@ -13,6 +13,9 @@ export async function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
+// Only the dashboard. /api/mcp and the OAuth discovery documents under
+// /.well-known must stay outside: MCP clients call them without a session
+// cookie and need a 401 or the document, never a redirect to /login.
 export const config = {
   matcher: ["/dashboard/:path*"],
 };

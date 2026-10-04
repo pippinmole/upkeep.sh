@@ -17,10 +17,17 @@ const FIELDS = [
   { name: "confirmPassword", label: "Confirm new password", autoComplete: "new-password" },
 ] as const;
 
-export function ChangePasswordForm({ temporary }: { temporary: boolean }) {
+export function ChangePasswordForm({
+  temporary,
+  next,
+}: {
+  temporary: boolean;
+  next?: string | null;
+}) {
   const [state, action, pending] = useActionState(changePassword, initial);
   return (
     <form action={action} className="flex flex-col gap-4">
+      {next && <input type="hidden" name="next" value={next} />}
       {FIELDS.map((f) => (
         <div key={f.name} className="flex flex-col gap-1.5">
           <Label htmlFor={f.name}>

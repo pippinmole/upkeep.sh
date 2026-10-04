@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { LogOutButton } from "@/components/layout/log-out-button";
+import { safeReturnPath } from "@/lib/oauth-query";
 import { getViewer } from "@/lib/viewer";
 
 import { AuthShell } from "../login/auth-shell";
@@ -12,10 +13,18 @@ export const metadata: Metadata = { title: "Change password" };
 
 // Outside /dashboard on purpose: the dashboard layout sends a user with a
 // temporary password here, so this page can't sit behind that check.
-export default async function ChangePasswordPage() {
+// `next`: the OAuth consent page to return to, when an MCP sign-in sent a
+// user with a temporary password here first.
+export default async function ChangePasswordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[] }>;
+}) {
   const viewer = await getViewer();
   if (!viewer) redirect("/login");
   const temporary = viewer.mustChangePassword;
+  const { next: nextParam } = await searchParams;
+  const next = safeReturnPath(typeof nextParam === "string" ? nextParam : null);
   return (
     <AuthShell
       title={temporary ? "Choose a new password" : "Change password"}
@@ -34,7 +43,7 @@ export default async function ChangePasswordPage() {
         )
       }
     >
-      <ChangePasswordForm temporary={temporary} />
+      <ChangePasswordForm temporary={temporary} next={next} />
     </AuthShell>
   );
 }
