@@ -5,11 +5,11 @@ import Link from "next/link";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dataTableColumnHelper } from "@/components/data-table/features";
 import { hostName } from "@/components/docker-fleet/badges";
-import { EcosystemIcon } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { FixCell, KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { EpssValue } from "@/components/vuln/cve-facts";
 import { AdvisoryLinks, vulnHref } from "@/components/vuln/links";
+import { ImageOriginLine } from "@/components/vuln/where";
 import type { ImageVulnRow } from "@/lib/queries-image-vulns";
 import { formatDate, formatDateTime } from "@/lib/time";
 
@@ -150,10 +150,7 @@ export const vulnColumns = col.columns([
               {r.packages.join(", ")}
             </span>
           )}
-          <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-            <EcosystemIcon ecosystem={r.ecosystem} size={12} />
-            {r.ecosystem}
-          </span>
+          <ImageOriginLine origin={r} />
         </div>
       );
     },

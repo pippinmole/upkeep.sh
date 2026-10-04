@@ -22,6 +22,7 @@ export type ImageVulnRow = {
   sourcePackage: string;
   packages: string[];
   ecosystem: string;
+  paths: string[]; // image_software.paths of the group's packages
   installedVersion: string;
   fixedVersion: string | null;
   fixChannel: string | null;
@@ -69,7 +70,10 @@ g AS (
   SELECT v.source_package AS source, v.vuln_key, v.ecosystem, v.installed_version AS version,
          v.fixed_version, v.fix_channel, v.fix_advisory_id, v.distro_severity, v.packages,
          v.advisory_ids, v.is_kev, v.epss_score, v.cvss_v3_score,
-         left(c.description, 240) AS description, v.severity, v.severity_key
+         left(c.description, 240) AS description, v.severity, v.severity_key,
+         ARRAY(SELECT DISTINCT p FROM image_software isw, unnest(isw.paths) p
+               WHERE isw.sbom_id = v.sbom_id AND isw.software_id = ANY(v.software_ids)
+               ORDER BY p) AS paths
   FROM (${SCORED_LIST_SQL}) l
   JOIN image_sbom_vulns v ON v.sbom_id = l.sbom_id
   LEFT JOIN cves c ON c.id = v.vuln_key
@@ -93,6 +97,7 @@ export async function getImageVulns(
     source: string;
     vuln_key: string;
     ecosystem: string;
+    paths: string[];
     version: string;
     fixed_version: string | null;
     fix_channel: string | null;
@@ -155,6 +160,7 @@ export async function getImageVulns(
       sourcePackage: r.source,
       packages: r.packages,
       ecosystem: r.ecosystem,
+      paths: r.paths,
       installedVersion: r.version,
       fixedVersion: r.fixed_version,
       fixChannel: r.fix_channel,

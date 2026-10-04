@@ -1,12 +1,19 @@
 import { pool } from "./db";
 import { isUuid } from "./queries-inventory";
-import { FINDING_COLUMNS, type FindingDbRow, type FindingRow, mapFinding } from "./queries-vulns";
+import {
+  FINDING_COLUMNS,
+  type FindingDbRow,
+  type FindingRow,
+  imageOriginSql,
+  mapFinding,
+} from "./queries-vulns";
 import type { Severity } from "./severity";
 import {
   FINDING_KIND,
   VULN_KINDS,
   type FleetVulnSort,
   type HostVulnSort,
+  type ImageOrigin,
   type ImageWhere,
   type VulnFix,
   type VulnKind,
@@ -139,6 +146,7 @@ export type FleetVulnRow = {
     sourcePackage: string;
     installedVersion: string | null;
     fixedVersion: string | null;
+    origin: ImageOrigin | null;
   }[];
   anyFix: boolean; // a standard-archive fix exists for some affected host / the image
   proOnly: boolean; // some affected host's only fix is Ubuntu Pro
@@ -283,7 +291,7 @@ export async function getFleetVulnList(
      LEFT JOIN LATERAL (
        WITH x AS (
          SELECT f.image_refs, f.container_names, f.source_package, f.installed_version,
-                f.fixed_version
+                f.fixed_version, ${imageOriginSql()}::jsonb AS origin
          FROM hosts h
          JOIN findings f ON f.host_id = h.id
          WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.kind = 'vulnerable_image'
@@ -296,7 +304,8 @@ export async function getFleetVulnList(
               (SELECT json_agg(DISTINCT jsonb_build_object(
                         'sourcePackage', x.source_package,
                         'installedVersion', x.installed_version,
-                        'fixedVersion', x.fixed_version))
+                        'fixedVersion', x.fixed_version,
+                        'origin', x.origin))
                FROM x) AS image_fixes
      ) im ON g.is_image
      ORDER BY ${orderBy}`,

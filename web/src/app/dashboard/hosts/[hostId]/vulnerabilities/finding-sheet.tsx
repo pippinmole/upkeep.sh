@@ -92,7 +92,7 @@ function FindingItem({ f, hostId }: { f: FindingRow; hostId: string }) {
         <dt className="text-muted-foreground">{f.image ? "Fix" : "Fixed in"}</dt>
         <dd>
           {f.image ? (
-            <ImageFixCell fixes={[f]} />
+            <ImageFixCell fixes={[{ ...f, origin: f.imageOrigin }]} />
           ) : (
             <FixCell fixedVersion={f.fixedVersion} fixChannel={f.fixChannel} />
           )}
