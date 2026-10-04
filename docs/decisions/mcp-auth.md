@@ -32,6 +32,9 @@ and every `@better-auth/*` package moves in lockstep with `better-auth`.
 An earlier draft of this plan said the plugin needed a "1.8 beta": that came from a docs-site banner. npm had no
 1.8 build on 2026-10-04 (`latest` 1.7.7; the `beta` tag is an old 1.7.0 prerelease).
 
+**Applied** in PR 1 (`feat/mcp/1-pin-better-auth`): `better-auth` pinned to exactly `1.7.7`, no code changes and
+no migration (Better Auth's 1.7.7 schema generator, the `auth` package, found our migrated schema up to date).
+
 ## API tokens second, for headless agents
 
 OAuth needs a browser. `claude -p` in cron, CI and the Agent SDK don't have one, so **API tokens** (`upk_…`,

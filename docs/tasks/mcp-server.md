@@ -64,20 +64,20 @@ gh stack submit --auto --open
 
 No MCP code. Only the upgrade, so a regression bisects to this PR.
 
-- [ ] Pin `better-auth` to exactly `1.7.7` (no `^`) in `web/package.json`, the lowest version
+- [x] Pin `better-auth` to exactly `1.7.7` (no `^`) in `web/package.json`, the lowest version
       `@better-auth/mcp` 1.7.7 accepts; `bun install`, commit `bun.lock`. Later PRs add `@better-auth/*`
       packages at the same exact version.
-- [ ] Apply anything the 1.7.6 → 1.7.7 changelog calls for to `lib/auth.ts` and `lib/auth-client.ts`
+- [x] Apply anything the 1.7.6 → 1.7.7 changelog calls for to `lib/auth.ts` and `lib/auth-client.ts`
       (a patch release, so likely nothing).
-- [ ] Check whether 1.7.7 wants schema changes to `users`, `sessions`, `accounts`, `verifications`
+- [x] Check whether 1.7.7 wants schema changes to `users`, `sessions`, `accounts`, `verifications`
       (Better Auth's schema generator against a scratch database, compared with migration 0018; note that
       `@better-auth/cli` on npm lagged at 1.4.x, so check it matches 1.7 first). If so, add a
       migration in this PR, mapped to our snake_case names like 0018.
-- [ ] Regression pass, by hand against the dev stack (start-dev skill): fresh install bootstrap sign-up
+- [x] Regression pass, by hand against the dev stack (start-dev skill): fresh install bootstrap sign-up
       becomes admin; second sign-up refused (form and direct API call); admin creates a member with a temporary
       password; forced `/change-password`; sign-out; disable signs the user out and blocks sign-in; role change
       applies on the next request.
-- [ ] Web typecheck, lint, test, build. Note the pinned version in
+- [x] Web typecheck, lint, test, build. Note the pinned version in
       [decisions/mcp-auth.md](../decisions/mcp-auth.md).
 
 ### PR 2: `feat/mcp/2-schema` (feat(server): add MCP OAuth and call log tables)
