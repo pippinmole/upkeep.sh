@@ -84,20 +84,20 @@ No MCP code. Only the upgrade, so a regression bisects to this PR.
 
 Migrations live in `server/migrations/` (the contract between `server/` and `web/`), hence the `server` scope.
 
-- [ ] Migration `00NN_mcp` (next free number; 0026 at the time of writing), up and down:
-  - [ ] The `@better-auth/mcp` / OAuth provider models (`oauthClient`, `oauthAccessToken`, `oauthRefreshToken`,
+- [x] Migration `00NN_mcp` (next free number; 0026 at the time of writing), up and down:
+  - [x] The `@better-auth/mcp` / OAuth provider models (`oauthClient`, `oauthAccessToken`, `oauthRefreshToken`,
         `oauthConsent`, `oauthClientAssertion`, and in 1.7.7 also `oauthResource` and `oauthClientResource`;
         check `packages/oauth-provider/src/schema.ts` at the pinned version) and the `jwt()` plugin's `jwks`,
         generated with Better Auth's schema generator (see the PR 1 caveat about the CLI) and translated to
-        snake_case tables (`oauth_clients`, …) with `uuid` ids and `users(id) ON DELETE CASCADE`, following 0018. Record the model → table/field mapping in the migration
-        header; PR 3 repeats it in `lib/auth.ts`.
-  - [ ] `mcp_calls` as specified in [MCP.md](../MCP.md#activity-log), with `workspace_id`, foreign keys to the
+        snake_case tables (`oauth_clients`, …) with `uuid` ids and `users(id) ON DELETE CASCADE`, following
+        0018. Record the model → table/field mapping in the migration header; PR 3 repeats it in `lib/auth.ts`.
+  - [x] `mcp_calls` as specified in [MCP.md](../MCP.md#activity-log), with `workspace_id`, foreign keys to the
         user and OAuth client (`ON DELETE SET NULL` for the client, so the log outlives a revoked grant), and an
         index on `(workspace_id, created_at DESC)` plus `(user_id, created_at DESC)`.
   - API token tables are **not** here: PR 9 decides between the Better Auth plugin and our own table.
-- [ ] [ARCHITECTURE.md](../ARCHITECTURE.md) "Who owns what": the OAuth tables and `jwks` written by Next.js
+- [x] [ARCHITECTURE.md](../ARCHITECTURE.md) "Who owns what": the OAuth tables and `jwks` written by Next.js
       (Better Auth), `mcp_calls` written by Next.js and pruned by Go (`alert_prune`).
-- [ ] `go test ./...` in `server/` with `-tags integration` (migrations up, down and up again on a throwaway
+- [x] `go test ./...` in `server/` with `-tags integration` (migrations up, down and up again on a throwaway
       database).
 
 ### PR 3: `feat/mcp/3-endpoint` (feat(web): serve /api/mcp with OAuth sign-in)
