@@ -8,6 +8,7 @@ import { getOverviewStats } from "@/lib/queries-vulns";
 import type { SeverityCounts } from "@/lib/severity";
 
 import { defineTool } from "../tool";
+import { attentionItem, mapAttentionItem } from "./attention";
 
 // get_workspace_summary (docs/MCP.md#tools): the Overview page as data.
 // Built only from the Overview's own queries, so its numbers match the
@@ -103,16 +104,7 @@ const output = z.object({
   firing_alerts: z.number(),
   needs_attention: z.object({
     count: z.number(),
-    top: z.array(
-      z.object({
-        title: z.string(),
-        subject: z.string().nullable(),
-        why: z.string(),
-        severity: z.enum(["critical", "high", "medium", "low"]),
-        count: z.number().nullable(),
-        dashboard_url: z.string(),
-      }),
-    ),
+    top: z.array(attentionItem).describe("The first items; list_attention_items has them all"),
   }),
   latest_report: z
     .object({
@@ -250,14 +242,9 @@ export const getWorkspaceSummary = defineTool({
       firing_alerts: estate.signals.firingAlerts,
       needs_attention: {
         count: attention.length,
-        top: attention.slice(0, ATTENTION_LISTED).map((item) => ({
-          title: item.title,
-          subject: item.subject ?? null,
-          why: item.why,
-          severity: item.severity,
-          count: item.count,
-          dashboard_url: dashboardUrl(item.href),
-        })),
+        top: attention
+          .slice(0, ATTENTION_LISTED)
+          .map((item) => mapAttentionItem(item, dashboardUrl)),
       },
       latest_report: report
         ? {

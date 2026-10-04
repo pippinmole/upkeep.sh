@@ -2,16 +2,14 @@ import { Plus, ShieldCheck } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { tableFacet, tableSort, tableStateFromParams } from "@/components/data-table/url-params";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { SegmentedLinks } from "@/components/vuln/links";
+import { parseFleetVulnFilters } from "@/lib/fleet-vulns-filters";
 import { getFleetVulnCounts, getFleetVulnList } from "@/lib/queries-vuln-list";
-import { oneOf, type SearchParams, withParams } from "@/lib/search-params";
-import { SEVERITIES } from "@/lib/severity";
+import { type SearchParams, withParams } from "@/lib/search-params";
 import { requireViewer } from "@/lib/viewer";
-import { FLEET_VULN_SORTS, fleetVulnsTable, VULN_FIXES, VULN_KINDS } from "@/lib/vuln-tables";
 
 import { FleetVulnsTable } from "./fleet-table";
 import { KindSummary } from "./kind-summary";
@@ -31,16 +29,10 @@ export default async function FleetVulnerabilitiesPage({
   const { workspaceId } = await requireViewer();
   const sp = await searchParams;
 
-  const status = oneOf(sp, "status", ["open", "resolved"] as const) ?? "open";
-  const state = tableStateFromParams(sp, fleetVulnsTable(status));
+  const { state, filters: parsed } = parseFleetVulnFilters(sp);
+  const { status } = parsed;
   const filters = {
-    status,
-    q: state.globalFilter || null,
-    kinds: tableFacet(state, "kind", VULN_KINDS),
-    severities: tableFacet(state, "severity", SEVERITIES),
-    kev: tableFacet(state, "kev", ["1"]) !== null,
-    fix: status === "open" ? tableFacet(state, "fix", VULN_FIXES) : null,
-    sort: tableSort(state, FLEET_VULN_SORTS, status === "resolved" ? "seen" : "severity"),
+    ...parsed,
     page: state.pagination.pageIndex + 1,
     pageSize: state.pagination.pageSize,
   };
