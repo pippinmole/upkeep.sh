@@ -1,9 +1,10 @@
 import { Container, Package } from "lucide-react";
 import Link from "next/link";
 
+import { EcosystemIcon } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { imageHref, platformLabel, shortImageId } from "@/lib/image-key";
-import type { ImageWhere, VulnKind } from "@/lib/vuln-tables";
+import type { ImageOrigin, ImageWhere, VulnKind } from "@/lib/vuln-tables";
 
 import { NoFixBadge } from "./badges";
 
@@ -74,26 +75,94 @@ export function ImageWhereCell({
   );
 }
 
-// "Rebuild or re-pull the image; fixed in <package> <version>". An image
-// finding is fixed by a new image, not by upgrading the host.
+// Distro package types: their SBOM paths are only the package database,
+// so the origin names the package manager instead of a path.
+const DISTRO_ECOSYSTEMS: Record<string, string> = {
+  deb: "Debian package",
+  apk: "Alpine package",
+  rpm: "RPM package",
+};
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  golang: "Go",
+  npm: "npm",
+  pypi: "Python",
+  maven: "Java",
+  cargo: "Rust",
+  gem: "Ruby",
+  nuget: ".NET",
+  composer: "PHP",
+};
+
+const MAX_ORIGIN_PATHS = 2;
+
+// Where the vulnerable package sits inside the image: a distro package, or
+// a language package and the binary / manifest it was found in (e.g. Go's
+// stdlib in /usr/local/bin/gosu). Says whose release carries the fix.
+export function ImageOriginLine({ origin }: { origin: ImageOrigin }) {
+  const distro = DISTRO_ECOSYSTEMS[origin.ecosystem];
+  const lang = LANGUAGE_NAMES[origin.ecosystem] ?? origin.ecosystem;
+  const paths = distro ? [] : origin.paths;
+  return (
+    <span className="text-muted-foreground flex max-w-64 items-start gap-1 text-xs">
+      <EcosystemIcon ecosystem={origin.ecosystem} size={12} className="mt-0.5 shrink-0" />
+      {distro ?? (
+        <span className="flex min-w-0 flex-col" title={paths.join("\n") || undefined}>
+          <span>
+            {lang}
+            {paths.length > 0 && " in"}
+          </span>
+          {paths.slice(0, MAX_ORIGIN_PATHS).map((p) => (
+            <span key={p} className="truncate font-mono">
+              {p}
+            </span>
+          ))}
+          {paths.length > MAX_ORIGIN_PATHS && <span>+{paths.length - MAX_ORIGIN_PATHS} more</span>}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// "Rebuild or re-pull the image; <package> fixed in <version>", and where
+// each package sits in the image. An image finding is fixed by a new
+// image, not by upgrading the host.
 export function ImageFixCell({
   fixes,
 }: {
-  fixes: { sourcePackage: string | null; fixedVersion: string | null }[];
+  fixes: {
+    sourcePackage: string | null;
+    fixedVersion: string | null;
+    origin?: ImageOrigin | null;
+  }[];
 }) {
   const fixed = fixes.filter((f) => f.fixedVersion);
-  if (fixed.length === 0) return <NoFixBadge />;
-  const unfixed = fixes.length - fixed.length;
+  const unfixed = fixes.filter((f) => !f.fixedVersion);
   return (
-    <div className="flex flex-col items-start gap-0.5">
-      <span className="text-sm whitespace-nowrap">Rebuild or re-pull image</span>
+    <div className="flex flex-col items-start gap-1">
+      {fixed.length > 0 && (
+        <span className="text-sm whitespace-nowrap">Rebuild or re-pull image</span>
+      )}
       {fixed.map((f) => (
-        <span key={f.sourcePackage} className="text-muted-foreground text-xs">
-          fixed in {fixed.length > 1 || unfixed > 0 ? `${f.sourcePackage} ` : ""}
-          <span className="font-mono">{f.fixedVersion}</span>
-        </span>
+        <div key={f.sourcePackage} className="flex flex-col items-start gap-0.5">
+          <span className="text-muted-foreground text-xs">
+            {f.sourcePackage} fixed in <span className="font-mono">{f.fixedVersion}</span>
+          </span>
+          {f.origin && <ImageOriginLine origin={f.origin} />}
+        </div>
       ))}
-      {unfixed > 0 && <NoFixBadge />}
+      {unfixed.length > 0 && <NoFixBadge />}
+      {unfixed.map(
+        (f) =>
+          f.origin && (
+            <div key={f.sourcePackage} className="flex flex-col items-start gap-0.5">
+              {fixes.length > 1 && (
+                <span className="text-muted-foreground text-xs">{f.sourcePackage}</span>
+              )}
+              <ImageOriginLine origin={f.origin} />
+            </div>
+          ),
+      )}
     </div>
   );
 }

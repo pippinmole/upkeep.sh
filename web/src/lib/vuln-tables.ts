@@ -72,6 +72,13 @@ export function hostVulnsTable(status: "open" | "resolved"): TableUrlOptions {
   };
 }
 
+// Where a vulnerable package sits inside an image: its ecosystem (deb,
+// apk, rpm, golang, npm, pypi, ...) and the paths the SBOM found it at
+// (image_software.paths: the binary or manifest for language packages,
+// only the package database for distro ones). Null when the image's
+// list has no image_sbom_vulns row for it (not scored yet).
+export type ImageOrigin = { ecosystem: string; paths: string[] };
+
 // Where an image finding lives, as the Where column shows it.
 export type ImageWhere = ImageKey & {
   refs: string[]; // findings.image_refs (repo:tag, else repo@digest)

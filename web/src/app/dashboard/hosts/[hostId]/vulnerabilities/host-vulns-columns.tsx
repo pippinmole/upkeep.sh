@@ -102,7 +102,7 @@ export function hostVulnColumns(status: "open" | "resolved") {
         cell: ({ row }) => {
           const r = row.original;
           return r.image ? (
-            <ImageFixCell fixes={[r]} />
+            <ImageFixCell fixes={[{ ...r, origin: r.imageOrigin }]} />
           ) : (
             <FixCell fixedVersion={r.fixedVersion} fixChannel={r.fixChannel} />
           );

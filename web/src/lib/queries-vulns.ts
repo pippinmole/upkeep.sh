@@ -3,7 +3,7 @@ import { cache } from "react";
 import { pool } from "./db";
 import { isUuid } from "./queries-inventory";
 import { emptySeverityCounts, isSeverity, type Severity, type SeverityCounts } from "./severity";
-import type { ImageWhere, VulnKind } from "./vuln-tables";
+import type { ImageOrigin, ImageWhere, VulnKind } from "./vuln-tables";
 
 // Vulnerability reads (DOMAIN_MODEL.md §3.3, §3.5, §3.6). Sources, per the
 // P1b backend (migration 0007, ARCHITECTURE.md "Vulnerability pipeline"):
@@ -233,6 +233,7 @@ export type FindingRow = {
   runningKernelUnknown: boolean;
   kernelRelease: string | null;
   description: string | null; // cves.description, truncated
+  imageOrigin: ImageOrigin | null; // image findings: where the package sits
 };
 
 export type FindingDbRow = {
@@ -265,7 +266,28 @@ export type FindingDbRow = {
   running_kernel_unknown: boolean;
   kernel_release: string | null;
   description: string | null;
+  image_origin: ImageOrigin | null;
 };
+
+// An image finding's ImageOrigin as one json column (null for host
+// package findings, and while the image's list has no image_sbom_vulns
+// row for it): the ecosystem and the paths of the group's packages, from
+// the workspace's effective list for the image. Needs `hosts h` and
+// `findings f` (aliases overridable).
+export function imageOriginSql(h = "h", f = "f"): string {
+  return `(SELECT json_build_object(
+             'ecosystem', v.ecosystem,
+             'paths', ARRAY(SELECT DISTINCT p FROM image_software isw, unnest(isw.paths) p
+                            WHERE isw.sbom_id = v.sbom_id AND isw.software_id = ANY(v.software_ids)
+                            ORDER BY p))
+           FROM image_sbom_effective(${h}.workspace_id) e
+           JOIN image_sbom_vulns v ON v.sbom_id = e.sbom_id
+            AND v.source_package = ${f}.source_package AND v.vuln_key = ${f}.vuln_key
+           WHERE ${f}.kind = 'vulnerable_image' AND e.image_id = ${f}.image_id
+             AND e.os = ${f}.image_os AND e.arch = ${f}.image_arch
+             AND e.variant = ${f}.image_variant
+           LIMIT 1)`;
+}
 
 export const FINDING_COLUMNS = `
   f.kind, f.image_id, f.image_os, f.image_arch, f.image_variant, f.image_refs,
@@ -273,7 +295,8 @@ export const FINDING_COLUMNS = `
   f.fixed_version, f.fix_channel, f.requires_pro, f.severity, f.is_kev,
   f.epss_score, f.epss_percentile, f.cvss_v3_score, f.distro_severity,
   f.advisory_ids, f.fix_advisory_id, f.first_seen_at, f.resolved_at,
-  f.reopened_at, f.reopen_count, f.running_kernel_unknown, f.kernel_release`;
+  f.reopened_at, f.reopen_count, f.running_kernel_unknown, f.kernel_release,
+  ${imageOriginSql()} AS image_origin`;
 
 export function mapFinding(r: FindingDbRow): FindingRow {
   const image = r.kind === "vulnerable_image" && r.image_id !== null;
@@ -311,6 +334,7 @@ export function mapFinding(r: FindingDbRow): FindingRow {
     runningKernelUnknown: r.running_kernel_unknown,
     kernelRelease: r.kernel_release,
     description: r.description,
+    imageOrigin: r.image_origin,
   };
 }
 
@@ -743,6 +767,7 @@ export type VulnImageRow = {
     installedVersion: string | null;
     fixedVersion: string | null;
     fixChannel: string | null;
+    origin: ImageOrigin | null;
   }[];
   hosts: {
     hostId: string;
@@ -949,6 +974,7 @@ function groupImages(rows: VulnHostRow[]): VulnImageRow[] {
         installedVersion: r.installedVersion,
         fixedVersion: r.fixedVersion,
         fixChannel: r.fixChannel,
+        origin: r.imageOrigin,
       });
     }
     row.hosts.sort((a, b) => Number(b.open) - Number(a.open));
