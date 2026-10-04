@@ -18,6 +18,25 @@ No secret to copy, paste or leak into shell history, and revoking access is one 
   metadata). Dynamic Client Registration is deprecated in MCP and Better Auth leaves it off by default; enable
   it only if Claude Code still requires it when the endpoint is built.
 
+### CIMD is enough for Claude Code: DCR stays off
+
+Checked 2026-10-04 against Claude Code 2.1.289 while building PR 3 (`feat/mcp/3-endpoint`). **Decided: CIMD
+only; Dynamic Client Registration is not enabled** (no `registration_endpoint` in our metadata).
+
+- **Claude Code uses CIMD when the server offers it.** Its client sends
+  `client_id=https://claude.ai/oauth/claude-code-client-metadata` when the authorization server metadata has
+  `client_id_metadata_document_supported: true` (ours does, from `cimd()`), and falls back to DCR only when it
+  doesn't, or when a custom callback isn't the document's loopback `/callback` (a debug line in the shipped
+  client reads "withholding CIMD client_id — registering via DCR").
+- **The document fits our checks.** It names the client "Claude Code", uses `token_endpoint_auth_method:
+  none` and the loopback redirect URIs `http://localhost/callback` and `http://127.0.0.1/callback`; Better Auth
+  treats CIMD clients as native apps and matches loopback redirects on any port (RFC 8252).
+- **End to end:** an authorization code + PKCE flow with that `client_id` against a scratch instance created
+  the client from the document (`oauth_clients.name` "Claude Code"), showed the consent page, issued an access
+  token bound to `/api/mcp` plus a refresh token, and served `initialize`, `tools/list` and `tools/call`.
+- **Cost of the choice:** the instance must be able to fetch `https://claude.ai/…` once an hour per client
+  (metadata cache), so an air-gapped install can't sign in Claude Code until API tokens (PR 9) exist.
+
 ## Better Auth 1.7.7, pinned exactly
 
 The MCP plugin is stable: `@better-auth/mcp` 1.7.7 (with `@better-auth/oauth-provider` and `@better-auth/cimd`

@@ -104,25 +104,25 @@ Migrations live in `server/migrations/` (the contract between `server/` and `web
 
 The whole auth path end to end, with one tool to prove it.
 
-- [ ] `lib/auth.ts`: add `jwt()`, `cimd()` and `mcp({ loginPage: "/login", consentPage: "/oauth/consent",
+- [x] `lib/auth.ts`: add `jwt()`, `cimd()` and `mcp({ loginPage: "/login", consentPage: "/oauth/consent",
       resource: <BETTER_AUTH_URL>/api/mcp })` with the table mapping from PR 2. `nextCookies()` stays last.
-- [ ] Check what Claude Code supports at build time: CIMD, or does it still need Dynamic Client Registration?
+- [x] Check what Claude Code supports at build time: CIMD, or does it still need Dynamic Client Registration?
       Enable DCR only if it's required, and record which in [decisions/mcp-auth.md](../decisions/mcp-auth.md).
-- [ ] Discovery: serve the RFC 9728 protected resource metadata
+- [x] Discovery: serve the RFC 9728 protected resource metadata
       (`/.well-known/oauth-protected-resource/api/mcp`) and RFC 8414 authorization server metadata at the paths
       the plugin derives from the issuer, as Next.js routes under `app/.well-known/`.
-- [ ] `/login` honors the plugin's return-to so sign-in continues the authorization request.
-- [ ] `/oauth/consent` page: client name, metadata URL host, scopes in plain words, Allow / Deny. Temporary
+- [x] `/login` honors the plugin's return-to so sign-in continues the authorization request.
+- [x] `/oauth/consent` page: client name, metadata URL host, scopes in plain words, Allow / Deny. Temporary
       password → `/change-password` first, then back.
-- [ ] `lib/viewer.ts`: extract `viewerForUser(userId)` from `getViewer`; add `getMcpViewer(request)` for
+- [x] `lib/viewer.ts`: extract `viewerForUser(userId)` from `getViewer`; add `getMcpViewer(request)` for
       bearer credentials (OAuth only for now; the API token branch comes in PR 9). Tests for disabled, unknown
       and temporary-password users.
-- [ ] `app/api/mcp/route.ts`: MCP TypeScript SDK v2, stateless Streamable HTTP, wrapped in `requireMcpAuth`.
+- [x] `app/api/mcp/route.ts`: MCP TypeScript SDK v2, stateless Streamable HTTP, wrapped in `requireMcpAuth`.
       Ignores cookies; validates `Origin`; per-credential in-memory rate limit.
-- [ ] `lib/mcp/`: server setup, a small `defineTool` helper (zod input and output schemas, structured content
+- [x] `lib/mcp/`: server setup, a small `defineTool` helper (zod input and output schemas, structured content
       plus a text rendering, `dashboard_url` building, call logging, error mapping), and `get_workspace_summary`.
-- [ ] Call logging into `mcp_calls`, best effort (see [MCP.md](../MCP.md#activity-log)).
-- [ ] Tests: `defineTool` (schema validation, error mapping, logging); the viewer resolution.
+- [x] Call logging into `mcp_calls`, best effort (see [MCP.md](../MCP.md#activity-log)).
+- [x] Tests: `defineTool` (schema validation, error mapping, logging); the viewer resolution.
 - [ ] By hand: `claude mcp add --transport http upkeep http://localhost:3000/api/mcp`, `/mcp`, sign in,
       consent, ask for a summary; then revoke the consent in the database and see Claude Code ask again. Note
       the steps in `web/README.md`.
