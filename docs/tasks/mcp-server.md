@@ -129,14 +129,14 @@ The whole auth path end to end, with one tool to prove it.
 
 ### PR 4: `feat/mcp/4-settings` (feat(web): add Settings → Integrations)
 
-- [ ] `settingsSections` entry "Integrations" (`/dashboard/settings/integrations`, a plug icon, keywords: mcp,
+- [x] `settingsSections` entry "Integrations" (`/dashboard/settings/integrations`, a plug icon, keywords: mcp,
       claude, ai, oauth, tokens, api), visible to members and admins.
-- [ ] Tabs layout (Connect, Connected apps; API tokens and Activity arrive in PRs 9 and 8).
-- [ ] **Connect:** the `claude mcp add` command with the instance URL, a copy button, the `/mcp` steps.
-- [ ] **Connected apps:** a TanStack table of OAuth consents (client, user for admins, scopes, authorized,
+- [x] Tabs layout (Connect, Connected apps; API tokens and Activity arrive in PRs 9 and 8).
+- [x] **Connect:** the `claude mcp add` command with the instance URL, a copy button, the `/mcp` steps.
+- [x] **Connected apps:** a TanStack table of OAuth consents (client, user for admins, scopes, authorized,
       last used), Revoke via a server action that deletes the consent and its tokens. Members revoke their own;
       admins any. Server-side checks, not only hidden buttons.
-- [ ] Tests for the revoke action's permission rules. react-doctor on the new components.
+- [x] Tests for the revoke action's permission rules. react-doctor on the new components.
 
 ### PR 5: `feat/mcp/5-tools-vulns` (feat(web): add MCP vulnerability tools)
 

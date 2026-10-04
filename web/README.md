@@ -32,17 +32,19 @@ so your own config stays untouched:
    page names "Claude Code (claude.ai)" and the scopes. **Allow** returns you to Claude Code.
 4. Ask "summarize my upkeep.sh workspace": Claude calls `get_workspace_summary`. The call shows up in the
    database: `SELECT tool, client_name, error FROM mcp_calls ORDER BY created_at DESC LIMIT 5;`
-5. Revoke it (until Settings → Integrations exists): delete the consent and its tokens, as the Revoke button
-   will.
+5. Revoke it under **Settings → Integrations → Connected apps**: **Revoke…** on the Claude Code row deletes the
+   consent and that user's access and refresh tokens for the client. Members see and revoke their own rows;
+   administrators everyone's. The next tool call gets a 401 (the consent is checked on every call), the refresh
+   token is refused (`invalid_grant`), `/mcp` shows the server needs authentication again, and signing in shows
+   the consent page again.
+
+   Without the dashboard (a fallback), the same in SQL for every user of the client:
 
    ```sql
-   DELETE FROM oauth_consents       WHERE client_id = 'https://claude.ai/oauth/claude-code-client-metadata';
-   DELETE FROM oauth_refresh_tokens WHERE client_id = 'https://claude.ai/oauth/claude-code-client-metadata';
    DELETE FROM oauth_access_tokens  WHERE client_id = 'https://claude.ai/oauth/claude-code-client-metadata';
+   DELETE FROM oauth_refresh_tokens WHERE client_id = 'https://claude.ai/oauth/claude-code-client-metadata';
+   DELETE FROM oauth_consents       WHERE client_id = 'https://claude.ai/oauth/claude-code-client-metadata';
    ```
-
-   The next tool call gets a 401 (the consent is checked on every call); `/mcp` shows the server needs
-   authentication again, and signing in shows the consent page again.
 
 6. Clean up: `claude mcp remove --scope project upkeep`.
 
