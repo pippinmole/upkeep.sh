@@ -72,7 +72,11 @@
   rendered by `POST /api/internal/render/report` (React Email), reached
   at `SW_WEB_INTERNAL_URL` with a shared secret, never through the
   public domain. It is the only runtime call from the worker to `web`
-  (see "Web ↔ worker render dependency").
+  (see "Web ↔ worker render dependency"). Planned
+  ([MCP.md](MCP.md), [tasks/mcp-server.md](tasks/mcp-server.md)): a
+  read-only MCP server at `/api/mcp` for AI clients (Claude Code), with
+  OAuth sign-in through Better Auth and API tokens, reusing the
+  dashboard's queries ([decisions/mcp-server-in-web.md](decisions/mcp-server-in-web.md)).
 
 - **`server/migrations/`** — SQL migrations (golang-migrate `.up.sql`/`.down.sql`
   pairs). This is the actual contract between `server/` and `web/`, since
