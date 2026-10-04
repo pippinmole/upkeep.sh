@@ -43,6 +43,7 @@ so your own config stays untouched:
 
    The next tool call gets a 401 (the consent is checked on every call); `/mcp` shows the server needs
    authentication again, and signing in shows the consent page again.
+
 6. Clean up: `claude mcp remove --scope project upkeep`.
 
 Also worth a look after step 3: `SELECT scopes FROM oauth_refresh_tokens;` should have a row with
