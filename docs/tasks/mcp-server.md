@@ -140,16 +140,20 @@ The whole auth path end to end, with one tool to prove it.
 
 ### PR 5: `feat/mcp/5-tools-vulns` (feat(web): add MCP vulnerability tools)
 
-- [ ] `list_attention_items`, `list_top_vulnerabilities`, `get_vulnerability` per the
+- [x] `list_attention_items`, `list_top_vulnerabilities`, `get_vulnerability` per the
       [tool table](../MCP.md#tools), on the existing queries. Shared argument schemas (severity, limit) in
-      `lib/mcp/args.ts`.
-- [ ] Advisory text fields truncated and labeled as data ([MCP.md](../MCP.md#security-notes)).
-- [ ] Tests: argument validation, ordering matches the dashboard's list for the same filters, the `truncated`
-      flag.
+      `lib/mcp/args.ts`. `host` on `list_top_vulnerabilities` lists that host's Vulnerabilities tab
+      (`getHostVulnList`), so host lookup (`lib/mcp/resolve.ts`) lands here rather than in PR 6.
+- [x] Advisory text fields truncated and labeled as data ([MCP.md](../MCP.md#security-notes)), through
+      `lib/mcp/untrusted.ts` for PRs 6 and 7 to reuse.
+- [x] Tests: argument validation, ordering matches the dashboard's list for the same filters, the `truncated`
+      flag. The fleet list's URL parsing moved to `lib/fleet-vulns-filters.ts`, and the tests parse each
+      `dashboard_url` with it to check the tool queried the page's filters and sort.
 
 ### PR 6: `feat/mcp/6-tools-hosts` (feat(web): add MCP host tools)
 
-- [ ] Host lookup by id or hostname with the ambiguous-hostname error (`lib/mcp/resolve.ts`).
+- [ ] Host lookup by id or hostname with the ambiguous-hostname error (`lib/mcp/resolve.ts`; `resolveHost`
+      came with PR 5, reuse it).
 - [ ] `list_hosts`, `get_host`, `get_host_remediation` (new grouped-by-package query: highest fixed version
       across the package's findings, kernel flag, unfixable packages listed apart), `find_package` (hosts
       only here; images in PR 7), `get_finding_status`, `list_resolved`.

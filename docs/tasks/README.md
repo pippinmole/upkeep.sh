@@ -23,7 +23,7 @@ before or while building them.
 | [Phase 1.7 — scheduled estate reports](phase-1-7-reports.md) | done: 10 done |
 | [Phase 2a — container image packages + vulnerabilities](phase-2a-image-vulns.md) | in progress: 15 open, 12 done |
 | [Members and roles](members-roles.md) | in progress: 3 open, 8 done |
-| [MCP server (read-only, OAuth + API tokens; one gh stack)](mcp-server.md) | in progress: 26 open, 23 done |
+| [MCP server (read-only, OAuth + API tokens; one gh stack)](mcp-server.md) | in progress: 23 open, 26 done |
 | [Cross-cutting gaps worth closing before real users](cross-cutting-gaps.md) | in progress: 3 open, 7 done |
 | [Phase 2+ (explicitly deferred, don't start early)](phase-2-plus-deferred.md) | not started: 8 open |
 | [Phase 3/4 — Windows and macOS agents (pending scope decision)](phase-3-4-windows-macos.md) | not started: 3 open |
