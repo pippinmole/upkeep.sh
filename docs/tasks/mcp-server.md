@@ -178,10 +178,12 @@ The whole auth path end to end, with one tool to prove it.
 
 ### PR 8: `feat/mcp/8-activity` (feat(web): show MCP activity and prune it)
 
-- [ ] **Activity** tab: TanStack table over `mcp_calls` (time, user, client, tool, arguments, items, duration,
+- [x] **Activity** tab: TanStack table over `mcp_calls` (time, user, client, tool, arguments, items, duration,
       error), filters by user, client and tool. Admins see all, members their own; enforced in the query.
-- [ ] Worker: `alert_prune` also deletes `mcp_calls` older than 90 days; integration test.
-- [ ] [ARCHITECTURE.md](../ARCHITECTURE.md): mention the retention next to the other `alert_prune` targets.
+      Server-driven (search, sort, paging and facets in the URL, `lib/queries-mcp-activity.ts`), since 90
+      days of calls can be many rows.
+- [x] Worker: `alert_prune` also deletes `mcp_calls` older than 90 days; integration test.
+- [x] [ARCHITECTURE.md](../ARCHITECTURE.md): mention the retention next to the other `alert_prune` targets.
 
 ### PR 9: `feat/mcp/9-api-tokens` (feat(web): add API tokens for headless MCP clients)
 

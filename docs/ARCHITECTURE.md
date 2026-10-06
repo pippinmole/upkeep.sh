@@ -355,7 +355,7 @@ alerts queue:
                   each attempt logged; retryable errors back off (30s .. 6h,
                   8 attempts), notify.Permanent errors fail at once
   alert_prune     (1h) events 30d, delivery log and resolved alerts 90d,
-                  reports 1y (see Reports)
+                  reports 1y (see Reports), MCP call log (mcp_calls) 90d
 ```
 
 - **Conditions** are a typed property + operator + value (+ options), stored
