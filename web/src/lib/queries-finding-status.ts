@@ -1,11 +1,13 @@
 import { pool } from "./db";
+import type { ImageKey } from "./image-key";
 import { isUuid } from "./queries-inventory";
+import { SCORED_LIST_SQL } from "./queries-image-vulns";
 import { FINDING_KIND, type VulnKind } from "./vuln-tables";
 
 // Finding lifecycle reads for the MCP tools (docs/MCP.md#tools):
 // get_finding_status (is this package or vulnerability still open on a
-// host, and how fresh is the host's data) and list_resolved (findings
-// resolved since a time). Straight off `findings`, which the Go worker
+// host or in an image, and how fresh is the data) and list_resolved
+// (findings resolved since a time). Straight off `findings`, which the Go worker
 // reconciles after each snapshot.
 //
 // Tenancy as in queries-vulns.ts: every read starts from the workspace's
@@ -285,5 +287,153 @@ export async function getResolvedFindings(
           : null,
     })),
     total: rows[0] ? Number(rows[0].total) : 0,
+  };
+}
+
+export type ImageFindingStatusRow = {
+  vulnKey: string;
+  sourcePackage: string;
+  packages: string[];
+  ecosystem: string;
+  installedVersion: string;
+  fixedVersion: string | null;
+  fixChannel: string | null;
+  severity: string;
+  isKev: boolean;
+  // vulnerable_image findings on the workspace's hosts for this row.
+  findings: {
+    hostId: string;
+    hostname: string;
+    label: string | null;
+    status: "open" | "resolved";
+    firstSeenAt: string;
+    resolvedAt: string | null;
+  }[];
+};
+
+export type ImageScan = {
+  // The effective list's state: ok, unavailable, error; null = none yet.
+  listStatus: string | null;
+  listGeneratedAt: string | null;
+  // The list's score (and so its vulnerabilities) is current.
+  scored: boolean;
+  scoredAt: string | null;
+};
+
+export type ImageFindingStatus = {
+  rows: ImageFindingStatusRow[];
+  total: number;
+  // Matching vulnerabilities with no fix published.
+  unfixed: number;
+  installed: { name: string; version: string; ecosystem: string; paths: string[] }[];
+  scan: ImageScan;
+};
+
+// An image's vulnerabilities (image_sbom_vulns of the workspace's
+// effective list, while its score is current) for a package (source or
+// binary name) and/or vulnerability, exact and case-insensitive, most
+// urgent first; the package's versions in the image; and how current the
+// list and its score are. An image key never changes content, so a fix
+// shows up as a new image (a new id) once a host reports it.
+export async function getImageFindingStatus(
+  workspaceId: string,
+  key: ImageKey,
+  q: FindingStatusQuery,
+): Promise<ImageFindingStatus> {
+  const k = [workspaceId, key.imageId, key.os, key.arch, key.variant];
+  const [vulns, installed, scan] = await Promise.all([
+    pool.query<{
+      vuln_key: string;
+      source_package: string;
+      packages: string[];
+      ecosystem: string;
+      installed_version: string;
+      fixed_version: string | null;
+      fix_channel: string | null;
+      severity: string;
+      is_kev: boolean;
+      findings: ImageFindingStatusRow["findings"] | null;
+      total: string;
+      unfixed: string;
+    }>(
+      `SELECT v.vuln_key, v.source_package, v.packages, v.ecosystem, v.installed_version,
+              v.fixed_version, v.fix_channel, v.severity, v.is_kev,
+              (SELECT json_agg(json_build_object(
+                        'hostId', h.id, 'hostname', h.hostname, 'label', h.label,
+                        'status', f.status, 'firstSeenAt', f.first_seen_at,
+                        'resolvedAt', f.resolved_at)
+                      ORDER BY f.status = 'open' DESC, lower(coalesce(h.label, h.hostname)))
+               FROM findings f
+               JOIN hosts h ON h.id = f.host_id AND h.workspace_id = $1
+               WHERE f.kind = 'vulnerable_image' AND f.image_id = $2 AND f.image_os = $3
+                 AND f.image_arch = $4 AND f.image_variant = $5
+                 AND f.source_package = v.source_package AND f.vuln_key = v.vuln_key) AS findings,
+              count(*) OVER () AS total,
+              count(*) FILTER (WHERE v.fixed_version IS NULL) OVER () AS unfixed
+       FROM (${SCORED_LIST_SQL}) l
+       JOIN image_sbom_vulns v ON v.sbom_id = l.sbom_id
+       WHERE ($6::text IS NULL
+              OR lower(v.source_package) = lower($6)
+              OR EXISTS (SELECT 1 FROM unnest(v.packages) p WHERE lower(p) = lower($6)))
+         AND ($7::text IS NULL OR lower(v.vuln_key) = lower($7))
+       ORDER BY v.severity_key DESC, v.vuln_key, v.source_package
+       LIMIT $8`,
+      [...k, q.package, q.vulnKey, q.limit],
+    ),
+    q.package === null
+      ? Promise.resolve({ rows: [] })
+      : pool.query<{ name: string; version: string; ecosystem: string; paths: string[] }>(
+          `SELECT sv.name, sv.version, sv.ecosystem, isw.paths
+           FROM image_sbom_effective($1) e
+           JOIN image_software isw ON isw.sbom_id = e.sbom_id
+           JOIN software_versions sv ON sv.id = isw.software_id
+           WHERE e.image_id = $2 AND e.os = $3 AND e.arch = $4 AND e.variant = $5
+             AND (lower(sv.name) = lower($6) OR lower(sv.source_name) = lower($6))
+           ORDER BY sv.name, sv.version`,
+          [...k, q.package],
+        ),
+    // The effective ok list and its score, else the newest attempt, as
+    // getImageOverview picks them.
+    pool.query<{
+      status: string;
+      generated_at: Date | null;
+      computed_at: Date | null;
+      scored: boolean;
+    }>(
+      `SELECT st.status, st.generated_at, sc.computed_at,
+              coalesce(sc.computed_at >= st.updated_at, false) AS scored
+       FROM image_sbom_state st
+       LEFT JOIN image_sbom_scores sc ON sc.sbom_id = st.id
+       WHERE st.image_id = $2 AND st.os = $3 AND st.arch = $4 AND st.variant = $5
+         AND (st.owner_workspace_id IS NULL OR st.owner_workspace_id = $1)
+       ORDER BY st.status = 'ok' DESC, (st.status = 'ok' AND st.owner_workspace_id IS NULL) DESC,
+                st.updated_at DESC, st.id DESC
+       LIMIT 1`,
+      k,
+    ),
+  ]);
+  const sc = scan.rows[0];
+  return {
+    rows: vulns.rows.map((r) => ({
+      vulnKey: r.vuln_key,
+      sourcePackage: r.source_package,
+      packages: r.packages,
+      ecosystem: r.ecosystem,
+      installedVersion: r.installed_version,
+      fixedVersion: r.fixed_version,
+      fixChannel: r.fix_channel,
+      severity: r.severity,
+      isKev: r.is_kev,
+      findings: r.findings ?? [],
+    })),
+    total: vulns.rows[0] ? Number(vulns.rows[0].total) : 0,
+    unfixed: vulns.rows[0] ? Number(vulns.rows[0].unfixed) : 0,
+    installed: installed.rows,
+    scan: {
+      listStatus: sc?.status ?? null,
+      listGeneratedAt: iso(sc?.generated_at ?? null),
+      scored: sc?.status === "ok" && sc.scored,
+      scoredAt: iso(sc?.computed_at ?? null),
+    },
   };
 }

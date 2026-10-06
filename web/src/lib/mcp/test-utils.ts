@@ -2,7 +2,7 @@ import type { McpViewer } from "@/lib/viewer";
 
 import type { McpCallRecord } from "./log";
 import { createRateLimiter } from "./rate-limit";
-import { resolveHost, type ResolvedHost } from "./resolve";
+import { resolveHost, resolveImage, type ResolvedHost, type ResolvedImage } from "./resolve";
 import type { ToolContext, ToolDeps } from "./tool";
 
 // Shared fixtures for the MCP tool tests: a member viewer, a tool context
@@ -83,4 +83,48 @@ export async function expectHostErrors(
     !resultText(dup).includes(`dup (eu): ${DUPLICATES[0].id}; dup: ${DUPLICATES[1].id}`)
   )
     throw new Error(`ambiguous host: ${resultText(dup)}`);
+}
+
+// Image lookup for the image tools' tests, through the real resolveImage:
+// "nginx:1.27" (or its id) is one image, "multi" has two platforms,
+// anything else none.
+export const IMAGE: ResolvedImage = {
+  key: {
+    imageId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    os: "linux",
+    arch: "amd64",
+    variant: "",
+  },
+  refs: ["nginx:1.27", "nginx@sha256:bbbb"],
+};
+
+const MULTI: ResolvedImage[] = [
+  { key: { imageId: "sha256:cccc", os: "linux", arch: "amd64", variant: "" }, refs: ["multi:1"] },
+  { key: { imageId: "sha256:cccc", os: "linux", arch: "arm64", variant: "v8" }, refs: ["multi:1"] },
+];
+
+export const fakeResolveImage = (workspaceId: string, ref: string, platform: string | null) =>
+  resolveImage(workspaceId, ref, platform, async (ws, r, p) => {
+    if (ws !== WORKSPACE) return [];
+    if (r === "nginx:1.27" || r === IMAGE.key.imageId) return [IMAGE];
+    if (r !== "multi") return [];
+    return MULTI.filter((m) => !p || (m.key.arch === p.arch && m.key.variant === p.variant));
+  });
+
+// Each image tool's image argument: one image resolves, an unknown or
+// ambiguous one is a tool error naming the candidates' platforms.
+export async function expectImageErrors(
+  call: (image: string) => Promise<{ isError?: boolean; content: unknown }>,
+) {
+  const unknown = await call("nope:1");
+  if (!unknown.isError || !resultText(unknown).includes('reference "nope:1"'))
+    throw new Error(`unknown image: ${resultText(unknown)}`);
+  const multi = await call("multi");
+  if (
+    !multi.isError ||
+    !resultText(multi).includes(
+      "multi:1 (linux/amd64): sha256:cccc platform linux/amd64; multi:1 (linux/arm64/v8): sha256:cccc platform linux/arm64/v8",
+    )
+  )
+    throw new Error(`ambiguous image: ${resultText(multi)}`);
 }

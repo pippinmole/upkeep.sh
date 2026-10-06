@@ -2,17 +2,23 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { ImageKey } from "@/lib/image-key";
 import type {
   FindingStatus,
   FindingStatusQuery,
   FindingStatusRow,
+  ImageFindingStatus,
+  ImageFindingStatusRow,
 } from "@/lib/queries-finding-status";
 
 import {
   BASE,
   expectHostErrors,
+  expectImageErrors,
   fakeResolveHost,
+  fakeResolveImage,
   HOST,
+  IMAGE,
   resultText,
   testCtx,
   testDeps,
@@ -44,12 +50,34 @@ const freshness = {
   pushIntervalSeconds: 900,
 };
 
-function fakes(status: Partial<FindingStatus> = {}) {
+const SCANNED = {
+  listStatus: "ok",
+  listGeneratedAt: "2026-10-04T09:00:00.000Z",
+  scored: true,
+  scoredAt: "2026-10-04T09:05:00.000Z",
+};
+
+function fakes(status: Partial<FindingStatus> = {}, image: Partial<ImageFindingStatus> = {}) {
   const calls: [string, FindingStatusQuery][] = [];
+  const imageCalls: [ImageKey, FindingStatusQuery][] = [];
   return {
     calls,
+    imageCalls,
     deps: {
       resolveHost: fakeResolveHost,
+      resolveImage: fakeResolveImage,
+      getImageFindingStatus: async (ws: string, key: ImageKey, q: FindingStatusQuery) => {
+        expect(ws).toBe(WORKSPACE);
+        imageCalls.push([key, q]);
+        const rows = image.rows ?? [];
+        return {
+          rows: rows.slice(0, q.limit),
+          total: rows.length,
+          unfixed: rows.filter((r) => r.fixedVersion === null).length,
+          installed: image.installed ?? [],
+          scan: image.scan ?? SCANNED,
+        };
+      },
       getFindingStatus: async (ws: string, hostId: string, q: FindingStatusQuery) => {
         expect(ws).toBe(WORKSPACE);
         calls.push([hostId, q]);
@@ -68,12 +96,21 @@ function fakes(status: Partial<FindingStatus> = {}) {
   };
 }
 
-type Out = Record<string, unknown> & { findings: Record<string, unknown>[] };
+type Out = Record<string, unknown> & {
+  findings: Record<string, unknown>[];
+  image_vulnerabilities: Record<string, unknown>[];
+};
 
 async function call(args: unknown, f = fakes()) {
   const { deps, logged } = testDeps();
   const res = await findingStatusTool(f.deps).call(args, testCtx, deps);
-  return { res, out: res.structuredContent as Out | undefined, logged, calls: f.calls };
+  return {
+    res,
+    out: res.structuredContent as Out | undefined,
+    logged,
+    calls: f.calls,
+    imageCalls: f.imageCalls,
+  };
 }
 
 describe("get_finding_status arguments", () => {
@@ -95,6 +132,8 @@ describe("get_finding_status arguments", () => {
 
   test.each([
     [{ package: "openssl" }, "host"],
+    [{ host: "web-01", image: "nginx:1.27", package: "openssl" }, "host"],
+    [{ image: "nginx:1.27", platform: "", package: "openssl" }, "platform"],
     [{ host: "web-01", package: "" }, "package"],
     [{ host: "web-01", vulnerability: "x".repeat(101) }, "vulnerability"],
     [{ host: "web-01", package: "openssl", limit: 101 }, "limit"],
@@ -227,5 +266,108 @@ describe("get_finding_status results", () => {
     expect(out!.findings).toHaveLength(2);
     expect(out).toMatchObject({ truncated: true, open: 5 });
     expect(logged[0].resultItems).toBe(2);
+  });
+});
+
+function imageRow(
+  vulnKey: string,
+  over: Partial<ImageFindingStatusRow> = {},
+): ImageFindingStatusRow {
+  return {
+    vulnKey,
+    sourcePackage: "openssl",
+    packages: ["libssl3"],
+    ecosystem: "deb",
+    installedVersion: "3.0.11-1~deb12u2",
+    fixedVersion: "3.0.15-1~deb12u1",
+    fixChannel: "standard",
+    severity: "high",
+    isKev: false,
+    findings: [],
+    ...over,
+  };
+}
+
+describe("get_finding_status for an image", () => {
+  test("the image and the filters reach the query; present means open", async () => {
+    const rows = [
+      imageRow("CVE-2024-1", {
+        findings: [
+          {
+            hostId: HOST.id,
+            hostname: HOST.hostname,
+            label: null,
+            status: "open",
+            firstSeenAt: "2026-10-01T00:00:00.000Z",
+            resolvedAt: null,
+          },
+        ],
+      }),
+      imageRow("CVE-2024-2", { fixedVersion: null, fixChannel: null }),
+    ];
+    const { out, res, imageCalls, calls } = await call(
+      { image: "nginx:1.27", package: "OpenSSL" },
+      fakes(
+        {},
+        {
+          rows,
+          installed: [
+            { name: "libssl3", version: "3.0.11-1~deb12u2", ecosystem: "deb", paths: [] },
+          ],
+        },
+      ),
+    );
+    expect(calls).toHaveLength(0);
+    expect(imageCalls).toEqual([[IMAGE.key, { package: "OpenSSL", vulnKey: null, limit: 15 }]]);
+    expect(out).toMatchObject({
+      host: null,
+      image: { id: IMAGE.key.imageId, platform: "linux/amd64" },
+      status: "open",
+      open: 2,
+      open_without_fix: 1,
+      findings: [],
+      latest_snapshot: null,
+      latest_scan: {
+        list_status: "ok",
+        list_generated_at: "2026-10-04T09:00:00.000Z",
+        scored: true,
+        scored_at: "2026-10-04T09:05:00.000Z",
+      },
+      installed_now: [{ package: "libssl3", version: "3.0.11-1~deb12u2", arch: null }],
+    });
+    expect(out!.image_vulnerabilities[0]).toMatchObject({
+      id: "CVE-2024-1",
+      origin: "os",
+      fix: "standard",
+      hosts: [{ host: { hostname: "web-01" }, status: "open" }],
+    });
+    const text = resultText(res);
+    expect(text).toContain(
+      "OpenSSL in nginx:1.27 (linux/amd64): present (2 vulnerability(ies)), as of the scan matched at 2026-10-04T09:05:00.000Z.",
+    );
+    expect(text).toContain("open on 1 of 1 host(s) running it");
+    expect(text).toContain("ask again by tag");
+  });
+
+  test("a scanned image without it: no_findings", async () => {
+    const { out, res } = await call({ image: "nginx:1.27", vulnerability: "CVE-2024-1" });
+    expect(out!.status).toBe("no_findings");
+    expect(resultText(res)).toContain("CVE-2024-1 in nginx:1.27 (linux/amd64): not present");
+  });
+
+  test("an image whose scan isn't current: not_scanned, whatever the rows", async () => {
+    const { out, res } = await call(
+      { image: "nginx:1.27", package: "openssl" },
+      fakes(
+        {},
+        { scan: { listStatus: "ok", listGeneratedAt: null, scored: false, scoredAt: null } },
+      ),
+    );
+    expect(out!.status).toBe("not_scanned");
+    expect(resultText(res)).toContain("no current scan (package list ok, being matched)");
+  });
+
+  test("unknown and ambiguous images are tool errors", async () => {
+    await expectImageErrors(async (image) => (await call({ image, package: "openssl" })).res);
   });
 });

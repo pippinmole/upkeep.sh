@@ -74,3 +74,21 @@ export const fixableOnlyArg = z
     'Only vulnerabilities with a fix available (the dashboard\'s "Fix available"; a fix that ' +
       "needs Ubuntu Pro doesn't count)",
   );
+
+export const imageArg = z
+  .string()
+  .trim()
+  .min(1)
+  .max(300)
+  .describe(
+    'An image\'s id ("sha256:…" or the 12-character short id), a digest, or a reference ' +
+      '("nginx:1.27", "ghcr.io/org/app@sha256:…", or a bare repository for any of its tags)',
+  );
+
+export const platformArg = z
+  .string()
+  .trim()
+  .min(1)
+  .max(130)
+  .optional()
+  .describe('Only when one image id has several platforms: os/arch[/variant], e.g. "linux/arm64"');

@@ -2,9 +2,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { PackageInstallRow, PackageSearch } from "@/lib/queries-package-search";
+import type {
+  ImagePackageMatchRow,
+  PackageInstallRow,
+  PackageSearch,
+} from "@/lib/queries-package-search";
 
-import { BASE, resultText, testCtx, testDeps, WORKSPACE } from "../test-utils";
+import { BASE, IMAGE, resultText, testCtx, testDeps, WORKSPACE } from "../test-utils";
 import { findPackageTool } from "./find-package";
 
 function install(hostname: string, over: Partial<PackageInstallRow> = {}): PackageInstallRow {
@@ -29,11 +33,44 @@ function install(hostname: string, over: Partial<PackageInstallRow> = {}): Packa
   };
 }
 
-function fakes(rows: PackageInstallRow[] = []) {
+function imagePkg(over: Partial<ImagePackageMatchRow> = {}): ImagePackageMatchRow {
+  return {
+    key: IMAGE.key,
+    refs: IMAGE.refs,
+    ecosystem: "deb",
+    distro: "debian",
+    release: "bookworm",
+    name: "libssl3",
+    version: "3.0.11-1~deb12u2",
+    arch: "amd64",
+    sourceName: "openssl",
+    sourceVersion: "3.0.11-1~deb12u2",
+    paths: ["/var/lib/dpkg/status"],
+    hosts: 2,
+    vulns: 0,
+    kevVulns: 0,
+    fixableVulns: 0,
+    topSeverity: null,
+    ...over,
+  };
+}
+
+function fakes(rows: PackageInstallRow[] = [], images: ImagePackageMatchRow[] = []) {
   const calls: PackageSearch[] = [];
+  const imageCalls: PackageSearch[] = [];
   return {
     calls,
+    imageCalls,
     deps: {
+      findPackageInImages: async (ws: string, q: PackageSearch) => {
+        expect(ws).toBe(WORKSPACE);
+        imageCalls.push(q);
+        return {
+          rows: images.slice(0, q.limit),
+          total: images.length,
+          images: new Set(images.map((r) => r.key.imageId)).size,
+        };
+      },
       findPackageOnHosts: async (ws: string, q: PackageSearch) => {
         expect(ws).toBe(WORKSPACE);
         calls.push(q);
@@ -58,7 +95,13 @@ type Out = {
 async function call(args: unknown, f = fakes()) {
   const { deps, logged } = testDeps();
   const res = await findPackageTool(f.deps).call(args, testCtx, deps);
-  return { res, out: res.structuredContent as Out | undefined, logged, calls: f.calls };
+  return {
+    res,
+    out: res.structuredContent as Out | undefined,
+    logged,
+    calls: f.calls,
+    imageCalls: f.imageCalls,
+  };
 }
 
 describe("find_package", () => {
@@ -103,7 +146,7 @@ describe("find_package", () => {
     expect(out!.matches[1]).toMatchObject({ vulnerable: false, open_findings: 0 });
     const text = resultText(res);
     expect(text).toContain(
-      "- web-01: libssl3 3.0.13-0ubuntu3.1 amd64 (source openssl 3.0.13-0ubuntu3.1); vulnerable: 3 open finding(s), worst high, 1 KEV.",
+      "- host web-01: libssl3 3.0.13-0ubuntu3.1 amd64 (source openssl 3.0.13-0ubuntu3.1); vulnerable: 3 open finding(s), worst high, 1 KEV.",
     );
     expect(text).toContain("no open findings");
   });
@@ -120,7 +163,81 @@ describe("find_package", () => {
   test("not installed anywhere", async () => {
     const { out, res } = await call({ name: "nginx" });
     expect(out).toMatchObject({ matches: [], total: 0, truncated: false });
-    expect(resultText(res)).toContain("nginx is not installed on any host");
+    expect(resultText(res)).toContain("nginx is not installed on any host or in any image on them");
+  });
+
+  test("image packages: the image, origin, paths and whether vulnerable there", async () => {
+    const images = [
+      imagePkg({ vulns: 3, kevVulns: 1, fixableVulns: 2, topSeverity: "critical" }),
+      imagePkg({
+        ecosystem: "npm",
+        distro: "",
+        release: "",
+        name: "openssl",
+        version: "1.0.0",
+        arch: "",
+        sourceName: null,
+        sourceVersion: null,
+        paths: ["/app/node_modules/openssl/package.json", "/b", "/c", "/d"],
+      }),
+    ];
+    const { out, res, calls, imageCalls } = await call({ name: "openssl" }, fakes([], images));
+    expect(calls).toEqual([{ name: "openssl", version: null, limit: 15 }]);
+    expect(imageCalls).toEqual(calls);
+    expect(out).toMatchObject({ hosts: 0, images: 1, total: 2, truncated: false });
+    expect(out!.matches[0]).toEqual({
+      kind: "image",
+      image: {
+        id: IMAGE.key.imageId,
+        platform: "linux/amd64",
+        refs: IMAGE.refs,
+        more_refs: 0,
+        dashboard_url: `${BASE}/dashboard/images/-/${encodeURIComponent(IMAGE.key.imageId)}?platform=linux%2Famd64`,
+      },
+      package: "libssl3",
+      version: "3.0.11-1~deb12u2",
+      arch: "amd64",
+      source_package: "openssl",
+      source_version: "3.0.11-1~deb12u2",
+      ecosystem: "deb",
+      origin: "os",
+      paths: ["/var/lib/dpkg/status"],
+      more_paths: 0,
+      hosts: 2,
+      vulnerable: true,
+      vulnerabilities: 3,
+      kev_vulnerabilities: 1,
+      fixable_vulnerabilities: 2,
+      top_severity: "critical",
+      dashboard_url: `${BASE}/dashboard/images/-/${encodeURIComponent(IMAGE.key.imageId)}?platform=linux%2Famd64&q=libssl3`,
+    });
+    expect(out!.matches[1]).toMatchObject({
+      origin: "application",
+      more_paths: 1,
+      vulnerable: false,
+    });
+    const text = resultText(res);
+    expect(text).toContain(
+      "- image nginx:1.27 (linux/amd64): libssl3 3.0.11-1~deb12u2 (source openssl 3.0.11-1~deb12u2) [os, deb] at /var/lib/dpkg/status; vulnerable: 3 vulnerabilities, worst critical, 1 KEV; on 2 host(s).",
+    );
+    expect(text).toContain("no known vulnerabilities");
+  });
+
+  test("hosts first, then images; limit applies to each kind", async () => {
+    const rows = Array.from({ length: 3 }, (_, i) => install(`h${i}`));
+    const images = Array.from({ length: 3 }, () => imagePkg());
+    const { out } = await call({ name: "libssl3", limit: 2 }, fakes(rows, images));
+    expect(out!.matches.map((m) => m.kind)).toEqual(["host", "host", "image", "image"]);
+    expect(out).toMatchObject({ total: 6, truncated: true });
+  });
+
+  test.each([
+    ["host", 1, 0],
+    ["image", 0, 1],
+  ] as const)("kind %s queries only that kind", async (kind, hostCalls, imageCalls) => {
+    const r = await call({ name: "libssl3", kind });
+    expect(r.calls).toHaveLength(hostCalls);
+    expect(r.imageCalls).toHaveLength(imageCalls);
   });
 
   test.each([
