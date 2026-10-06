@@ -96,7 +96,8 @@ export function PageHeader({
 
 // A section's h2, with an optional description under it. Actions sit on
 // the title's row, right-aligned at every width, so a long description
-// never pushes them onto a line of their own.
+// never pushes them onto a line of their own. The row is a button's height
+// with or without actions, so headings line up from page to page.
 export function SectionHeading({
   children,
   description,
@@ -108,18 +109,25 @@ export function SectionHeading({
   actions?: ReactNode;
   className?: string;
 }) {
-  const title = <h2 className="text-base font-semibold">{children}</h2>;
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
-      {actions ? (
-        <div className="flex min-h-9 items-center justify-between gap-4">
-          <div className="min-w-0">{title}</div>
-          <div className="flex shrink-0 items-center gap-2">{actions}</div>
-        </div>
-      ) : (
-        title
-      )}
-      {description && <div className="text-muted-foreground text-sm">{description}</div>}
+      <div className="flex min-h-9 items-center justify-between gap-4">
+        <h2 className="min-w-0 text-base font-semibold">{children}</h2>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      </div>
+      {description && <SectionDescription>{description}</SectionDescription>}
     </div>
   );
+}
+
+// The muted line under a section's title, capped at a readable width. Also
+// for a page under tabs, whose tab already names it.
+export function SectionDescription({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <div className={cn("text-muted-foreground max-w-3xl text-sm", className)}>{children}</div>;
 }

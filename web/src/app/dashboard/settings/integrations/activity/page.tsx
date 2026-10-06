@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { tableStateFromParams } from "@/components/data-table/url-params";
 import { EmptyState } from "@/components/empty-state";
+import { SectionDescription } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { MCP_ACTIVITY_TABLE, MCP_CALL_RETENTION_DAYS } from "@/lib/mcp-activity-table";
 import {
@@ -56,12 +57,12 @@ export default async function ActivityPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground text-sm">
+      <SectionDescription>
         {viewer.isAdmin
           ? "Every tool call apps made on this install."
           : "Every tool call your apps made."}{" "}
         Calls are kept for {MCP_CALL_RETENTION_DAYS} days.
-      </p>
+      </SectionDescription>
       <ActivityTable
         rows={rows}
         total={total}
