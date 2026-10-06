@@ -129,7 +129,7 @@ docker run -d --restart unless-stopped \
   -v upkeep-agent-data:/var/lib/upkeep \
   -e SW_SERVER_URL=https://api.upkeep.example.com \
   -e SW_ENROLLMENT_TOKEN=<one-time-token-from-the-dashboard> \
-  ghcr.io/pippinmole/upkeep-agent:0.1.1
+  ghcr.io/pippinmole/upkeep-agent:0.1.2
 ```
 
 To also inventory the host's Docker containers and images, add

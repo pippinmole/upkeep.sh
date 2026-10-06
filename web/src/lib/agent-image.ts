@@ -4,7 +4,7 @@
 // release.yml refuses a `vX.Y.Z` tag that doesn't match both
 // (docs/RELEASING.md). Always an exact version, never `:latest`, so a bad
 // release doesn't reach hosts that didn't choose it.
-export const DEFAULT_AGENT_IMAGE = "ghcr.io/pippinmole/upkeep-agent:0.1.1";
+export const DEFAULT_AGENT_IMAGE = "ghcr.io/pippinmole/upkeep-agent:0.1.2";
 
 // SW_AGENT_IMAGE overrides it for self-hosters who mirror images into
 // their own registry. Read on the server at request time (the install

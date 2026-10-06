@@ -33,7 +33,7 @@ services:
   # no-op when the schema is already current. api and worker refuse to
   # start against a schema that is behind.
   migrate:
-    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.1}
+    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.2}
     entrypoint: ["/migrate"]
     restart: "no"
     depends_on:
@@ -43,7 +43,7 @@ services:
       DATABASE_URL: *database-url
 
   api:
-    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.1}
+    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.2}
     restart: unless-stopped
     depends_on:
       migrate:
@@ -59,7 +59,7 @@ services:
   # of free disk in /tmp during a full Ubuntu sync, and up to 8 GiB of
   # disk and 2 GiB of memory while it scans a container image.
   worker:
-    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.1}
+    image: ghcr.io/pippinmole/upkeep-server:${UPKEEP_VERSION:-0.1.2}
     entrypoint: ["/worker"]
     restart: unless-stopped
     depends_on:
@@ -78,7 +78,7 @@ services:
       SW_INTERNAL_RENDER_SECRET: ${SW_INTERNAL_RENDER_SECRET:?}
 
   web:
-    image: ghcr.io/pippinmole/upkeep-web:${UPKEEP_VERSION:-0.1.1}
+    image: ghcr.io/pippinmole/upkeep-web:${UPKEEP_VERSION:-0.1.2}
     restart: unless-stopped
     depends_on:
       - api
