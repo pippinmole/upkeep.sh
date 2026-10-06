@@ -166,10 +166,15 @@ The whole auth path end to end, with one tool to prove it.
 
 ### PR 7: `feat/mcp/7-tools-images` (feat(web): add MCP image tools)
 
-- [ ] Image lookup by id, reference or digest.
-- [ ] `list_images`, `get_image_vulnerabilities` with layer attribution (`imageOriginSql`); `find_package` and
-      `get_finding_status` extended to images.
-- [ ] Tests for lookup and attribution output.
+- [x] Image lookup by id, reference or digest (`resolveImage` in `lib/mcp/resolve.ts`): also the short id, a
+      bare repository, Docker Hub names with or without `docker.io/` and `library/`, and `platform` for an id
+      with several. Unknown or ambiguous is a tool error listing the candidates.
+- [x] `list_images`, `get_image_vulnerabilities` with origin attribution; `find_package` and
+      `get_finding_status` extended to images. Nothing records which layer installed a package (the SBOM
+      parser drops attestations' layer ids, the scanner flattens layers), so attribution is by ecosystem:
+      OS packages (the base image, bump `FROM`) vs application packages (`lib/mcp/image-origin.ts`); true
+      layer attribution is listed under later stacks. The server instructions describe the image patch flow.
+- [x] Tests for lookup and attribution output.
 
 ### PR 8: `feat/mcp/8-activity` (feat(web): show MCP activity and prune it)
 
@@ -199,4 +204,7 @@ The whole auth path end to end, with one tool to prove it.
       feature first), request an image rescan, request a fresh agent snapshot.
 - [ ] Claude Code plugin with `patch-host` / `patch-image` skills.
 - [ ] MCP prompts and resources.
+- [ ] Layer attribution for image findings: keep the layer id from SBOM attestations and track layers in the
+      image scanner, so `get_image_vulnerabilities` can tell base layers from added ones instead of going by
+      ecosystem.
 - [ ] Claude Desktop and claude.ai connectors as supported clients.

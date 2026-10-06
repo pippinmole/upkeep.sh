@@ -37,7 +37,8 @@ first, what to upgrade on a host, where a vulnerable package sits inside an imag
    upgrade over SSH itself (I approve each command in Claude Code), then calls `get_finding_status` until the
    host's next snapshot shows the findings resolved.
 5. *As a user*, I ask "why is my nginx image red?". Claude calls `get_image_vulnerabilities`, sees that most
-   findings come from the base image's layers, and proposes bumping `FROM` instead of patching packages.
+   findings come from the image's OS packages (the base image), and proposes bumping `FROM` instead of patching
+   packages. Claude picks the newer tag itself; upkeep.sh doesn't suggest target tags.
 6. *As a user*, under **Connected apps** I see each client I've authorized (name, when, last used) and can
    revoke it. The next call from that client fails and Claude Code asks me to sign in again.
 7. *As a user*, under **API tokens** I create a token for a headless agent: a name and an expiry (30, 90 or 365
@@ -117,7 +118,9 @@ returns **structured content** (JSON matching a declared output schema) plus a s
 that ignore structured content. Every item carries a `dashboard_url` so Claude can link the user to the page.
 
 Hosts are addressed by id or hostname; an ambiguous hostname returns an error listing the candidates. Images
-are addressed by id or reference (`nginx:1.27`, a digest). Lists take `limit` (default 15, maximum 100) and
+are addressed by id (or the 12-character short id), digest or reference (`nginx:1.27`, `repo@sha256:…`, or a bare
+repository for any of its tags), plus `platform` when one id has several; an unknown or ambiguous image is an
+error listing the candidates. Lists take `limit` (default 15, maximum 100) and
 return a `truncated` flag rather than paging, so a client can't walk the whole database by accident.
 
 | Tool | Arguments | Returns | Built on |
@@ -129,10 +132,10 @@ return a `truncated` flag rather than paging, so a client can't walk the whole d
 | `list_hosts` | `query`, `state`, `limit` | Hosts with OS, health state, open findings, agents, last seen, worst state first | `getEstateHealth`, `getHosts` |
 | `get_host` | `host` | OS and kernel (running and installed), reboot pending, uptime, automatic updates, last snapshot time, collector status, finding counts | `getHost`, `getHostSystem`, `getHostVulnSummary`, `getHostImageVulnSummary`, `getHostKernels` |
 | `get_host_remediation` | `host`, `min_severity`, `kev_only`, `limit` | One entry per vulnerable package: installed version, the highest fixed version across its findings (dpkg order), CVEs closed with severity and KEV, whether it's a kernel package (reboot needed) and whether the fix needs Ubuntu Pro. Packages without a fix are listed separately; `limit` applies to each list | `getHostRemediation` (`queries-remediation.ts`): the host tab's open package findings grouped by source package, kernels from `getHostKernels` |
-| `find_package` | `name`, `version` (prefix) | Hosts (images: PR 7) that have the package, by binary or source name, with versions and whether each is vulnerable | `findPackageOnHosts` (`queries-package-search.ts`) over `host_software`; `image_software` with the image tools |
-| `list_images` | `query`, `limit` | Images in use with their score, open findings and the hosts running them | `queries-image-scores.ts`, `queries-docker-fleet.ts` |
-| `get_image_vulnerabilities` | `image`, `min_severity`, `limit` | Findings with package, versions and **layer attribution** (base image layers vs layers added on top) | `getImageVulns`, `imageOriginSql` |
-| `get_finding_status` | `host` or `image`, plus `package` or `vulnerability` | Open or resolved (with when), and the time of the latest snapshot or scan, so Claude can tell "not fixed" from "not re-scanned yet": the agent's push interval and the package's versions installed now come along | `getFindingStatus` (`queries-finding-status.ts`) over `findings` |
+| `find_package` | `name`, `version` (prefix), `kind` (`host`, `image`, `all`) | Hosts and images that have the package, by binary or source name, with versions and whether each is vulnerable; image matches carry the package's origin and paths. `limit` applies to each kind | `findPackageOnHosts` over `host_software`, `findPackageInImages` over `image_software` (`queries-package-search.ts`) |
+| `list_images` | `query`, `limit` | Images on the workspace's hosts, most urgent first: scan state, base OS release, vulnerability counts (severity, KEV, fixable), open findings, and the hosts and running containers that have them | `getImageList` (`queries-image-list.ts`) on `image_scores` (`queries-image-scores.ts`) |
+| `get_image_vulnerabilities` | `image`, `platform`, `min_severity`, `kev_only`, `limit` | Vulnerabilities with package, versions and **origin**: the image's OS packages (deb, apk, rpm: nearly always the base image, fixed by a newer `FROM`) or application packages at their paths; counts per origin and the base OS release. upkeep.sh doesn't record which layer installed a package, so origin goes by ecosystem, not layer | `getImageVulns`, `getImageVulnEcosystems`, `getImageOverview` |
+| `get_finding_status` | `host` or `image` (and `platform`), plus `package` or `vulnerability` | Host: open or resolved (with when), and the time of the latest snapshot, so Claude can tell "not fixed" from "not re-scanned yet": the agent's push interval and the package's versions installed now come along. Image: whether the image still has it and how current its scan is; a rebuilt image is a new id, so Claude asks by tag | `getFindingStatus`, `getImageFindingStatus` (`queries-finding-status.ts`) |
 | `list_resolved` | `since` (default 7 days ago), `host`, `limit` | Host package and image findings resolved since a time, newest first | `getResolvedFindings` over `findings` |
 
 **Data only, no commands.** `get_host_remediation` returns packages and versions, never `apt-get …` or
@@ -202,4 +205,7 @@ Each is a later stack, not a forgotten item:
 - **A Claude Code plugin** with `patch-host` and `patch-image` skills that encode a safe procedure (simulate
   first, one host at a time, check for a pending reboot, verify through upkeep.sh).
 - **Prompts and resources.**
+- **Layer attribution for image findings**: which layer installed each package, base image or added on top.
+  Registry SBOM attestations carry a layer id per package, but the parser drops it and the image scanner
+  flattens the layers; `get_image_vulnerabilities` goes by ecosystem until then.
 - **Claude Desktop and claude.ai connectors** as supported clients.
