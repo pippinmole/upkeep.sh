@@ -3,8 +3,8 @@ import { SectionHeading } from "@/components/layout/page-header";
 import { IntegrationTabs } from "./integration-tabs";
 
 // Settings > Integrations (docs/MCP.md#settings--integrations): connect an
-// MCP client such as Claude Code to this install, and see and revoke the
-// apps that are connected. Open to members and administrators; each page
+// MCP client such as Claude Code to this install, see and revoke the apps
+// that are connected, and see what they called. Open to members and administrators; each page
 // checks the viewer itself.
 export default function IntegrationsLayout({ children }: { children: React.ReactNode }) {
   return (
