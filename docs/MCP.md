@@ -94,15 +94,20 @@ For `claude -p` in cron or CI, the Agent SDK, or any client that can't do a brow
 - Shown once. Only a hash is stored; the list shows the `upk_` prefix plus the first few characters.
 - Carries `mcp:read` only, like OAuth grants. When write tools exist, a token's scopes are chosen at creation,
   and only an administrator can create a write token.
-- Built on Better Auth's API key plugin (`@better-auth/api-key`) if it fits at the pinned version (prefix,
-  hashing, optional expiry, last-used), otherwise our own `api_tokens` table. Decided in PR 9.
+- Built on Better Auth's API key plugin (`@better-auth/api-key` 1.7.7, pinned with the rest), stored in
+  `api_tokens` (migration 0027). Tokens only authenticate `/api/mcp`, never the dashboard. Members create and
+  revoke their own; administrators see and revoke everyone's. Revoking deletes the row, so the next call gets a
+  401. An expired token stops working at once; the plugin deletes it the next time a token is created or used.
+  See [decisions/mcp-auth.md](decisions/mcp-auth.md#api-tokens-better-auths-api-key-plugin).
 
 ### The MCP viewer
 
 The dashboard resolves a `Viewer` from the session cookie (`lib/viewer.ts`). MCP requests have no cookie, so
 `/api/mcp` resolves the same `Viewer` from the bearer credential instead:
 
-1. Verify the credential (OAuth access token via `requireMcpAuth`, or API token), which gives a user id.
+1. Verify the credential, which gives a user id: a bearer credential starting `upk_` is an API token, checked
+   by the API key plugin (`getMcpApiTokenViewer`); anything else is an OAuth access token (`requireMcpAuth`,
+   then `getMcpViewer`). Both answer 401 when the credential is invalid, revoked or expired.
 2. Load the user exactly as `getViewer` does: role, `disabled_at`, `must_change_password`, from `users` on
    every call. Disabled or unknown users are refused (401). A user on a temporary password gets a tool error
    telling them to sign in to the dashboard and choose a password.
@@ -180,7 +185,7 @@ A new settings section (`settingsSections`), visible to members and administrato
 - **Connected apps:** OAuth grants: client, user (admins), scopes, authorized, last used, Revoke. Revoking
   deletes the consent and its access and refresh tokens.
 - **API tokens:** create (name, expiry), the one-time reveal, list (name, prefix, user for admins, created, last
-  used, expires), Revoke.
+  used, expires, an "Expiring soon" badge within 7 days), Revoke.
 - **Activity:** the call log above.
 
 ## Security notes

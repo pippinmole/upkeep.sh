@@ -187,18 +187,27 @@ The whole auth path end to end, with one tool to prove it.
 
 ### PR 9: `feat/mcp/9-api-tokens` (feat(web): add API tokens for headless MCP clients)
 
-- [ ] Decide: `@better-auth/api-key` (pinned like PR 1) if it gives a custom prefix, hashed storage, optional
+- [x] Decide: `@better-auth/api-key` (pinned like PR 1) if it gives a custom prefix, hashed storage, optional
       expiry and last-used tracking; otherwise our own `api_tokens` table. Record it in
-      [decisions/mcp-auth.md](../decisions/mcp-auth.md).
-- [ ] Migration for the token table (next free number), with ownership in ARCHITECTURE.md.
-- [ ] `getMcpViewer`: `upk_` bearer credentials go to the token check, everything else to OAuth. Logged with
-      `credential_kind = api_token`.
-- [ ] **API tokens** tab: create (name; expiry 30, 90, 365 days or never; default 90), one-time reveal with
+      [decisions/mcp-auth.md](../decisions/mcp-auth.md). Decided: the plugin, at exactly 1.7.7.
+- [x] Migration for the token table (next free number), with ownership in ARCHITECTURE.md. `0027_api_tokens`:
+      the plugin's `apikey` model as `api_tokens`, the owner (`referenceId`) as `user_id`, a uuid foreign key
+      to `users`; `mcp_calls.api_token_id` gets its foreign key. Up, down and up again on a throwaway database.
+- [x] `getMcpViewer`: `upk_` bearer credentials go to the token check, everything else to OAuth. Logged with
+      `credential_kind = api_token`. The route dispatches on `bearerApiToken`; `getMcpApiTokenViewer` verifies
+      through the plugin, then `viewerForUser` as for OAuth.
+- [x] **API tokens** tab: create (name; expiry 30, 90, 365 days or never; default 90), one-time reveal with
       copy, list (name, prefix, user for admins, created, last used, expires, expiring-soon badge within 7
       days), Revoke. Same permission rules as Connected apps.
-- [ ] **Connect** tab: the headless variant with `--header "Authorization: Bearer upk_…"`.
-- [ ] Tests: token verification (expired, revoked, never-expiring, disabled user), permission rules.
-- [ ] By hand: `claude -p` with a token, then revoke it and see the 401.
+- [x] **Connect** tab: the headless variant with `--header "Authorization: Bearer upk_…"`.
+- [x] Tests: token verification (expired, revoked, never-expiring, disabled user), permission rules.
+- [ ] By hand: `claude -p` with a token, then revoke it and see the 401. Partly done 2026-10-06 against the
+      e2e stack, with HTTP calls instead of `claude -p`: tokens created in the UI (90 days and never; the
+      reveal shows once), `tools/list` and `tools/call` with `Authorization: Bearer upk_…`, the `mcp_calls`
+      row with `credential_kind = api_token`, last used and the expiring-soon badge in the list, then 401
+      after Revoke in the UI, after disabling the key and after it expired; a temporary password gave the tool
+      error. The plugin's HTTP routes (`/api/auth/api-key/*`) answer 404. Not yet: `claude -p` itself, and a
+      member revoking someone else's token from the UI (covered by `tokens.test.ts`).
 
 ## Later stacks (not part of this one)
 

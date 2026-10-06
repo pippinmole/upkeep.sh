@@ -110,6 +110,7 @@ for the reasoning.
 | `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting and reports), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
 | `users` | Next.js (bootstrap sign-up, Settings → Members; Better Auth) |
 | `oauth_clients`, `oauth_resources`, `oauth_client_resources`, `oauth_access_tokens`, `oauth_refresh_tokens`, `oauth_consents`, `oauth_client_assertions`, `jwks` | Next.js (Better Auth's MCP OAuth server and `jwt()` plugin; migration 0026 maps the models) |
+| `api_tokens` | Next.js (Better Auth's API key plugin creates, verifies and expires tokens; Settings → Integrations → API tokens revokes them; migration 0027 maps the model) |
 | `mcp_calls` | Next.js (`/api/mcp`, one row per tool call); Go deletes rows older than 90 days (worker: `alert_prune`) |
 | `workspaces` | migrations only (one row per install) |
 | `enrollment_tokens` | Next.js (dashboard "Add host", admins only) |
