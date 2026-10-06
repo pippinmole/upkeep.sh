@@ -1,9 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { apiKey } from "@better-auth/api-key";
+import { cimd } from "@better-auth/cimd";
+import { fetchClientMetadataResource } from "@better-auth/cimd/node";
+import { mcp } from "@better-auth/mcp";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
-import { username } from "better-auth/plugins";
+import { jwt, username } from "better-auth/plugins";
 import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
 
@@ -47,15 +51,194 @@ async function assertCanCreateUser() {
 
 // Extra origins allowed to call the auth endpoints besides BETTER_AUTH_URL,
 // comma-separated (e.g. a second domain in front of the same app).
-const extraOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+export const extraOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
+
+// The dashboard's public URL (BETTER_AUTH_URL), without a trailing slash.
+export function appBaseUrl(): string {
+  return (process.env.BETTER_AUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
+}
+
+// MCP sign-in (docs/MCP.md#authentication, docs/decisions/mcp-auth.md):
+// mcp() makes this app the OAuth 2.1 authorization server for /api/mcp,
+// jwt() signs its access tokens, cimd() lets a client identify itself by a
+// metadata document URL (Claude Code's is
+// https://claude.ai/oauth/claude-code-client-metadata). Dynamic Client
+// Registration stays off. The tables are server/migrations/0026_mcp, whose
+// header lists this same model and field mapping; a field not listed keeps
+// its name.
+//
+// Scopes: mcp:read is every tool today; offline_access lets Claude Code
+// refresh instead of signing in every hour. mcp:write is reserved for the
+// later write tools and is deliberately not offered, so it can't be granted.
+export const MCP_SCOPES = ["mcp:read", "offline_access"] as const;
+
+// The MCP server's resource identifier (RFC 8707): access tokens are
+// audience-bound to it.
+export function mcpResourceUrl(): string {
+  return `${appBaseUrl()}/api/mcp`;
+}
+
+const jwtSchema = {
+  jwks: {
+    modelName: "jwks",
+    fields: {
+      publicKey: "public_key",
+      privateKey: "private_key",
+      createdAt: "created_at",
+      expiresAt: "expires_at",
+    },
+  },
+};
+
+const oauthProviderSchema = {
+  oauthClient: {
+    modelName: "oauth_clients",
+    fields: {
+      clientId: "client_id",
+      clientSecret: "client_secret",
+      clientDiscoveryId: "client_discovery_id",
+      skipConsent: "skip_consent",
+      enableEndSession: "enable_end_session",
+      subjectType: "subject_type",
+      clientCredentialsScopes: "client_credentials_scopes",
+      userId: "user_id",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+      softwareId: "software_id",
+      softwareVersion: "software_version",
+      softwareStatement: "software_statement",
+      redirectUris: "redirect_uris",
+      postLogoutRedirectUris: "post_logout_redirect_uris",
+      backchannelLogoutUri: "backchannel_logout_uri",
+      backchannelLogoutSessionRequired: "backchannel_logout_session_required",
+      tokenEndpointAuthMethod: "token_endpoint_auth_method",
+      applicationType: "application_type",
+      jwksUri: "jwks_uri",
+      grantTypes: "grant_types",
+      responseTypes: "response_types",
+      requirePKCE: "require_pkce",
+      dpopBoundAccessTokens: "dpop_bound_access_tokens",
+      referenceId: "reference_id",
+    },
+  },
+  oauthResource: {
+    modelName: "oauth_resources",
+    fields: {
+      accessTokenTtl: "access_token_ttl",
+      refreshTokenTtl: "refresh_token_ttl",
+      signingAlgorithm: "signing_algorithm",
+      signingKeyId: "signing_key_id",
+      allowedScopes: "allowed_scopes",
+      customClaims: "custom_claims",
+      dpopBoundAccessTokensRequired: "dpop_bound_access_tokens_required",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+      policyVersion: "policy_version",
+    },
+  },
+  oauthClientResource: {
+    modelName: "oauth_client_resources",
+    fields: { clientId: "client_id", resourceId: "resource_id", createdAt: "created_at" },
+  },
+  oauthRefreshToken: {
+    modelName: "oauth_refresh_tokens",
+    fields: {
+      clientId: "client_id",
+      sessionId: "session_id",
+      userId: "user_id",
+      referenceId: "reference_id",
+      authorizationCodeId: "authorization_code_id",
+      requestedUserInfoClaims: "requested_user_info_claims",
+      expiresAt: "expires_at",
+      createdAt: "created_at",
+      rotatedAt: "rotated_at",
+      rotationReplayResponse: "rotation_replay_response",
+      rotationReplayExpiresAt: "rotation_replay_expires_at",
+      authTime: "auth_time",
+    },
+  },
+  oauthAccessToken: {
+    modelName: "oauth_access_tokens",
+    fields: {
+      clientId: "client_id",
+      sessionId: "session_id",
+      userId: "user_id",
+      referenceId: "reference_id",
+      authorizationCodeId: "authorization_code_id",
+      requestedUserInfoClaims: "requested_user_info_claims",
+      refreshId: "refresh_id",
+      expiresAt: "expires_at",
+      createdAt: "created_at",
+    },
+  },
+  oauthConsent: {
+    modelName: "oauth_consents",
+    fields: {
+      clientId: "client_id",
+      userId: "user_id",
+      referenceId: "reference_id",
+      requestedUserInfoClaims: "requested_user_info_claims",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    },
+  },
+  oauthClientAssertion: {
+    modelName: "oauth_client_assertions",
+    fields: { expiresAt: "expires_at" },
+  },
+};
+
+// API tokens for headless MCP clients (docs/MCP.md#api-tokens-headless-agents,
+// docs/decisions/mcp-auth.md): @better-auth/api-key stores them in
+// api_tokens (server/migrations/0027_api_tokens, whose header lists this
+// mapping), hashed. They authenticate /api/mcp only (getMcpViewer), never
+// the dashboard: enableSessionForAPIKeys stays off, so a token can't stand
+// in for a session cookie.
+export const API_TOKEN_PREFIX = "upk_";
+
+const apiKeySchema = {
+  apikey: {
+    modelName: "api_tokens",
+    fields: {
+      configId: "config_id",
+      referenceId: "user_id",
+      refillInterval: "refill_interval",
+      refillAmount: "refill_amount",
+      lastRefillAt: "last_refill_at",
+      rateLimitEnabled: "rate_limit_enabled",
+      rateLimitTimeWindow: "rate_limit_time_window",
+      rateLimitMax: "rate_limit_max",
+      requestCount: "request_count",
+      lastRequest: "last_request",
+      expiresAt: "expires_at",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    },
+  },
+};
+
+// The plugin's HTTP endpoints. Tokens are created, listed and revoked by
+// our own server actions (Settings > Integrations > API tokens), which call
+// authServer.api directly or the database, so none of these is needed over
+// HTTP: the plugin's checks are owner-only, and ours let an admin revoke
+// anyone's. disabledPaths only closes the HTTP routes; server calls still
+// work. verify and delete-all-expired-api-keys are server-only already.
+const disabledApiKeyPaths = [
+  "/api-key/create",
+  "/api-key/get",
+  "/api-key/update",
+  "/api-key/delete",
+  "/api-key/list",
+];
 
 export const authServer = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL,
   trustedOrigins: extraOrigins,
+  disabledPaths: disabledApiKeyPaths,
   database: pool,
   advanced: {
     database: { generateId: "uuid" },
@@ -164,9 +347,43 @@ export const authServer = betterAuth({
         user: { fields: { displayUsername: "display_username" } },
       },
     }),
+    jwt({ schema: jwtSchema }),
+    mcp({
+      loginPage: "/login",
+      consentPage: "/oauth/consent",
+      resource: mcpResourceUrl(),
+      scopes: [...MCP_SCOPES],
+      schema: oauthProviderSchema,
+    }),
+    cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
+    apiKey({
+      defaultPrefix: API_TOKEN_PREFIX,
+      requireName: true,
+      maximumNameLength: 64,
+      // upk_ plus 8 characters, enough to tell tokens apart in the list.
+      startingCharactersConfig: {
+        shouldStore: true,
+        charactersLength: API_TOKEN_PREFIX.length + 8,
+      },
+      // No expiry unless one is asked for (null is "never"); at most a year.
+      keyExpiration: { defaultExpiresIn: null, minExpiresIn: 1, maxExpiresIn: 365 },
+      // Off: /api/mcp already limits every credential (lib/mcp/rate-limit.ts).
+      // The plugin stamps this onto each key when it's created.
+      rateLimit: { enabled: false },
+      enableSessionForAPIKeys: false,
+      schema: apiKeySchema,
+    }),
     // Must stay last: it sets cookies from server actions (sign-in, sign-up).
     nextCookies(),
   ],
+});
+
+// Better Auth initializes its plugins as soon as this module loads, and
+// mcp() writes its resource row (oauth_resources) then. Report a failure
+// (no database, e.g. in unit tests that import a page) instead of leaving
+// the rejection unhandled; requests that need auth still get the error.
+authServer.$context.catch((err: unknown) => {
+  console.error("auth: Better Auth failed to initialize", err);
 });
 
 // The current session ({ user, session }) or null, for server components,

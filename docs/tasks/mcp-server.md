@@ -1,0 +1,221 @@
+# MCP server
+
+Spec: [MCP.md](../MCP.md). Decisions: [mcp-server-in-web.md](../decisions/mcp-server-in-web.md),
+[mcp-auth.md](../decisions/mcp-auth.md). A read-only MCP server at `/api/mcp` in the Next.js app, OAuth sign-in
+through Better Auth plus API tokens, a 90-day call log and **Settings → Integrations**.
+
+## How this is built: one gh stack
+
+The work ships as **one stack of ten PRs** managed with the [`gh stack`](https://github.com/github/gh-stack)
+extension. Each PR is based on the one below it, not on `main`, so each diff is only that step's change.
+
+- **Branches:** `feat/mcp/<n>-<slug>`, numbered bottom to top. The number keeps the order obvious in
+  `git branch` and on GitHub.
+- **Each PR stands on its own:** it builds, passes `hk check --all`, the web typecheck, lint, tests and build,
+  and `go vet` / `go test` where `server/` changes. A reviewer can check out any branch and try it.
+- **Commits:** Conventional Commits with the area as scope (CLAUDE.md). PR titles below are the squash-free
+  merge titles; each PR may hold several commits.
+- **Foundation first:** auth and schema go in before any UI, so each UI PR can be tested end to end against a
+  real endpoint when it lands.
+
+```text
+main
+ └─ feat/mcp/0-docs                  docs: plan the MCP server
+     └─ feat/mcp/1-pin-better-auth   chore(web): pin Better Auth 1.7.7
+         └─ feat/mcp/2-schema        feat(server): add MCP OAuth and call log tables
+             └─ feat/mcp/3-endpoint  feat(web): serve /api/mcp with OAuth sign-in
+                 └─ feat/mcp/4-settings        feat(web): add Settings → Integrations
+                     └─ feat/mcp/5-tools-vulns   feat(web): add MCP vulnerability tools
+                         └─ feat/mcp/6-tools-hosts   feat(web): add MCP host tools
+                             └─ feat/mcp/7-tools-images  feat(web): add MCP image tools
+                                 └─ feat/mcp/8-activity    feat(web): show MCP activity and prune it
+                                     └─ feat/mcp/9-api-tokens  feat(web): add API tokens for headless MCP clients
+```
+
+### Working the stack
+
+```sh
+# Each branch is created from the one below it as work starts.
+git switch -c feat/mcp/1-pin-better-auth feat/mcp/0-docs
+
+# Once the branches exist, adopt them bottom to top, then push and open the PRs.
+gh stack init feat/mcp/0-docs feat/mcp/1-pin-better-auth feat/mcp/2-schema …
+gh stack submit --auto --open
+# submit generates titles: set the titles above (and bodies) with `gh pr edit <n>`.
+```
+
+- **Review changes on a lower PR:** commit on that branch, then rebase everything above it in one go with
+  `git rebase --update-refs` from the top branch (or gh stack's own rebase), and push the stack again.
+- **Adding branches later:** create the new top branch from the current top, then re-run `gh stack init` with
+  the full list, bottom to top.
+- **Merging:** `gh stack merge <stack#> --yes --merge` merges the whole stack atomically with merge commits.
+  The stack can also be merged from the bottom in parts, e.g. 0–3 first, if the top half is still in review.
+  After merging, check `git branch --show-current`: the checkout can be left on a stack branch.
+
+## The stack, PR by PR
+
+### PR 0: `feat/mcp/0-docs` (docs: plan the MCP server)
+
+- [ ] [MCP.md](../MCP.md) spec, the two decisions, this task file, and the index entries in
+      [decisions/README.md](../decisions/README.md), [tasks/README.md](README.md) and
+      [ARCHITECTURE.md](../ARCHITECTURE.md).
+
+### PR 1: `feat/mcp/1-pin-better-auth` (chore(web): pin Better Auth 1.7.7)
+
+No MCP code. Only the upgrade, so a regression bisects to this PR.
+
+- [x] Pin `better-auth` to exactly `1.7.7` (no `^`) in `web/package.json`, the lowest version
+      `@better-auth/mcp` 1.7.7 accepts; `bun install`, commit `bun.lock`. Later PRs add `@better-auth/*`
+      packages at the same exact version.
+- [x] Apply anything the 1.7.6 → 1.7.7 changelog calls for to `lib/auth.ts` and `lib/auth-client.ts`
+      (a patch release, so likely nothing).
+- [x] Check whether 1.7.7 wants schema changes to `users`, `sessions`, `accounts`, `verifications`
+      (Better Auth's schema generator against a scratch database, compared with migration 0018; note that
+      `@better-auth/cli` on npm lagged at 1.4.x, so check it matches 1.7 first). If so, add a
+      migration in this PR, mapped to our snake_case names like 0018.
+- [x] Regression pass, by hand against the dev stack (start-dev skill): fresh install bootstrap sign-up
+      becomes admin; second sign-up refused (form and direct API call); admin creates a member with a temporary
+      password; forced `/change-password`; sign-out; disable signs the user out and blocks sign-in; role change
+      applies on the next request.
+- [x] Web typecheck, lint, test, build. Note the pinned version in
+      [decisions/mcp-auth.md](../decisions/mcp-auth.md).
+
+### PR 2: `feat/mcp/2-schema` (feat(server): add MCP OAuth and call log tables)
+
+Migrations live in `server/migrations/` (the contract between `server/` and `web/`), hence the `server` scope.
+
+- [x] Migration `00NN_mcp` (next free number; 0026 at the time of writing), up and down:
+  - [x] The `@better-auth/mcp` / OAuth provider models (`oauthClient`, `oauthAccessToken`, `oauthRefreshToken`,
+        `oauthConsent`, `oauthClientAssertion`, and in 1.7.7 also `oauthResource` and `oauthClientResource`;
+        check `packages/oauth-provider/src/schema.ts` at the pinned version) and the `jwt()` plugin's `jwks`,
+        generated with Better Auth's schema generator (see the PR 1 caveat about the CLI) and translated to
+        snake_case tables (`oauth_clients`, …) with `uuid` ids and `users(id) ON DELETE CASCADE`, following
+        0018. Record the model → table/field mapping in the migration header; PR 3 repeats it in `lib/auth.ts`.
+  - [x] `mcp_calls` as specified in [MCP.md](../MCP.md#activity-log), with `workspace_id`, foreign keys to the
+        user and OAuth client (`ON DELETE SET NULL` for the client, so the log outlives a revoked grant), and an
+        index on `(workspace_id, created_at DESC)` plus `(user_id, created_at DESC)`.
+  - API token tables are **not** here: PR 9 decides between the Better Auth plugin and our own table.
+- [x] [ARCHITECTURE.md](../ARCHITECTURE.md) "Who owns what": the OAuth tables and `jwks` written by Next.js
+      (Better Auth), `mcp_calls` written by Next.js and pruned by Go (`alert_prune`).
+- [x] `go test ./...` in `server/` with `-tags integration` (migrations up, down and up again on a throwaway
+      database).
+
+### PR 3: `feat/mcp/3-endpoint` (feat(web): serve /api/mcp with OAuth sign-in)
+
+The whole auth path end to end, with one tool to prove it.
+
+- [x] `lib/auth.ts`: add `jwt()`, `cimd()` and `mcp({ loginPage: "/login", consentPage: "/oauth/consent",
+      resource: <BETTER_AUTH_URL>/api/mcp })` with the table mapping from PR 2. `nextCookies()` stays last.
+- [x] Check what Claude Code supports at build time: CIMD, or does it still need Dynamic Client Registration?
+      Enable DCR only if it's required, and record which in [decisions/mcp-auth.md](../decisions/mcp-auth.md).
+- [x] Discovery: serve the RFC 9728 protected resource metadata
+      (`/.well-known/oauth-protected-resource/api/mcp`) and RFC 8414 authorization server metadata at the paths
+      the plugin derives from the issuer, as Next.js routes under `app/.well-known/`.
+- [x] `/login` honors the plugin's return-to so sign-in continues the authorization request.
+- [x] `/oauth/consent` page: client name, metadata URL host, scopes in plain words, Allow / Deny. Temporary
+      password → `/change-password` first, then back.
+- [x] `lib/viewer.ts`: extract `viewerForUser(userId)` from `getViewer`; add `getMcpViewer(request)` for
+      bearer credentials (OAuth only for now; the API token branch comes in PR 9). Tests for disabled, unknown
+      and temporary-password users.
+- [x] `app/api/mcp/route.ts`: MCP TypeScript SDK v2, stateless Streamable HTTP, wrapped in `requireMcpAuth`.
+      Ignores cookies; validates `Origin`; per-credential in-memory rate limit.
+- [x] `lib/mcp/`: server setup, a small `defineTool` helper (zod input and output schemas, structured content
+      plus a text rendering, `dashboard_url` building, call logging, error mapping), and `get_workspace_summary`.
+- [x] Call logging into `mcp_calls`, best effort (see [MCP.md](../MCP.md#activity-log)).
+- [x] Tests: `defineTool` (schema validation, error mapping, logging); the viewer resolution.
+- [ ] By hand: `claude mcp add --transport http upkeep http://localhost:3000/api/mcp`, `/mcp`, sign in,
+      consent, ask for a summary; then revoke the consent in the database and see Claude Code ask again. Note
+      the steps in `web/README.md`.
+
+### PR 4: `feat/mcp/4-settings` (feat(web): add Settings → Integrations)
+
+- [x] `settingsSections` entry "Integrations" (`/dashboard/settings/integrations`, a plug icon, keywords: mcp,
+      claude, ai, oauth, tokens, api), visible to members and admins.
+- [x] Tabs layout (Connect, Connected apps; API tokens and Activity arrive in PRs 9 and 8).
+- [x] **Connect:** the `claude mcp add` command with the instance URL, a copy button, the `/mcp` steps.
+- [x] **Connected apps:** a TanStack table of OAuth consents (client, user for admins, scopes, authorized,
+      last used), Revoke via a server action that deletes the consent and its tokens. Members revoke their own;
+      admins any. Server-side checks, not only hidden buttons.
+- [x] Tests for the revoke action's permission rules. react-doctor on the new components.
+
+### PR 5: `feat/mcp/5-tools-vulns` (feat(web): add MCP vulnerability tools)
+
+- [x] `list_attention_items`, `list_top_vulnerabilities`, `get_vulnerability` per the
+      [tool table](../MCP.md#tools), on the existing queries. Shared argument schemas (severity, limit) in
+      `lib/mcp/args.ts`. `host` on `list_top_vulnerabilities` lists that host's Vulnerabilities tab
+      (`getHostVulnList`), so host lookup (`lib/mcp/resolve.ts`) lands here rather than in PR 6.
+- [x] Advisory text fields truncated and labeled as data ([MCP.md](../MCP.md#security-notes)), through
+      `lib/mcp/untrusted.ts` for PRs 6 and 7 to reuse.
+- [x] Tests: argument validation, ordering matches the dashboard's list for the same filters, the `truncated`
+      flag. The fleet list's URL parsing moved to `lib/fleet-vulns-filters.ts`, and the tests parse each
+      `dashboard_url` with it to check the tool queried the page's filters and sort.
+
+### PR 6: `feat/mcp/6-tools-hosts` (feat(web): add MCP host tools)
+
+- [x] Host lookup by id or hostname with the ambiguous-hostname error (`lib/mcp/resolve.ts`; `resolveHost`
+      came with PR 5, reuse it).
+- [x] `list_hosts`, `get_host`, `get_host_remediation` (new grouped-by-package query: highest fixed version
+      across the package's findings, kernel flag, unfixable packages listed apart), `find_package` (hosts
+      only here; images in PR 7), `get_finding_status`, `list_resolved`.
+- [x] Tests for the remediation grouping (several findings on one package, mixed fixed and unfixed, kernel).
+- [ ] By hand: the "patch web-01" story from [MCP.md](../MCP.md#stories) against a dev agent. Partly done
+      2026-10-06 against a WSL Ubuntu 26.04 agent: OAuth sign-in (wrong password shows the error, then the
+      authorization code and token), then every host tool over `/api/mcp`, logged in `mcp_calls`. Not yet:
+      the upgrade itself, then `get_finding_status` showing it resolved. That host had no finding with a
+      fix to apply.
+
+### PR 7: `feat/mcp/7-tools-images` (feat(web): add MCP image tools)
+
+- [x] Image lookup by id, reference or digest (`resolveImage` in `lib/mcp/resolve.ts`): also the short id, a
+      bare repository, Docker Hub names with or without `docker.io/` and `library/`, and `platform` for an id
+      with several. Unknown or ambiguous is a tool error listing the candidates.
+- [x] `list_images`, `get_image_vulnerabilities` with origin attribution; `find_package` and
+      `get_finding_status` extended to images. Nothing records which layer installed a package (the SBOM
+      parser drops attestations' layer ids, the scanner flattens layers), so attribution is by ecosystem:
+      OS packages (the base image, bump `FROM`) vs application packages (`lib/mcp/image-origin.ts`); true
+      layer attribution is listed under later stacks. The server instructions describe the image patch flow.
+- [x] Tests for lookup and attribution output.
+
+### PR 8: `feat/mcp/8-activity` (feat(web): show MCP activity and prune it)
+
+- [x] **Activity** tab: TanStack table over `mcp_calls` (time, user, client, tool, arguments, items, duration,
+      error), filters by user, client and tool. Admins see all, members their own; enforced in the query.
+      Server-driven (search, sort, paging and facets in the URL, `lib/queries-mcp-activity.ts`), since 90
+      days of calls can be many rows.
+- [x] Worker: `alert_prune` also deletes `mcp_calls` older than 90 days; integration test.
+- [x] [ARCHITECTURE.md](../ARCHITECTURE.md): mention the retention next to the other `alert_prune` targets.
+
+### PR 9: `feat/mcp/9-api-tokens` (feat(web): add API tokens for headless MCP clients)
+
+- [x] Decide: `@better-auth/api-key` (pinned like PR 1) if it gives a custom prefix, hashed storage, optional
+      expiry and last-used tracking; otherwise our own `api_tokens` table. Record it in
+      [decisions/mcp-auth.md](../decisions/mcp-auth.md). Decided: the plugin, at exactly 1.7.7.
+- [x] Migration for the token table (next free number), with ownership in ARCHITECTURE.md. `0027_api_tokens`:
+      the plugin's `apikey` model as `api_tokens`, the owner (`referenceId`) as `user_id`, a uuid foreign key
+      to `users`; `mcp_calls.api_token_id` gets its foreign key. Up, down and up again on a throwaway database.
+- [x] `getMcpViewer`: `upk_` bearer credentials go to the token check, everything else to OAuth. Logged with
+      `credential_kind = api_token`. The route dispatches on `bearerApiToken`; `getMcpApiTokenViewer` verifies
+      through the plugin, then `viewerForUser` as for OAuth.
+- [x] **API tokens** tab: create (name; expiry 30, 90, 365 days or never; default 90), one-time reveal with
+      copy, list (name, prefix, user for admins, created, last used, expires, expiring-soon badge within 7
+      days), Revoke. Same permission rules as Connected apps.
+- [x] **Connect** tab: the headless variant with `--header "Authorization: Bearer upk_…"`.
+- [x] Tests: token verification (expired, revoked, never-expiring, disabled user), permission rules.
+- [ ] By hand: `claude -p` with a token, then revoke it and see the 401. Partly done 2026-10-06 against the
+      e2e stack, with HTTP calls instead of `claude -p`: tokens created in the UI (90 days and never; the
+      reveal shows once), `tools/list` and `tools/call` with `Authorization: Bearer upk_…`, the `mcp_calls`
+      row with `credential_kind = api_token`, last used and the expiring-soon badge in the list, then 401
+      after Revoke in the UI, after disabling the key and after it expired; a temporary password gave the tool
+      error. The plugin's HTTP routes (`/api/auth/api-key/*`) answer 404. Not yet: `claude -p` itself, and a
+      member revoking someone else's token from the UI (covered by `tokens.test.ts`).
+
+## Later stacks (not part of this one)
+
+- [ ] Write tools (`mcp:write`, admin only, fail-closed logging): suppress a finding (needs a suppression
+      feature first), request an image rescan, request a fresh agent snapshot.
+- [ ] Claude Code plugin with `patch-host` / `patch-image` skills.
+- [ ] MCP prompts and resources.
+- [ ] Layer attribution for image findings: keep the layer id from SBOM attestations and track layers in the
+      image scanner, so `get_image_vulnerabilities` can tell base layers from added ones instead of going by
+      ecosystem.
+- [ ] Claude Desktop and claude.ai connectors as supported clients.

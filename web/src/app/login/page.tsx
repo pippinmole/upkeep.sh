@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { installHasUsers } from "@/lib/auth";
+import { oauthQueryFrom, type PageSearchParams } from "@/lib/oauth-query";
 
 import { AuthShell } from "./auth-shell";
 import { LoginForm } from "./login-form";
@@ -14,12 +15,27 @@ export const dynamic = "force-dynamic";
 
 // Sign-up is only offered while the install has no account yet (it creates
 // the administrator); afterwards administrators create accounts.
-export default async function LoginPage() {
-  const bootstrapping = !(await installHasUsers());
+//
+// An MCP client's authorization request lands here (as signed query
+// parameters) when the user isn't signed in; signing in continues it
+// (lib/oauth-query.ts).
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<PageSearchParams>;
+}) {
+  const [bootstrapping, oauthQuery] = await Promise.all([
+    installHasUsers().then((has) => !has),
+    searchParams.then(oauthQueryFrom),
+  ]);
   return (
     <AuthShell
       title="Sign in"
-      description="Welcome back. Sign in to see your estate."
+      description={
+        oauthQuery
+          ? "Sign in to connect an app to upkeep.sh."
+          : "Welcome back. Sign in to see your estate."
+      }
       footer={
         bootstrapping ? (
           <p>
@@ -33,7 +49,7 @@ export default async function LoginPage() {
         )
       }
     >
-      <LoginForm />
+      <LoginForm oauthQuery={oauthQuery} />
     </AuthShell>
   );
 }

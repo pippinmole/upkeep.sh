@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 
 import { authServer } from "@/lib/auth";
 import { pool } from "@/lib/db";
+import { safeReturnPath } from "@/lib/oauth-query";
 import { getViewer } from "@/lib/viewer";
 
 export type ChangePasswordState = { error: string | null };
@@ -50,5 +51,6 @@ export async function changePassword(
     `UPDATE users SET must_change_password = false, updated_at = now() WHERE id = $1`,
     [viewer.userId],
   );
-  redirect("/dashboard");
+  // Back to the OAuth consent page when an MCP sign-in sent the user here.
+  redirect(safeReturnPath(String(formData.get("next") ?? "")) ?? "/dashboard");
 }

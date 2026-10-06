@@ -72,7 +72,11 @@
   rendered by `POST /api/internal/render/report` (React Email), reached
   at `SW_WEB_INTERNAL_URL` with a shared secret, never through the
   public domain. It is the only runtime call from the worker to `web`
-  (see "Web ↔ worker render dependency").
+  (see "Web ↔ worker render dependency"). Planned
+  ([MCP.md](MCP.md), [tasks/mcp-server.md](tasks/mcp-server.md)): a
+  read-only MCP server at `/api/mcp` for AI clients (Claude Code), with
+  OAuth sign-in through Better Auth and API tokens, reusing the
+  dashboard's queries ([decisions/mcp-server-in-web.md](decisions/mcp-server-in-web.md)).
 
 - **`server/migrations/`** — SQL migrations (golang-migrate `.up.sql`/`.down.sql`
   pairs). This is the actual contract between `server/` and `web/`, since
@@ -105,6 +109,9 @@ for the reasoning.
 | `alert_instances`, `alert_events`, `alert_digest_items`, `alert_rules.last_digest_at` | Go (worker: `alert_rules_evaluate` writes instances and events; alerting jobs the rest) |
 | `notifications`, `notification_deliveries`, `notification_delivery_attempts` | Go (worker: alerting and reports), except "Send test": Next.js inserts a `test` notification + delivery and its `alert_deliver` River job |
 | `users` | Next.js (bootstrap sign-up, Settings → Members; Better Auth) |
+| `oauth_clients`, `oauth_resources`, `oauth_client_resources`, `oauth_access_tokens`, `oauth_refresh_tokens`, `oauth_consents`, `oauth_client_assertions`, `jwks` | Next.js (Better Auth's MCP OAuth server and `jwt()` plugin; migration 0026 maps the models) |
+| `api_tokens` | Next.js (Better Auth's API key plugin creates, verifies and expires tokens; Settings → Integrations → API tokens revokes them; migration 0027 maps the model) |
+| `mcp_calls` | Next.js (`/api/mcp`, one row per tool call); Go deletes rows older than 90 days (worker: `alert_prune`) |
 | `workspaces` | migrations only (one row per install) |
 | `enrollment_tokens` | Next.js (dashboard "Add host", admins only) |
 | `alert_rules`, `alert_rule_channels`, `notification_channels` | Next.js (Settings → Alert rules; Settings → Channels; admins only). Migration 0024's `workspaces` trigger seeds each workspace's default rules |
@@ -349,7 +356,7 @@ alerts queue:
                   each attempt logged; retryable errors back off (30s .. 6h,
                   8 attempts), notify.Permanent errors fail at once
   alert_prune     (1h) events 30d, delivery log and resolved alerts 90d,
-                  reports 1y (see Reports)
+                  reports 1y (see Reports), MCP call log (mcp_calls) 90d
 ```
 
 - **Conditions** are a typed property + operator + value (+ options), stored

@@ -567,7 +567,7 @@ func utf8RuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
 // PruneResult reports an alerting cleanup.
 type PruneResult struct {
-	Events, Notifications, Instances, Reports int64
+	Events, Notifications, Instances, Reports, MCPCalls int64
 }
 
 // PruneAlerting deletes processed events older than eventAge (unless a
@@ -576,8 +576,10 @@ type PruneResult struct {
 // schedule's latest (the next run compares against it, and the dashboard
 // keeps something to show for a schedule that stopped running). A pruned
 // report's notifications.report_id and the next report's
-// previous_report_id are set NULL by their foreign keys.
-func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logAge, reportAge time.Duration) (PruneResult, error) {
+// previous_report_id are set NULL by their foreign keys. It also deletes
+// MCP call log rows (mcp_calls, written by the web app) older than
+// mcpCallAge.
+func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logAge, reportAge, mcpCallAge time.Duration) (PruneResult, error) {
 	var res PruneResult
 	tag, err := s.Pool.Exec(ctx, `
 		DELETE FROM alert_events e WHERE e.processed_at < $1
@@ -606,5 +608,13 @@ func (s *Store) PruneAlerting(ctx context.Context, now time.Time, eventAge, logA
 		return res, err
 	}
 	res.Reports = tag.RowsAffected()
+	// Per workspace, so each delete walks mcp_calls_workspace_created_idx.
+	if tag, err = s.Pool.Exec(ctx, `
+		DELETE FROM mcp_calls m USING workspaces w
+		WHERE m.workspace_id = w.id AND m.created_at < $1
+	`, now.Add(-mcpCallAge)); err != nil {
+		return res, err
+	}
+	res.MCPCalls = tag.RowsAffected()
 	return res, nil
 }

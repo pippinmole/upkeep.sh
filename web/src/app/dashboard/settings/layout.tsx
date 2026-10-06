@@ -3,8 +3,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { SettingsNav } from "./settings-nav";
 
 // Settings: account-wide configuration, one route per section (listed in
-// components/layout/settings-sections.ts): notification channels and
-// members. Report schedules are under Reports.
+// components/layout/settings-sections.ts): alert rules, notification
+// channels, members and integrations. Report schedules are under Reports.
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">

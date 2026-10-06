@@ -11,10 +11,13 @@ import { type SignInState, signInWithPassword } from "./actions";
 
 const initial: SignInState = { error: null };
 
-export function LoginForm() {
+// oauthQuery: the signed authorization request this sign-in continues, if
+// an MCP client sent the user here.
+export function LoginForm({ oauthQuery }: { oauthQuery?: string | null }) {
   const [state, action, pending] = useActionState(signInWithPassword, initial);
   return (
     <form action={action} className="flex flex-col gap-4">
+      {oauthQuery && <input type="hidden" name="oauth_query" value={oauthQuery} />}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="username">Username</Label>
         <Input
