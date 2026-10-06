@@ -1,7 +1,9 @@
+import * as z from "zod";
+
 import { pool } from "@/lib/db";
 import { isUuid } from "@/lib/queries-inventory";
 
-import { ToolError } from "./tool";
+import { ToolError, type ToolContext } from "./tool";
 
 // Hosts are addressed by id or hostname (docs/MCP.md#tools). A hostname
 // several hosts share is an error listing the candidates, never a guess.
@@ -48,4 +50,29 @@ export async function resolveHost(
     `Several hosts are named ${JSON.stringify(ref)}; pass one of their ids instead: ` +
       `${shown.join("; ")}${more}.`,
   );
+}
+
+// The host a host tool answered for, as every host tool returns it.
+export const hostRef = z.object({
+  id: z.string(),
+  hostname: z.string(),
+  label: z.string().nullable(),
+  dashboard_url: z.string(),
+});
+
+export function hostRefOf(
+  host: { id: string; hostname: string; label: string | null },
+  ctx: ToolContext,
+): z.input<typeof hostRef> {
+  return {
+    id: host.id,
+    hostname: host.hostname,
+    label: host.label,
+    dashboard_url: ctx.dashboardUrl(`/dashboard/hosts/${host.id}`),
+  };
+}
+
+// "web-01 (eu)" for the text renderings.
+export function hostName(host: { hostname: string; label: string | null }): string {
+  return host.label ? `${host.hostname} (${host.label})` : host.hostname;
 }
