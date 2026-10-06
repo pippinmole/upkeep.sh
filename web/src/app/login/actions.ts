@@ -37,20 +37,13 @@ export async function signInWithPassword(
       ...(oauthQuery ? { request: oauthRequest("/sign-in/username", h) } : {}),
     });
   } catch (err) {
-    if (isAPIError(err)) {
-      return {
-        error:
-          err.body?.code === "INVALID_USERNAME_OR_PASSWORD"
-            ? "Wrong username or password."
-            : err.body?.code === "ACCOUNT_DISABLED"
-              ? "This account is disabled. Ask an administrator."
-              : err.body?.error === "invalid_signature"
-                ? "This sign-in link has expired. Start the connection again from your app."
-                : "Could not sign in. Please try again.",
-        username,
-      };
-    }
+    if (isAPIError(err)) return { error: signInError(err.body), username };
     throw err;
+  }
+  // Called with a Request, Better Auth answers a failed sign-in with an error
+  // Response instead of throwing.
+  if (result instanceof Response && !result.ok) {
+    return { error: signInError(await result.json().catch(() => null)), username };
   }
   if (!oauthQuery) redirect("/dashboard");
   const next = await oauthRedirectUrl(result);
@@ -62,4 +55,12 @@ export async function signInWithPassword(
     };
   }
   redirect(next);
+}
+
+function signInError(body: { code?: unknown; error?: unknown } | null | undefined): string {
+  if (body?.code === "INVALID_USERNAME_OR_PASSWORD") return "Wrong username or password.";
+  if (body?.code === "ACCOUNT_DISABLED") return "This account is disabled. Ask an administrator.";
+  if (body?.error === "invalid_signature")
+    return "This sign-in link has expired. Start the connection again from your app.";
+  return "Could not sign in. Please try again.";
 }

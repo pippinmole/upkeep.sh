@@ -37,17 +37,24 @@ export async function decideConsent(
   } catch (err) {
     if (isAPIError(err)) {
       console.warn("oauth consent refused", err.body);
-      return {
-        error:
-          err.body?.error === "invalid_signature"
-            ? "This request has expired. Start the connection again from your app."
-            : "Could not complete the request. Start the connection again from your app.",
-      };
+      return { error: consentError(err.body) };
     }
     throw err;
   }
+  // Called with a Request, Better Auth answers a refusal with an error
+  // Response instead of throwing.
+  if (result instanceof Response && !result.ok) {
+    const body = await result.json().catch(() => null);
+    console.warn("oauth consent refused", body);
+    return { error: consentError(body) };
+  }
   const url = await oauthRedirectUrl(result);
-  if (!url)
-    return { error: "Could not complete the request. Start the connection again from your app." };
+  if (!url) return { error: consentError(null) };
   redirect(url);
+}
+
+function consentError(body: { code?: unknown; error?: unknown } | null | undefined): string {
+  if (body?.error === "invalid_signature")
+    return "This request has expired. Start the connection again from your app.";
+  return "Could not complete the request. Start the connection again from your app.";
 }
