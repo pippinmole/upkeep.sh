@@ -126,14 +126,14 @@ return a `truncated` flag rather than paging, so a client can't walk the whole d
 | `list_attention_items` | `limit` | The overview's "Needs attention" list | `getAttentionItems` |
 | `list_top_vulnerabilities` | `limit`, `kind` (`host`, `image`, `all`), `min_severity`, `kev_only`, `fixable_only`, `host` | Vulnerabilities in the dashboard's rank order (`severity_rank`: KEV, EPSS, CVSS), each with affected host and image counts and whether a fix exists | `getFleetVulnList` |
 | `get_vulnerability` | `id` (CVE or advisory id) | Summary, CVSS, EPSS, KEV, fixed version per distro release, affected hosts and images | `getFleetVulnDetail` |
-| `list_hosts` | `query`, `state`, `limit` | Hosts with OS, health state, open findings, last seen | `getEstateHealth` |
-| `get_host` | `host` | OS and kernel, reboot pending, last snapshot time, collector status, finding counts | `getHost`, `getHostVulnSummary`, `getHostKernels` |
-| `get_host_remediation` | `host`, `min_severity`, `kev_only` | One entry per vulnerable package: installed version, the version that fixes all its findings, CVEs closed, KEV count, whether it's a kernel package (reboot needed). Packages without a fix are listed separately | New query over `getHostVulnList` rows, grouped by package |
-| `find_package` | `name`, `version` | Hosts and images that have the package, with versions and whether each is vulnerable | New query over `host_software` and `image_software` |
+| `list_hosts` | `query`, `state`, `limit` | Hosts with OS, health state, open findings, agents, last seen, worst state first | `getEstateHealth`, `getHosts` |
+| `get_host` | `host` | OS and kernel (running and installed), reboot pending, uptime, automatic updates, last snapshot time, collector status, finding counts | `getHost`, `getHostSystem`, `getHostVulnSummary`, `getHostImageVulnSummary`, `getHostKernels` |
+| `get_host_remediation` | `host`, `min_severity`, `kev_only`, `limit` | One entry per vulnerable package: installed version, the highest fixed version across its findings (dpkg order), CVEs closed with severity and KEV, whether it's a kernel package (reboot needed) and whether the fix needs Ubuntu Pro. Packages without a fix are listed separately; `limit` applies to each list | `getHostRemediation` (`queries-remediation.ts`): the host tab's open package findings grouped by source package, kernels from `getHostKernels` |
+| `find_package` | `name`, `version` (prefix) | Hosts (images: PR 7) that have the package, by binary or source name, with versions and whether each is vulnerable | `findPackageOnHosts` (`queries-package-search.ts`) over `host_software`; `image_software` with the image tools |
 | `list_images` | `query`, `limit` | Images in use with their score, open findings and the hosts running them | `queries-image-scores.ts`, `queries-docker-fleet.ts` |
 | `get_image_vulnerabilities` | `image`, `min_severity`, `limit` | Findings with package, versions and **layer attribution** (base image layers vs layers added on top) | `getImageVulns`, `imageOriginSql` |
-| `get_finding_status` | `host` or `image`, plus `package` or `vulnerability` | Open or resolved (with when), and the time of the latest snapshot or scan, so Claude can tell "not fixed" from "not re-scanned yet" | `findings` |
-| `list_resolved` | `since`, `host`, `limit` | Findings resolved since a time | `findings` |
+| `get_finding_status` | `host` or `image`, plus `package` or `vulnerability` | Open or resolved (with when), and the time of the latest snapshot or scan, so Claude can tell "not fixed" from "not re-scanned yet": the agent's push interval and the package's versions installed now come along | `getFindingStatus` (`queries-finding-status.ts`) over `findings` |
+| `list_resolved` | `since` (default 7 days ago), `host`, `limit` | Host package and image findings resolved since a time, newest first | `getResolvedFindings` over `findings` |
 
 **Data only, no commands.** `get_host_remediation` returns packages and versions, never `apt-get …` or
 `apk …` lines. Claude works out the command for the host it's on, which keeps distro quirks (held packages,

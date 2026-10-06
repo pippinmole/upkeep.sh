@@ -152,13 +152,17 @@ The whole auth path end to end, with one tool to prove it.
 
 ### PR 6: `feat/mcp/6-tools-hosts` (feat(web): add MCP host tools)
 
-- [ ] Host lookup by id or hostname with the ambiguous-hostname error (`lib/mcp/resolve.ts`; `resolveHost`
+- [x] Host lookup by id or hostname with the ambiguous-hostname error (`lib/mcp/resolve.ts`; `resolveHost`
       came with PR 5, reuse it).
-- [ ] `list_hosts`, `get_host`, `get_host_remediation` (new grouped-by-package query: highest fixed version
+- [x] `list_hosts`, `get_host`, `get_host_remediation` (new grouped-by-package query: highest fixed version
       across the package's findings, kernel flag, unfixable packages listed apart), `find_package` (hosts
       only here; images in PR 7), `get_finding_status`, `list_resolved`.
-- [ ] Tests for the remediation grouping (several findings on one package, mixed fixed and unfixed, kernel).
-- [ ] By hand: the "patch web-01" story from [MCP.md](../MCP.md#stories) against a dev agent.
+- [x] Tests for the remediation grouping (several findings on one package, mixed fixed and unfixed, kernel).
+- [ ] By hand: the "patch web-01" story from [MCP.md](../MCP.md#stories) against a dev agent. Partly done
+      2026-10-06 against a WSL Ubuntu 26.04 agent: OAuth sign-in (wrong password shows the error, then the
+      authorization code and token), then every host tool over `/api/mcp`, logged in `mcp_calls`. Not yet:
+      the upgrade itself, then `get_finding_status` showing it resolved. That host had no finding with a
+      fix to apply.
 
 ### PR 7: `feat/mcp/7-tools-images` (feat(web): add MCP image tools)
 
