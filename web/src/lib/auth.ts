@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { apiKey } from "@better-auth/api-key";
 import { cimd } from "@better-auth/cimd";
 import { fetchClientMetadataResource } from "@better-auth/cimd/node";
 import { mcp } from "@better-auth/mcp";
@@ -190,10 +191,54 @@ const oauthProviderSchema = {
   },
 };
 
+// API tokens for headless MCP clients (docs/MCP.md#api-tokens-headless-agents,
+// docs/decisions/mcp-auth.md): @better-auth/api-key stores them in
+// api_tokens (server/migrations/0027_api_tokens, whose header lists this
+// mapping), hashed. They authenticate /api/mcp only (getMcpViewer), never
+// the dashboard: enableSessionForAPIKeys stays off, so a token can't stand
+// in for a session cookie.
+export const API_TOKEN_PREFIX = "upk_";
+
+const apiKeySchema = {
+  apikey: {
+    modelName: "api_tokens",
+    fields: {
+      configId: "config_id",
+      referenceId: "user_id",
+      refillInterval: "refill_interval",
+      refillAmount: "refill_amount",
+      lastRefillAt: "last_refill_at",
+      rateLimitEnabled: "rate_limit_enabled",
+      rateLimitTimeWindow: "rate_limit_time_window",
+      rateLimitMax: "rate_limit_max",
+      requestCount: "request_count",
+      lastRequest: "last_request",
+      expiresAt: "expires_at",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    },
+  },
+};
+
+// The plugin's HTTP endpoints. Tokens are created, listed and revoked by
+// our own server actions (Settings > Integrations > API tokens), which call
+// authServer.api directly or the database, so none of these is needed over
+// HTTP: the plugin's checks are owner-only, and ours let an admin revoke
+// anyone's. disabledPaths only closes the HTTP routes; server calls still
+// work. verify and delete-all-expired-api-keys are server-only already.
+const disabledApiKeyPaths = [
+  "/api-key/create",
+  "/api-key/get",
+  "/api-key/update",
+  "/api-key/delete",
+  "/api-key/list",
+];
+
 export const authServer = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL,
   trustedOrigins: extraOrigins,
+  disabledPaths: disabledApiKeyPaths,
   database: pool,
   advanced: {
     database: { generateId: "uuid" },
@@ -311,6 +356,23 @@ export const authServer = betterAuth({
       schema: oauthProviderSchema,
     }),
     cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
+    apiKey({
+      defaultPrefix: API_TOKEN_PREFIX,
+      requireName: true,
+      maximumNameLength: 64,
+      // upk_ plus 8 characters, enough to tell tokens apart in the list.
+      startingCharactersConfig: {
+        shouldStore: true,
+        charactersLength: API_TOKEN_PREFIX.length + 8,
+      },
+      // No expiry unless one is asked for (null is "never"); at most a year.
+      keyExpiration: { defaultExpiresIn: null, minExpiresIn: 1, maxExpiresIn: 365 },
+      // Off: /api/mcp already limits every credential (lib/mcp/rate-limit.ts).
+      // The plugin stamps this onto each key when it's created.
+      rateLimit: { enabled: false },
+      enableSessionForAPIKeys: false,
+      schema: apiKeySchema,
+    }),
     // Must stay last: it sets cookies from server actions (sign-in, sign-up).
     nextCookies(),
   ],

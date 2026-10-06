@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
-import { auth } from "./auth";
+import { API_TOKEN_PREFIX, auth, authServer } from "./auth";
 import { pool } from "./db";
 import { isUuid } from "./queries-inventory";
 import { ADMIN_ONLY_MESSAGE, isRole, type Role } from "./roles";
@@ -85,14 +85,22 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
 });
 
 // The credential an /api/mcp call was made with (docs/MCP.md#the-mcp-viewer).
-// OAuth only for now; API tokens (credential kind api_token) come later.
-export type McpCredential = {
-  kind: "oauth";
-  clientId: string; // the OAuth client_id (a CIMD client's metadata URL)
-  oauthClientId: string; // oauth_clients.id, which mcp_calls references
-  clientName: string | null;
-  scopes: string[];
-};
+// An OAuth grant, or an API token (upk_…) for a headless client.
+export type McpCredential =
+  | {
+      kind: "oauth";
+      clientId: string; // the OAuth client_id (a CIMD client's metadata URL)
+      oauthClientId: string; // oauth_clients.id, which mcp_calls references
+      clientName: string | null;
+      scopes: string[];
+    }
+  | {
+      kind: "api_token";
+      clientId: string; // the token's id, so each token is its own client
+      apiTokenId: string; // api_tokens.id, which mcp_calls references
+      clientName: string | null; // the token's name
+      scopes: string[];
+    };
 
 export type McpViewer = Viewer & { credential: McpCredential };
 
@@ -128,6 +136,38 @@ export async function getMcpViewer(claims: McpAccessTokenClaims): Promise<McpVie
   return {
     ...viewer,
     credential: { kind: "oauth", clientId, oauthClientId: c.id, clientName: c.name, scopes },
+  };
+}
+
+// The upk_ API token an /api/mcp request carries as its bearer credential,
+// or null: any other bearer credential is an OAuth access token, and goes
+// to requireMcpAuth and getMcpViewer.
+export function bearerApiToken(request: Request): string | null {
+  const m = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("authorization") ?? "");
+  return m?.[1].startsWith(API_TOKEN_PREFIX) ? m[1] : null;
+}
+
+// /api/mcp with an API token: the Viewer it belongs to, or null (401) when
+// the token is unknown, revoked, disabled or expired (the plugin checks the
+// hash, enabled and expires_at, and records the use as last_request), or
+// its user is unknown or disabled. The rest is getMcpViewer's: role and
+// flags from users on every call; a temporary password still resolves.
+// Tokens carry mcp:read only.
+export async function getMcpApiTokenViewer(token: string): Promise<McpViewer | null> {
+  const res = await authServer.api.verifyApiKey({ body: { key: token } });
+  const key = res.valid ? res.key : null;
+  if (!key || !isUuid(key.referenceId)) return null;
+  const viewer = await viewerForUser(key.referenceId);
+  if (!viewer) return null;
+  return {
+    ...viewer,
+    credential: {
+      kind: "api_token",
+      clientId: key.id,
+      apiTokenId: key.id,
+      clientName: key.name ?? null,
+      scopes: ["mcp:read"],
+    },
   };
 }
 

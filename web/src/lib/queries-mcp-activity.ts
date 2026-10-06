@@ -30,7 +30,7 @@ export type McpCallRow = {
 export type McpActivityFilters = {
   q: string | null;
   userIds: string[] | null;
-  // oauth_clients ids (API token ids once they exist).
+  // oauth_clients or api_tokens ids.
   clientIds: string[] | null;
   tools: string[] | null;
   sort: { id: McpActivitySort; desc: boolean };

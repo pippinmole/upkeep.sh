@@ -1,9 +1,9 @@
 import { requireMcpAuth } from "@better-auth/mcp";
 import { createMcpHandler, originValidationResponse } from "@modelcontextprotocol/server";
 
-import { appBaseUrl, authServer, extraOrigins, mcpResourceUrl } from "@/lib/auth";
+import { API_TOKEN_PREFIX, appBaseUrl, authServer, extraOrigins, mcpResourceUrl } from "@/lib/auth";
 import { createMcpServer } from "@/lib/mcp/server";
-import { getMcpViewer, type McpViewer } from "@/lib/viewer";
+import { bearerApiToken, getMcpApiTokenViewer, getMcpViewer, type McpViewer } from "@/lib/viewer";
 
 // The MCP server (docs/MCP.md): stateless Streamable HTTP, one fresh server
 // per request. Both protocol eras are served: 2026-07-28 requests directly,
@@ -12,7 +12,9 @@ import { getMcpViewer, type McpViewer } from "@/lib/viewer";
 //
 // Only bearer credentials authenticate here; session cookies are stripped
 // before anything reads the request, so a browser can't be tricked into
-// calling a tool with the user's dashboard session.
+// calling a tool with the user's dashboard session. A bearer credential is
+// an API token when it starts with upk_ (getMcpApiTokenViewer), otherwise
+// an OAuth access token (requireMcpAuth, then getMcpViewer).
 
 const handler = createMcpHandler(
   ({ authInfo }) => {
@@ -44,8 +46,9 @@ function withoutCookies(request: Request): Request {
 }
 
 // A credential that verified but no longer maps to an enabled user who
-// consents to the client: answer like an invalid token, so the client signs
-// in again rather than retrying.
+// consents to the client, or an API token that is unknown, revoked or
+// expired: answer like an invalid token, so the client signs in again
+// rather than retrying.
 function invalidToken(): Response {
   const resourceMetadata = `${appBaseUrl()}/.well-known/oauth-protected-resource/api/mcp`;
   return Response.json(
@@ -59,6 +62,29 @@ function invalidToken(): Response {
   );
 }
 
+function serve(request: Request, viewer: McpViewer, expiresAt?: number): Promise<Response> {
+  const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  return handler.fetch(request, {
+    authInfo: {
+      token,
+      clientId: viewer.credential.clientId,
+      scopes: viewer.credential.scopes,
+      expiresAt,
+      resource: new URL(mcpResourceUrl()),
+      extra: { viewer },
+    },
+  });
+}
+
+async function apiTokenHandler(request: Request, token: string): Promise<Response> {
+  const viewer = await getMcpApiTokenViewer(token);
+  if (!viewer) {
+    console.warn(`mcp: refused an API token (${token.slice(0, API_TOKEN_PREFIX.length + 8)}…)`);
+    return invalidToken();
+  }
+  return serve(request, viewer);
+}
+
 const protectedHandler = requireMcpAuth(
   authServer,
   async (request, claims) => {
@@ -69,17 +95,7 @@ const protectedHandler = requireMcpAuth(
       );
       return invalidToken();
     }
-    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-    return handler.fetch(request, {
-      authInfo: {
-        token,
-        clientId: viewer.credential.clientId,
-        scopes: viewer.credential.scopes,
-        expiresAt: claims.exp,
-        resource: new URL(mcpResourceUrl()),
-        extra: { viewer },
-      },
-    });
+    return serve(request, viewer, claims.exp);
   },
   {
     resource: mcpResourceUrl(),
@@ -95,7 +111,9 @@ const protectedHandler = requireMcpAuth(
 export async function POST(request: Request): Promise<Response> {
   const rejected = originValidationResponse(request, allowedOriginHosts());
   if (rejected) return rejected;
-  return protectedHandler(withoutCookies(request));
+  const req = withoutCookies(request);
+  const apiToken = bearerApiToken(req);
+  return apiToken ? apiTokenHandler(req, apiToken) : protectedHandler(req);
 }
 
 // Stateless: there is no session stream to open (GET) or end (DELETE).
