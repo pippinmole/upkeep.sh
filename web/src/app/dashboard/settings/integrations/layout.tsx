@@ -14,7 +14,7 @@ export default function IntegrationsLayout({ children }: { children: React.React
         Integrations
       </SectionHeading>
       <IntegrationTabs />
-      <div className="mt-2">{children}</div>
+      {children}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { EmptyState } from "@/components/empty-state";
+import { SectionDescription } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { getConnectedApps } from "@/lib/queries-integrations";
 import { requireViewer } from "@/lib/viewer";
@@ -21,11 +22,11 @@ export default async function ConnectedAppsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground text-sm">
+      <SectionDescription>
         {viewer.isAdmin
           ? "Apps anyone on this install has allowed to read the workspace. Revoking one signs it out: its next call fails and it has to ask again."
           : "Apps you've allowed to read the workspace. Revoking one signs it out: its next call fails and it has to ask again."}
-      </p>
+      </SectionDescription>
       {apps.length === 0 ? (
         <EmptyState
           icon={Plug}

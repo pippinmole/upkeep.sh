@@ -49,7 +49,7 @@ export function SettingsNav() {
       </nav>
 
       <aside className="hidden w-48 shrink-0 md:block">
-        <nav aria-label="Settings sections" className="sticky top-20">
+        <nav aria-label="Settings sections" className="sticky top-20 pt-0.5">
           <SidebarGroup className="p-0">
             <SidebarMenu className="-ml-2">
               {settingsSections.map((s) => {
