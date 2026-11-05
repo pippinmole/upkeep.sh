@@ -4,7 +4,12 @@ import { osLabel } from "./os";
 import { oneOf, param, type SearchParams } from "./search-params";
 
 export type AgentStatus = "online" | "stale" | "never" | "revoked";
-export type MachineAgent = { id: string; name: string; mode: "local" | "ssh" | "winrm"; status: AgentStatus };
+export type MachineAgent = {
+  id: string;
+  name: string;
+  mode: "local" | "ssh" | "winrm";
+  status: AgentStatus;
+};
 export type MachineStatus = "online" | "stale" | "never";
 export type SeverityCounts = { critical: number; high: number; medium: number; low: number };
 
@@ -81,7 +86,9 @@ export function hasKev(m: MachineRow): boolean {
 
 function matchesQuery(m: MachineRow, q: string): boolean {
   const needle = q.toLowerCase();
-  return [m.hostname, m.label, osLabel(m.osId, m.osVersion), m.ip].some((v) => v?.toLowerCase().includes(needle));
+  return [m.hostname, m.label, osLabel(m.osId, m.osVersion), m.ip].some((v) =>
+    v?.toLowerCase().includes(needle),
+  );
 }
 
 // Filters are ANDed; input order is preserved (sorting is the query's job).
@@ -97,11 +104,29 @@ export function filterMachines(rows: MachineRow[], f: MachineFilters): MachineRo
   );
 }
 
-export function summarizeMachines(rows: MachineRow[]): { machines: number; withCritical: number; archived: number } {
+export function summarizeMachines(rows: MachineRow[]): {
+  machines: number;
+  withCritical: number;
+  archived: number;
+} {
   const active = rows.filter((m) => m.archivedAt === null);
   return {
     machines: active.length,
     withCritical: active.filter(hasCritical).length,
     archived: rows.length - active.length,
   };
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+// The line under the page title: "12 machines · 3 with critical vulnerabilities".
+export function machinesSummaryText(s: { machines: number; withCritical: number }): string {
+  const base = plural(s.machines, "machine", "machines");
+  return s.withCritical > 0 ? `${base} · ${s.withCritical} with critical vulnerabilities` : base;
+}
+
+// Tooltip for a row's "+N in images". `images` counts the running images
+// with at least one open finding, so it is only ever shown next to N.
+export function imageVulnsTitle(i: MachineRow["images"]): string {
+  return `${plural(i.vulns, "vulnerability", "vulnerabilities")} in ${plural(i.images, "running image", "running images")} · ${i.critical} critical`;
 }

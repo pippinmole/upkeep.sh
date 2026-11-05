@@ -6,28 +6,37 @@ import {
   collectorLabel,
   filterMachines,
   hasNoActiveAgent,
+  imageVulnsTitle,
   type MachineAgent,
   type MachineFilters,
   type MachineRow,
   machineStatus,
+  machinesSummaryText,
   parseMachineFilters,
   summarizeMachines,
 } from "./machines";
 
-const a = (status: AgentStatus, mode: MachineAgent["mode"] = "local", name = "a1"): MachineAgent => ({
+const a = (
+  status: AgentStatus,
+  mode: MachineAgent["mode"] = "local",
+  name = "a1",
+): MachineAgent => ({
   id: name,
   name,
   mode,
   status,
 });
 
-test("status: any online wins", () => expect(machineStatus([a("stale"), a("online", "ssh")])).toBe("online"));
-test("status: active but none online is stale", () => expect(machineStatus([a("never"), a("stale")])).toBe("stale"));
+test("status: any online wins", () =>
+  expect(machineStatus([a("stale"), a("online", "ssh")])).toBe("online"));
+test("status: active but none online is stale", () =>
+  expect(machineStatus([a("never"), a("stale")])).toBe("stale"));
 test("status: all revoked is stale with no active agent", () => {
   expect(machineStatus([a("revoked")])).toBe("stale");
   expect(hasNoActiveAgent([a("revoked")])).toBe(true);
 });
-test("status: only never-reported agents is never", () => expect(machineStatus([a("never")])).toBe("never"));
+test("status: only never-reported agents is never", () =>
+  expect(machineStatus([a("never")])).toBe("never"));
 test("status: no agents is never, label null", () => {
   expect(machineStatus([])).toBe("never");
   expect(collectorLabel([])).toBeNull();
@@ -84,7 +93,9 @@ const f = (o: Partial<MachineFilters> = {}): MachineFilters => ({
 const names = (rows: MachineRow[]) => rows.map((r) => r.hostname);
 
 test("junk params are ignored", () => {
-  expect(parseMachineFilters({ status: "bogus", os: "", critical: "yes", q: ["web", "db"] })).toEqual({
+  expect(
+    parseMachineFilters({ status: "bogus", os: "", critical: "yes", q: ["web", "db"] }),
+  ).toEqual({
     q: "web",
     status: null,
     os: null,
@@ -94,7 +105,9 @@ test("junk params are ignored", () => {
   });
 });
 test("valid params are parsed", () => {
-  expect(parseMachineFilters({ status: "stale", os: "debian", critical: "1", kev: "1", archived: "1" })).toEqual({
+  expect(
+    parseMachineFilters({ status: "stale", os: "debian", critical: "1", kev: "1", archived: "1" }),
+  ).toEqual({
     q: null,
     status: "stale",
     os: "debian",
@@ -104,11 +117,16 @@ test("valid params are parsed", () => {
   });
 });
 test("search matches hostname, label, OS and IP fragments; nulls are safe", () => {
-  const rows = [m({ hostname: "db-primary", ip: "10.0.1.12" }), m({ hostname: "edge", label: null, osId: null, ip: null })];
+  const rows = [
+    m({ hostname: "db-primary", ip: "10.0.1.12" }),
+    m({ hostname: "edge", label: null, osId: null, ip: null }),
+  ];
   expect(names(filterMachines(rows, f({ q: "10.0.1" })))).toEqual(["db-primary"]);
   expect(names(filterMachines(rows, f({ q: "EDGE" })))).toEqual(["edge"]);
   expect(names(filterMachines(rows, f({ q: "ubuntu 24" })))).toEqual(["db-primary"]);
-  expect(names(filterMachines([m({ hostname: "x", label: "Billing box" })], f({ q: "billing" })))).toEqual(["x"]);
+  expect(
+    names(filterMachines([m({ hostname: "x", label: "Billing box" })], f({ q: "billing" }))),
+  ).toEqual(["x"]);
 });
 test("status and os filters", () => {
   const rows = [
@@ -127,7 +145,11 @@ test("critical filter counts packages or running images", () => {
   expect(names(filterMachines(rows, f({ critical: true })))).toEqual(["a", "b"]);
 });
 test("kev filter counts packages or running images", () => {
-  const rows = [m({ hostname: "a", vulns: { ...zero, kev: 1 } }), m({ hostname: "b", images: { ...noImg, kev: 1 } }), m({ hostname: "c" })];
+  const rows = [
+    m({ hostname: "a", vulns: { ...zero, kev: 1 } }),
+    m({ hostname: "b", images: { ...noImg, kev: 1 } }),
+    m({ hostname: "c" }),
+  ];
   expect(names(filterMachines(rows, f({ kev: true })))).toEqual(["a", "b"]);
 });
 test("archived hidden unless asked", () => {
@@ -136,12 +158,40 @@ test("archived hidden unless asked", () => {
   expect(names(filterMachines(rows, f({ archived: true })))).toEqual(["a", "b"]);
 });
 test("filtering keeps input order", () => {
-  expect(names(filterMachines([m({ hostname: "b" }), m({ hostname: "a" })], f()))).toEqual(["b", "a"]);
+  expect(names(filterMachines([m({ hostname: "b" }), m({ hostname: "a" })], f()))).toEqual([
+    "b",
+    "a",
+  ]);
 });
 test("summary ignores archived", () => {
-  expect(summarizeMachines([m({ vulns: { ...zero, critical: 1 } }), m({ archivedAt: "2026-01-01T00:00:00Z" })])).toEqual({
+  expect(
+    summarizeMachines([
+      m({ vulns: { ...zero, critical: 1 } }),
+      m({ archivedAt: "2026-01-01T00:00:00Z" }),
+    ]),
+  ).toEqual({
     machines: 1,
     withCritical: 1,
     archived: 1,
   });
+});
+
+test("summary text: plural, singular, and the critical suffix", () => {
+  expect(machinesSummaryText({ machines: 12, withCritical: 0 })).toBe("12 machines");
+  expect(machinesSummaryText({ machines: 1, withCritical: 0 })).toBe("1 machine");
+  expect(machinesSummaryText({ machines: 0, withCritical: 0 })).toBe("0 machines");
+  expect(machinesSummaryText({ machines: 12, withCritical: 3 })).toBe(
+    "12 machines · 3 with critical vulnerabilities",
+  );
+  expect(machinesSummaryText({ machines: 1, withCritical: 1 })).toBe(
+    "1 machine · 1 with critical vulnerabilities",
+  );
+});
+test("image tooltip names vulnerabilities, running images and critical", () => {
+  expect(imageVulnsTitle({ vulns: 14, images: 3, critical: 2, kev: 0 })).toBe(
+    "14 vulnerabilities in 3 running images · 2 critical",
+  );
+  expect(imageVulnsTitle({ vulns: 1, images: 1, critical: 0, kev: 0 })).toBe(
+    "1 vulnerability in 1 running image · 0 critical",
+  );
 });
