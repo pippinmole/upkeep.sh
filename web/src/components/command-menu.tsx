@@ -46,8 +46,8 @@ import { useViewer } from "./viewer-context";
 // actions open the page that holds the button.
 const ACTIONS = [
   {
-    title: "Add host",
-    url: "/dashboard/hosts",
+    title: "Add machine",
+    url: "/dashboard",
     icon: Plus,
     keywords: ["enroll", "agent", "install"],
   },
@@ -148,7 +148,7 @@ export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
       commandProps={{ shouldFilter: false, value: selected, onValueChange: setSelected }}
     >
       <CommandInput
-        placeholder="Search CVEs, packages, images, hosts, agents or pages…"
+        placeholder="Search CVEs, packages, images, machines, agents or pages…"
         value={query}
         onValueChange={setQuery}
       />

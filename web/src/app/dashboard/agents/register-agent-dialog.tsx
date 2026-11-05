@@ -277,7 +277,7 @@ function DockerCollectionOption({
   );
 }
 
-// "Install an agent" on the Agents page. The Hosts page's "Add host" offers
+// "Install an agent" on the Agents page. The Machines page's "Add machine" offers
 // the same panel as its "install the agent on this machine" option, and a
 // remote host's Containers / Images tabs open it to install an agent there.
 function RegisterAgentDialogControl({
