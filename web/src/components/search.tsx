@@ -43,8 +43,8 @@ interface Props {
   placeholder?: string;
 }
 
-// The top bar's search trigger, styled for the dark bar: a field on sm and
-// up, an icon button below.
+// The top bar's search trigger, styled for the dark bar: a field from xl
+// up, an icon button below (narrower bars need the room for the tabs).
 export function Search({ className = "", placeholder = "Search CVEs, hosts, packages…" }: Props) {
   const { setOpen } = useSearch();
   return (
@@ -52,7 +52,7 @@ export function Search({ className = "", placeholder = "Search CVEs, hosts, pack
       <Button
         variant="ghost"
         className={cn(
-          "border-topbar-foreground/15 bg-topbar-foreground/5 text-topbar-muted hover:bg-topbar-foreground/10 hover:text-topbar-foreground relative hidden h-8 w-full justify-start rounded-md border text-sm font-normal sm:flex sm:pr-14 md:w-40 lg:w-56 xl:w-64",
+          "border-topbar-foreground/15 bg-topbar-foreground/5 text-topbar-muted hover:bg-topbar-foreground/10 hover:text-topbar-foreground relative hidden h-8 w-64 justify-start rounded-md border pr-14 text-sm font-normal xl:flex",
           className,
         )}
         onClick={() => setOpen(true)}
@@ -71,7 +71,7 @@ export function Search({ className = "", placeholder = "Search CVEs, hosts, pack
         variant="ghost"
         size="icon"
         aria-label="Search"
-        className="text-topbar-muted hover:bg-topbar-foreground/10 hover:text-topbar-foreground size-8 sm:hidden"
+        className="text-topbar-muted hover:bg-topbar-foreground/10 hover:text-topbar-foreground size-8 xl:hidden"
         onClick={() => setOpen(true)}
       >
         <SearchIcon aria-hidden="true" className="size-4" />
