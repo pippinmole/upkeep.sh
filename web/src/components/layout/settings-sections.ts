@@ -1,4 +1,4 @@
-import { BellRing, Plug, Send, Users } from "lucide-react";
+import { BellRing, Plug, RadioTower, Send, Users } from "lucide-react";
 
 import { INTEGRATIONS_URL } from "@/app/dashboard/settings/integrations/links";
 import { ALERT_RULES_URL, NOTIFICATION_SETTINGS_URL } from "@/components/notifications/links";
@@ -32,5 +32,11 @@ export const settingsSections = [
     url: INTEGRATIONS_URL,
     icon: Plug,
     keywords: ["mcp", "claude", "ai", "oauth", "tokens", "api"],
+  },
+  {
+    title: "Agents",
+    url: "/dashboard/agents",
+    icon: RadioTower,
+    keywords: ["collectors", "enroll", "install"],
   },
 ];

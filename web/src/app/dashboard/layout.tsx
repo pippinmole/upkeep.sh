@@ -5,7 +5,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Header } from "@/components/layout/header";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ViewerProvider } from "@/components/viewer-context";
-import { getNavCounts } from "@/lib/queries-nav";
+import { getTopBarData } from "@/lib/queries-nav";
 import { cn } from "@/lib/utils";
 import { requireViewer } from "@/lib/viewer";
 
@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: Props) {
     email: viewer.email,
     role: viewer.role,
   };
-  const counts = await getNavCounts(viewer.workspaceId);
+  const counts = await getTopBarData(viewer.workspaceId);
 
   return (
     <ViewerProvider role={viewer.role}>
