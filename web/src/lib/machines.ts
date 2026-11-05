@@ -1,5 +1,8 @@
 // Types and pure helpers for the Machines home page.
 
+import { osLabel } from "./os";
+import { oneOf, param, type SearchParams } from "./search-params";
+
 export type AgentStatus = "online" | "stale" | "never" | "revoked";
 export type MachineAgent = { id: string; name: string; mode: "local" | "ssh" | "winrm"; status: AgentStatus };
 export type MachineStatus = "online" | "stale" | "never";
@@ -43,5 +46,62 @@ export function collectorLabel(agents: MachineAgent[]): { text: string; more: nu
   return {
     text: first.mode === "local" ? "Local agent" : `via ${first.name}`,
     more: active.filter((a) => a !== first).length,
+  };
+}
+
+export type MachineFilters = {
+  q: string | null;
+  status: MachineStatus | null;
+  os: string | null;
+  critical: boolean;
+  kev: boolean;
+  archived: boolean;
+};
+
+const STATUSES = ["online", "stale", "never"] as const;
+
+export function parseMachineFilters(sp: SearchParams): MachineFilters {
+  return {
+    q: param(sp, "q"),
+    status: oneOf(sp, "status", STATUSES),
+    os: param(sp, "os"),
+    critical: param(sp, "critical") === "1",
+    kev: param(sp, "kev") === "1",
+    archived: param(sp, "archived") === "1",
+  };
+}
+
+export function hasCritical(m: MachineRow): boolean {
+  return m.vulns.critical > 0 || m.images.critical > 0;
+}
+
+export function hasKev(m: MachineRow): boolean {
+  return m.vulns.kev > 0 || m.images.kev > 0;
+}
+
+function matchesQuery(m: MachineRow, q: string): boolean {
+  const needle = q.toLowerCase();
+  return [m.hostname, m.label, osLabel(m.osId, m.osVersion), m.ip].some((v) => v?.toLowerCase().includes(needle));
+}
+
+// Filters are ANDed; input order is preserved (sorting is the query's job).
+export function filterMachines(rows: MachineRow[], f: MachineFilters): MachineRow[] {
+  return rows.filter(
+    (m) =>
+      (f.archived || m.archivedAt === null) &&
+      (f.q === null || matchesQuery(m, f.q)) &&
+      (f.status === null || machineStatus(m.agents) === f.status) &&
+      (f.os === null || m.osId === f.os) &&
+      (!f.critical || hasCritical(m)) &&
+      (!f.kev || hasKev(m)),
+  );
+}
+
+export function summarizeMachines(rows: MachineRow[]): { machines: number; withCritical: number; archived: number } {
+  const active = rows.filter((m) => m.archivedAt === null);
+  return {
+    machines: active.length,
+    withCritical: active.filter(hasCritical).length,
+    archived: rows.length - active.length,
   };
 }
