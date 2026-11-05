@@ -1,11 +1,12 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { filterMachines, type MachineFilters, type MachineRow as Machine } from "@/lib/machines";
+import { filterMachines, type MachineRow as Machine, parseMachineFilters } from "@/lib/machines";
 import { osName } from "@/lib/os";
 
 import { MachineRow } from "./machine-row";
@@ -18,9 +19,15 @@ import {
 
 // The machine list: toolbar, then one row per machine in the order the
 // query returned (alphabetical by hostname; never re-sorted here). Filters
-// come from the URL and run here over the fetched rows.
-export function MachineList({ rows, filters }: { rows: Machine[]; filters: MachineFilters }) {
+// come from the URL (read client-side, so changing them makes no server
+// request) and run here over the fetched rows.
+export function MachineList({ rows }: { rows: Machine[] }) {
   const set = useSetFilterParams();
+  const searchParams = useSearchParams();
+  const filters = useMemo(
+    () => parseMachineFilters(Object.fromEntries(searchParams)),
+    [searchParams],
+  );
   const [searchKey, setSearchKey] = useState(0);
   const visible = filterMachines(rows, filters);
   const archivedCount = rows.filter((m) => m.archivedAt !== null).length;

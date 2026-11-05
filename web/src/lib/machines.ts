@@ -128,7 +128,8 @@ export function machinesSummaryText(s: { machines: number; withCritical: number 
 // Tooltip for a row's "+N in images". `images` counts the running images
 // with at least one open finding, so it is only ever shown next to N.
 export function imageVulnsTitle(i: MachineRow["images"]): string {
-  return `${plural(i.vulns, "vulnerability", "vulnerabilities")} in ${plural(i.images, "running image", "running images")} · ${i.critical} critical`;
+  const base = `${plural(i.vulns, "vulnerability", "vulnerabilities")} in ${plural(i.images, "running image", "running images")} · ${i.critical} critical`;
+  return i.kev > 0 ? `${base} · ${i.kev} known exploited` : base;
 }
 
 // The pills show critical / high / medium only; a machine whose open host

@@ -9,8 +9,8 @@ import {
 } from "./queries-image-scores";
 import { emptySeverityCounts, isSeverity, type SeverityCounts } from "./severity";
 
-// The Overview page's container image numbers (DOMAIN_MODEL.md §3.6
-// "Overview", §2.6 "Image findings and scores"). Kept apart from the host
+// Container image numbers for the machines page and the MCP tools
+// (DOMAIN_MODEL.md §3.6, §2.6 "Image findings and scores"). Kept apart from the host
 // package numbers on purpose: an image finding is fixed by rebuilding or
 // re-pulling the image, a host one by upgrading the host.
 //

@@ -3,10 +3,10 @@ import type { EstateHealth, HostHealth } from "@/lib/queries-overview";
 import { hostHref, nameList } from "../rank";
 import type { AttentionItem, AttentionProvider } from "../types";
 
-// Items read from the Overview's estate health (lib/queries-overview.ts),
-// which the Estate card loads anyway: no query of their own. The firing
-// alert count is the alerting feature's (the same count as the sidebar's
-// Alerts badge).
+// Items read from the estate health (lib/queries-overview.ts) that the
+// attention page and the top bar's Attention badge already load: no query of
+// their own. The firing alert count is the alerting feature's (the same
+// count as the top bar's Alerts badge).
 
 function hostList(hosts: HostHealth[], many: string) {
   return {

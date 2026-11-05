@@ -27,7 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-// What the manage dialogs need: both HostListRow and MachineRow fit.
+// What the manage dialogs need: both the hosts page rows and the Machines page rows fit.
 export type ManagedHost = {
   id: string;
   hostname: string;

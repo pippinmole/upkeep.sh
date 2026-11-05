@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -20,13 +20,14 @@ import { cn } from "@/lib/utils";
 export type SetFilterParams = (overrides: Record<string, string | null>) => void;
 
 // Writes filter changes into the URL (search-params.ts conventions), so a
-// filtered list can be shared and survives a reload. replace, not push: a
-// filter tweak isn't a history entry. Each write builds on the last one
+// filtered list can be shared and survives a reload. history.replaceState,
+// not router.replace: Next syncs it into useSearchParams without a server
+// request, so filtering stays on the client over the fetched rows (and a
+// filter tweak isn't a history entry). Each write builds on the last one
 // (held in a ref), not on the params of the render that scheduled it, so a
 // debounced search can't undo a select changed in the meantime. Use one
 // instance per page and pass it down.
 export function useSetFilterParams(): SetFilterParams {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const latest = useRef<SearchParams>(Object.fromEntries(searchParams));
@@ -37,9 +38,9 @@ export function useSetFilterParams(): SetFilterParams {
     (overrides) => {
       const qs = withParams(latest.current, overrides);
       latest.current = Object.fromEntries(new URLSearchParams(qs));
-      router.replace(pathname + qs, { scroll: false });
+      window.history.replaceState(null, "", pathname + qs);
     },
-    [router, pathname],
+    [pathname],
   );
 }
 

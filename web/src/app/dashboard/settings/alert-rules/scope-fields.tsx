@@ -25,7 +25,7 @@ export function ScopeFields({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>Hosts</Label>
+      <Label>Machines</Label>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
         {(["all", "selected"] as const).map((s) => (
           <label key={s} className="flex items-center gap-2">
@@ -36,14 +36,14 @@ export function ScopeFields({
               checked={scope === s}
               onChange={() => onScope(s)}
             />
-            {s === "all" ? "All hosts (including future ones)" : "Selected hosts"}
+            {s === "all" ? "All machines (including future ones)" : "Selected machines"}
           </label>
         ))}
       </div>
       {scope === "selected" &&
         (hosts.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            Hosts appear here once an agent reports. See{" "}
+            Machines appear here once an agent reports. See{" "}
             <Link
               href="/dashboard"
               className="text-foreground font-medium underline underline-offset-4"

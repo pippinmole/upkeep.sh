@@ -53,7 +53,7 @@ export const agentColumns = col.columns([
         className="size-7"
         onClick={row.getToggleExpandedHandler()}
         aria-expanded={row.getIsExpanded()}
-        aria-label={row.getIsExpanded() ? "Hide hosts" : "Show hosts"}
+        aria-label={row.getIsExpanded() ? "Hide machines" : "Show machines"}
       >
         <ChevronRight
           className={cn("size-4 transition-transform", row.getIsExpanded() && "rotate-90")}
@@ -92,7 +92,7 @@ export const agentColumns = col.columns([
     id: "hosts",
     meta: NUMERIC_COLUMN,
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Hosts" className={NUMERIC_HEADER} />
+      <DataTableColumnHeader column={column} title="Machines" className={NUMERIC_HEADER} />
     ),
     cell: ({ row }) => row.original.hosts.length,
   }),

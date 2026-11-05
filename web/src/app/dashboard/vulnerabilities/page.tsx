@@ -49,7 +49,7 @@ export default async function FleetVulnerabilitiesPage({
   const header = (
     <PageHeader
       title="Vulnerabilities"
-      description="Known vulnerabilities in the packages installed on your hosts and in the container images they run, ranked by real-world exploitability."
+      description="Known vulnerabilities in the packages installed on your machines and in the container images they run, ranked by real-world exploitability."
     />
   );
 
@@ -63,8 +63,8 @@ export default async function FleetVulnerabilitiesPage({
           <EmptyState
             size="page"
             icon={ShieldCheck}
-            title="No hosts yet"
-            description="Vulnerabilities are matched against the packages your hosts report. Add a host to start."
+            title="No machines yet"
+            description="Vulnerabilities are matched against the packages your machines report. Add a machine to start."
             action={
               <Button asChild>
                 <Link href="/dashboard">
@@ -79,7 +79,7 @@ export default async function FleetVulnerabilitiesPage({
             size="page"
             icon={ShieldCheck}
             title="No open vulnerabilities"
-            description={`No package on your ${counts.hosts === 1 ? "host" : `${counts.hosts} hosts`}, or in the images their containers run, matches a known vulnerability. New advisories are matched as they're published.`}
+            description={`No package on your ${counts.hosts === 1 ? "machine" : `${counts.hosts} machines`}, or in the images their containers run, matches a known vulnerability. New advisories are matched as they're published.`}
             action={
               <Button asChild variant="outline">
                 <Link href={`${basePath}?status=resolved`}>View resolved</Link>
@@ -116,7 +116,7 @@ export default async function FleetVulnerabilitiesPage({
         <KindSummary counts={counts} basePath={basePath} />
       ) : (
         <p className="text-muted-foreground text-sm">
-          No longer found on any host or in any image. A vulnerability moves back to Open if it
+          No longer found on any machine or in any image. A vulnerability moves back to Open if it
           reappears.
         </p>
       )}
@@ -131,7 +131,7 @@ export default async function FleetVulnerabilitiesPage({
         emptyMessage={
           status === "open"
             ? "Nothing on this page."
-            : "Nothing resolved yet. A vulnerability appears here once no host or image is affected by it."
+            : "Nothing resolved yet. A vulnerability appears here once no machine or image is affected by it."
         }
       />
     </main>

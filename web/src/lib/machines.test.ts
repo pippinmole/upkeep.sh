@@ -195,6 +195,9 @@ test("image tooltip names vulnerabilities, running images and critical", () => {
   expect(imageVulnsTitle({ vulns: 1, images: 1, critical: 0, kev: 0 })).toBe(
     "1 vulnerability in 1 running image · 0 critical",
   );
+  expect(imageVulnsTitle({ vulns: 5, images: 2, critical: 1, kev: 3 })).toBe(
+    "5 vulnerabilities in 2 running images · 1 critical · 3 known exploited",
+  );
 });
 test("low-only count shows only when critical, high and medium are all 0", () => {
   expect(lowOnlyCount({ ...zero, low: 4 })).toBe(4);
