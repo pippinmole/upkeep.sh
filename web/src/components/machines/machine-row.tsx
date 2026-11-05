@@ -2,7 +2,7 @@ import { RotateCw } from "lucide-react";
 import Link from "next/link";
 import { Children } from "react";
 
-import { TimeAgo } from "@/app/dashboard/hosts/table-cells";
+import { TimeAgo } from "@/components/time-ago";
 import { StatusDot, type Tone } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

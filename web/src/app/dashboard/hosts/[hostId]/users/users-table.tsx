@@ -8,7 +8,7 @@ import { dataTableColumnHelper, type DataTableFeatures } from "@/components/data
 import { Badge } from "@/components/ui/badge";
 import type { HostUserRow } from "@/lib/queries-host-facts";
 
-import { TimeAgo } from "../../table-cells";
+import { TimeAgo } from "@/components/time-ago";
 
 // One scalar per user for the faceted filter, most privileged first.
 type Access = "root" | "admin" | "login" | "nologin";

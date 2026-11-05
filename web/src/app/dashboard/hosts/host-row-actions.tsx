@@ -2,14 +2,7 @@
 
 import {
   AlertTriangle,
-  Archive,
-  ArchiveRestore,
-  Combine,
   Loader2,
-  MoreHorizontal,
-  Pencil,
-  SplitSquareHorizontal,
-  Trash2,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 
@@ -31,18 +24,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { HostListRow } from "@/lib/queries";
-import { adminOnly } from "@/components/viewer-context";
 
 // What the manage dialogs need: both HostListRow and MachineRow fit.
 export type ManagedHost = {
@@ -56,85 +39,9 @@ export type ManagedHost = {
 };
 
 export type ManageDialogKind = "archive" | "unarchive" | "merge" | "dismiss" | "delete";
-type DialogKind = "rename" | ManageDialogKind;
 
 const display = (h: { hostname: string; label: string | null }) =>
   h.label ? `${h.label} (${h.hostname})` : h.hostname;
-
-// Per-host management (DOMAIN_MODEL.md §4.3 "Management"): rename,
-// archive / unarchive, resolve a duplicate flag (merge / not a duplicate),
-// delete. Every action is a server action re-checking ownership.
-function HostRowActionsControl({ host }: { host: HostListRow }) {
-  const [dialog, setDialog] = useState<DialogKind | null>(null);
-  const set = (d: DialogKind) => (open: boolean) => setDialog(open ? d : null);
-  const archived = !!host.archivedAt;
-
-  return (
-    <>
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={`Actions for ${host.hostname}`}
-          >
-            <MoreHorizontal className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel className="truncate">{display(host)}</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setDialog("rename")}>
-            <Pencil />
-            Rename
-          </DropdownMenuItem>
-          {host.duplicateOf && !archived && (
-            <>
-              <DropdownMenuItem onSelect={() => setDialog("merge")}>
-                <Combine />
-                Merge into {host.duplicateOf.hostname}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setDialog("dismiss")}>
-                <SplitSquareHorizontal />
-                Not a duplicate
-              </DropdownMenuItem>
-            </>
-          )}
-          {archived ? (
-            !host.mergedInto && (
-              <DropdownMenuItem onSelect={() => setDialog("unarchive")}>
-                <ArchiveRestore />
-                Unarchive
-              </DropdownMenuItem>
-            )
-          ) : (
-            <DropdownMenuItem onSelect={() => setDialog("archive")}>
-              <Archive />
-              Archive
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => setDialog("delete")}
-            className="text-destructive focus:text-destructive"
-          >
-            <Trash2 />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <RenameDialog host={host} open={dialog === "rename"} onOpenChange={set("rename")} />
-
-      <ManageDialogs
-        host={host}
-        open={dialog === "rename" ? null : dialog}
-        onClose={() => setDialog(null)}
-      />
-    </>
-  );
-}
 
 // The confirmation dialogs behind a host's manage actions; `open` names the
 // one showing. Delete asks for the hostname to be typed.
@@ -180,7 +87,7 @@ export function ManageDialogs({
         open={open === "unarchive"}
         onOpenChange={onOpenChange}
         title={`Unarchive ${display(host)}?`}
-        description={<p>The host shows up in lists and fleet views again.</p>}
+        description={<p>The machine shows up in lists and fleet views again.</p>}
         actionLabel="Unarchive"
         run={() => setHostArchived(host.id, false)}
       />
@@ -199,7 +106,7 @@ export function ManageDialogs({
                   {host.duplicateOf.hostname}: their next pushes continue its history and inventory.
                 </p>
                 <p>
-                  This host&apos;s own snapshots and findings are not moved: it is archived as
+                  This machine&apos;s own snapshots and findings are not moved: it is archived as
                   &ldquo;merged&rdquo; and its pages stay available. This can&apos;t be undone.
                 </p>
               </>
@@ -232,20 +139,20 @@ export function ManageDialogs({
         description={
           <>
             <p>
-              Permanently deletes the host with all its snapshots, package history and findings. Its
-              agents are not deleted. This can&apos;t be undone; archive the host instead to keep
+              Permanently deletes the machine with all its snapshots, package history and findings. Its
+              agents are not deleted. This can&apos;t be undone; archive the machine instead to keep
               its history.
             </p>
             {activeAgents.length > 0 && (
               <p className="text-foreground font-medium">
                 {activeAgents.map((a) => a.name).join(", ")} still{" "}
-                {activeAgents.length === 1 ? "reports" : "report"} this host, so it will be
+                {activeAgents.length === 1 ? "reports" : "report"} this machine, so it will be
                 re-created on the next push. Revoke the agent first to remove it for good.
               </p>
             )}
           </>
         }
-        actionLabel="Delete host"
+        actionLabel="Delete machine"
         destructive
         confirmText={host.hostname}
         run={(typed) => deleteHost(host.id, typed)}
@@ -330,6 +237,3 @@ export function RenameDialog({
     </Dialog>
   );
 }
-
-// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
-export const HostRowActions = adminOnly(HostRowActionsControl);

@@ -67,9 +67,9 @@ export default async function FleetVulnerabilitiesPage({
             description="Vulnerabilities are matched against the packages your hosts report. Add a host to start."
             action={
               <Button asChild>
-                <Link href="/dashboard/hosts">
+                <Link href="/dashboard">
                   <Plus aria-hidden />
-                  Add a host
+                  Add a machine
                 </Link>
               </Button>
             }

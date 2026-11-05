@@ -71,9 +71,9 @@ export default async function FleetPackagesPage({
           description="Each host's agent reports its installed packages with every snapshot. Add a host to see them here."
           action={
             <Button asChild>
-              <Link href="/dashboard/hosts">
+              <Link href="/dashboard">
                 <Plus aria-hidden />
-                Add a host
+                Add a machine
               </Link>
             </Button>
           }

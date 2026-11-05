@@ -118,9 +118,9 @@ export default async function FleetImagesPage({
             description="Images are reported by the agent on each Docker host. Add a host to start."
             action={
               <Button asChild>
-                <Link href="/dashboard/hosts">
+                <Link href="/dashboard">
                   <Plus aria-hidden />
-                  Add a host
+                  Add a machine
                 </Link>
               </Button>
             }
@@ -139,7 +139,7 @@ export default async function FleetImagesPage({
             }
             action={
               <Button asChild variant="outline">
-                <Link href="/dashboard/hosts">Go to hosts</Link>
+                <Link href="/dashboard">Go to machines</Link>
               </Button>
             }
           />

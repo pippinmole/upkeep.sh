@@ -91,7 +91,7 @@ export default async function HostLayout({
     <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6">
       <PageHeader
         breadcrumbs={[
-          { label: "Hosts", href: "/dashboard/hosts" },
+          { label: "Machines", href: "/dashboard" },
           { label: host.label ?? host.hostname },
         ]}
         title={host.label ?? host.hostname}

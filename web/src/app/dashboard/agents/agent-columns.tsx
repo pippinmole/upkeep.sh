@@ -12,7 +12,8 @@ import type { AgentStatus, AgentWithHosts } from "@/lib/queries";
 import { SEVERITIES } from "@/lib/severity";
 import { cn } from "@/lib/utils";
 
-import { NUMERIC_COLUMN, NUMERIC_HEADER, TimeAgo } from "../hosts/table-cells";
+import { NUMERIC_COLUMN, NUMERIC_HEADER } from "@/components/data-table/numeric-column";
+import { TimeAgo } from "@/components/time-ago";
 import { AgentRowActions } from "./agent-row-actions";
 
 const STATUSES: AgentStatus[] = ["online", "stale", "never", "revoked"];

@@ -6,7 +6,7 @@ import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { osLabel as osNameVersion } from "@/lib/os";
 import type { AgentHostRow, AgentWithHosts } from "@/lib/queries";
 
-import { TimeAgo } from "../hosts/table-cells";
+import { TimeAgo } from "@/components/time-ago";
 import { DetachHostButton } from "./detach-host-button";
 
 const MODE_LABEL: Record<AgentHostRow["mode"], string> = {

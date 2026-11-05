@@ -8,7 +8,7 @@ import { dataTableColumnHelper, type DataTableFeatures } from "@/components/data
 import { Badge } from "@/components/ui/badge";
 import type { HostListenerRow } from "@/lib/queries-host-facts";
 
-import { TimeAgo } from "../../table-cells";
+import { TimeAgo } from "@/components/time-ago";
 
 const TRANSPORTS = [
   { value: "tcp", label: "TCP" },

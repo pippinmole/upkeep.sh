@@ -39,9 +39,9 @@ const TITLES: Record<Step["kind"], [string, string]> = {
   local: ["Install the agent", "Run the agent on the machine you want to monitor."],
   remote: [
     "Reach it from an agent",
-    "An agent on the same network reads the host over SSH (read-only SFTP).",
+    "An agent on the same network reads the machine over SSH (read-only SFTP).",
   ],
-  setup: ["Connect the host", "Authorize the agent and confirm the host's identity."],
+  setup: ["Connect the machine", "Authorize the agent and confirm the machine's identity."],
 };
 
 // "Add machine" on the Machines page (DOMAIN_MODEL.md §4.2): either install an
@@ -218,7 +218,7 @@ function RemoteHostForm({
   if (agents.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        You don&apos;t have an agent yet. Install one on a machine on the same network as the host
+        You don&apos;t have an agent yet. Install one on a machine on the same network as the target machine
         (&quot;Install the agent on it&quot;), then come back here.
       </p>
     );
@@ -260,7 +260,7 @@ function RemoteHostForm({
           </SelectContent>
         </Select>
         <p className="text-muted-foreground text-xs">
-          It must be able to reach the host&apos;s SSH port.
+          It must be able to reach the machine&apos;s SSH port.
         </p>
       </div>
 
@@ -320,7 +320,7 @@ function RemoteHostForm({
       <div className="flex justify-end">
         <Button type="submit" disabled={pending || !agentId || !address.trim()}>
           {pending && <Loader2 className="animate-spin" />}
-          Add host
+          Add machine
         </Button>
       </div>
     </form>

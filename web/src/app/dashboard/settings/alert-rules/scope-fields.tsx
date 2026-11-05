@@ -45,10 +45,10 @@ export function ScopeFields({
           <p className="text-muted-foreground text-sm">
             Hosts appear here once an agent reports. See{" "}
             <Link
-              href="/dashboard/hosts"
+              href="/dashboard"
               className="text-foreground font-medium underline underline-offset-4"
             >
-              Hosts
+              Machines
             </Link>
             .
           </p>
