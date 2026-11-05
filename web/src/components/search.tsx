@@ -43,15 +43,16 @@ interface Props {
   placeholder?: string;
 }
 
-// Full search field on sm and up, an icon button below.
-export function Search({ className = "", placeholder = "Search CVEs, hosts, packages…" }: Props) {
+// The top bar's search trigger, styled for the dark bar: a field from xl
+// up, an icon button below (narrower bars need the room for the tabs).
+export function Search({ className = "", placeholder = "Search machines, CVEs, packages…" }: Props) {
   const { setOpen } = useSearch();
   return (
     <>
       <Button
-        variant="outline"
+        variant="ghost"
         className={cn(
-          "bg-muted/25 text-muted-foreground hover:bg-muted/50 relative hidden h-8 w-full justify-start rounded-md text-sm font-normal shadow-none sm:flex sm:pr-14 md:w-40 lg:w-56 xl:w-64",
+          "border-topbar-foreground/15 bg-topbar-foreground/5 text-topbar-muted hover:bg-topbar-foreground/10 hover:text-topbar-foreground relative hidden h-8 w-64 justify-start rounded-md border pr-14 text-sm font-normal xl:flex",
           className,
         )}
         onClick={() => setOpen(true)}
@@ -61,13 +62,16 @@ export function Search({ className = "", placeholder = "Search CVEs, hosts, pack
           className="absolute top-1/2 left-1.5 size-4 -translate-y-1/2"
         />
         <span className="ml-3 truncate">{placeholder}</span>
-        <Shortcut keyName="K" className="absolute top-[0.3rem] right-[0.3rem]" />
+        <Shortcut
+          keyName="K"
+          className="border-topbar-foreground/15 bg-topbar-foreground/10 text-topbar-muted absolute top-[0.3rem] right-[0.3rem]"
+        />
       </Button>
       <Button
         variant="ghost"
         size="icon"
         aria-label="Search"
-        className="size-8 sm:hidden"
+        className="text-topbar-muted hover:bg-topbar-foreground/10 hover:text-topbar-foreground size-8 xl:hidden"
         onClick={() => setOpen(true)}
       >
         <SearchIcon aria-hidden="true" className="size-4" />

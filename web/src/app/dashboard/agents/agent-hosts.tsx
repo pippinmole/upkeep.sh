@@ -6,7 +6,7 @@ import { KevBadge, SeverityBadge } from "@/components/vuln/badges";
 import { osLabel as osNameVersion } from "@/lib/os";
 import type { AgentHostRow, AgentWithHosts } from "@/lib/queries";
 
-import { TimeAgo } from "../hosts/table-cells";
+import { TimeAgo } from "@/components/time-ago";
 import { DetachHostButton } from "./detach-host-button";
 
 const MODE_LABEL: Record<AgentHostRow["mode"], string> = {
@@ -29,8 +29,8 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
     return (
       <p className="text-muted-foreground px-12 py-3 text-sm">
         {agent.status === "revoked"
-          ? "Revoked before its first push; no hosts."
-          : "Waiting for first push. The host appears here once the agent reports in."}
+          ? "Revoked before its first push; no machines."
+          : "Waiting for first push. The machine appears here once the agent reports in."}
       </p>
     );
   }
@@ -40,7 +40,7 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
       <table className="w-full text-sm">
         <thead className="text-muted-foreground text-left text-xs">
           <tr>
-            <th className="py-1.5 pr-4 font-medium">Host</th>
+            <th className="py-1.5 pr-4 font-medium">Machine</th>
             <th className="py-1.5 pr-4 font-medium">OS</th>
             <th className="py-1.5 pr-4 font-medium">Mode</th>
             <th className="py-1.5 pr-4 font-medium">Last collected</th>
@@ -66,7 +66,7 @@ export function AgentHosts({ agent }: { agent: AgentWithHosts }) {
                   {h.duplicateOf && (
                     <Link
                       href={`/dashboard/hosts/${h.duplicateOf}`}
-                      title="Same machine identity as another host"
+                      title="Same machine identity as another machine"
                     >
                       <Badge variant="warning">Possible duplicate</Badge>
                     </Link>

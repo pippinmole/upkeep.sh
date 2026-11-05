@@ -35,16 +35,16 @@ type Step =
   | { kind: "setup"; agentId: string; hostId: string };
 
 const TITLES: Record<Step["kind"], [string, string]> = {
-  choose: ["Add a host", "How should upkeep reach the machine?"],
+  choose: ["Add a machine", "How should upkeep reach the machine?"],
   local: ["Install the agent", "Run the agent on the machine you want to monitor."],
   remote: [
     "Reach it from an agent",
-    "An agent on the same network reads the host over SSH (read-only SFTP).",
+    "An agent on the same network reads the machine over SSH (read-only SFTP).",
   ],
-  setup: ["Connect the host", "Authorize the agent and confirm the host's identity."],
+  setup: ["Connect the machine", "Authorize the agent and confirm the machine's identity."],
 };
 
-// "Add host" on the Hosts page (DOMAIN_MODEL.md §4.2): either install an
+// "Add machine" on the Machines page (DOMAIN_MODEL.md §4.2): either install an
 // agent on the machine itself, or have an existing agent reach it over
 // SSH. State lives in the content, which unmounts on close, so every open
 // starts at the choice.
@@ -58,7 +58,7 @@ function AddHostDialogControl({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button>Add host</Button>
+        <Button>Add machine</Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <AddHostFlow serverUrl={serverUrl} agents={agents} />
@@ -218,7 +218,7 @@ function RemoteHostForm({
   if (agents.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        You don&apos;t have an agent yet. Install one on a machine on the same network as the host
+        You don&apos;t have an agent yet. Install one on a machine on the same network as the target machine
         (&quot;Install the agent on it&quot;), then come back here.
       </p>
     );
@@ -260,7 +260,7 @@ function RemoteHostForm({
           </SelectContent>
         </Select>
         <p className="text-muted-foreground text-xs">
-          It must be able to reach the host&apos;s SSH port.
+          It must be able to reach the machine&apos;s SSH port.
         </p>
       </div>
 
@@ -320,7 +320,7 @@ function RemoteHostForm({
       <div className="flex justify-end">
         <Button type="submit" disabled={pending || !agentId || !address.trim()}>
           {pending && <Loader2 className="animate-spin" />}
-          Add host
+          Add machine
         </Button>
       </div>
     </form>

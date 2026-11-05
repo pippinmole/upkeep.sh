@@ -2,14 +2,7 @@
 
 import {
   AlertTriangle,
-  Archive,
-  ArchiveRestore,
-  Combine,
   Loader2,
-  MoreHorizontal,
-  Pencil,
-  SplitSquareHorizontal,
-  Trash2,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 
@@ -31,101 +24,52 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { HostListRow } from "@/lib/queries";
-import { adminOnly } from "@/components/viewer-context";
 
-type DialogKind = "rename" | "archive" | "unarchive" | "merge" | "dismiss" | "delete";
+// What the manage dialogs need: both the hosts page rows and the Machines page rows fit.
+export type ManagedHost = {
+  id: string;
+  hostname: string;
+  label: string | null;
+  archivedAt: string | null;
+  duplicateOf: { id: string; hostname: string; label: string | null } | null;
+  // The archive and delete dialogs warn about agents that still collect it.
+  agents: { name: string; status: string }[];
+};
+
+export type ManageDialogKind = "archive" | "unarchive" | "merge" | "dismiss" | "delete";
 
 const display = (h: { hostname: string; label: string | null }) =>
   h.label ? `${h.label} (${h.hostname})` : h.hostname;
 
-// Per-host management (DOMAIN_MODEL.md §4.3 "Management"): rename,
-// archive / unarchive, resolve a duplicate flag (merge / not a duplicate),
-// delete. Every action is a server action re-checking ownership.
-function HostRowActionsControl({ host }: { host: HostListRow }) {
-  const [dialog, setDialog] = useState<DialogKind | null>(null);
-  const set = (d: DialogKind) => (open: boolean) => setDialog(open ? d : null);
-  const archived = !!host.archivedAt;
+// The confirmation dialogs behind a host's manage actions; `open` names the
+// one showing. Delete asks for the hostname to be typed.
+export function ManageDialogs({
+  host,
+  open,
+  onClose,
+}: {
+  host: ManagedHost;
+  open: ManageDialogKind | null;
+  onClose: () => void;
+}) {
+  const onOpenChange = (next: boolean) => {
+    if (!next) onClose();
+  };
   const activeAgents = host.agents.filter((a) => a.status === "online" || a.status === "stale");
-
   return (
     <>
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={`Actions for ${host.hostname}`}
-          >
-            <MoreHorizontal className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel className="truncate">{display(host)}</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setDialog("rename")}>
-            <Pencil />
-            Rename
-          </DropdownMenuItem>
-          {host.duplicateOf && !archived && (
-            <>
-              <DropdownMenuItem onSelect={() => setDialog("merge")}>
-                <Combine />
-                Merge into {host.duplicateOf.hostname}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setDialog("dismiss")}>
-                <SplitSquareHorizontal />
-                Not a duplicate
-              </DropdownMenuItem>
-            </>
-          )}
-          {archived ? (
-            !host.mergedInto && (
-              <DropdownMenuItem onSelect={() => setDialog("unarchive")}>
-                <ArchiveRestore />
-                Unarchive
-              </DropdownMenuItem>
-            )
-          ) : (
-            <DropdownMenuItem onSelect={() => setDialog("archive")}>
-              <Archive />
-              Archive
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => setDialog("delete")}
-            className="text-destructive focus:text-destructive"
-          >
-            <Trash2 />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <RenameDialog host={host} open={dialog === "rename"} onOpenChange={set("rename")} />
-
       <ActionDialog
-        open={dialog === "archive"}
-        onOpenChange={set("archive")}
+        open={open === "archive"}
+        onOpenChange={onOpenChange}
         title={`Archive ${display(host)}?`}
         description={
           <>
             <p>
-              The host is hidden from the host list, the overview and the fleet vulnerability and
-              package views. Its history and findings are kept and stay visible on its own pages;
-              its findings are left as they are (not resolved).
+              The machine is hidden from the machine list and the fleet vulnerability and package
+              views. Its history and findings are kept and stay visible on its own pages; its
+              findings are left as they are (not resolved).
             </p>
             {activeAgents.length > 0 && (
               <p>
@@ -140,10 +84,10 @@ function HostRowActionsControl({ host }: { host: HostListRow }) {
         run={() => setHostArchived(host.id, true)}
       />
       <ActionDialog
-        open={dialog === "unarchive"}
-        onOpenChange={set("unarchive")}
+        open={open === "unarchive"}
+        onOpenChange={onOpenChange}
         title={`Unarchive ${display(host)}?`}
-        description={<p>The host shows up in lists and fleet views again.</p>}
+        description={<p>The machine shows up in lists and fleet views again.</p>}
         actionLabel="Unarchive"
         run={() => setHostArchived(host.id, false)}
       />
@@ -151,8 +95,8 @@ function HostRowActionsControl({ host }: { host: HostListRow }) {
       {host.duplicateOf && (
         <>
           <ActionDialog
-            open={dialog === "merge"}
-            onOpenChange={set("merge")}
+            open={open === "merge"}
+            onOpenChange={onOpenChange}
             title={`Merge into ${display(host.duplicateOf)}?`}
             description={
               <>
@@ -162,7 +106,7 @@ function HostRowActionsControl({ host }: { host: HostListRow }) {
                   {host.duplicateOf.hostname}: their next pushes continue its history and inventory.
                 </p>
                 <p>
-                  This host&apos;s own snapshots and findings are not moved: it is archived as
+                  This machine&apos;s own snapshots and findings are not moved: it is archived as
                   &ldquo;merged&rdquo; and its pages stay available. This can&apos;t be undone.
                 </p>
               </>
@@ -171,8 +115,8 @@ function HostRowActionsControl({ host }: { host: HostListRow }) {
             run={() => mergeHost(host.id, host.duplicateOf!.id)}
           />
           <ActionDialog
-            open={dialog === "dismiss"}
-            onOpenChange={set("dismiss")}
+            open={open === "dismiss"}
+            onOpenChange={onOpenChange}
             title="Not a duplicate?"
             description={
               <p>
@@ -189,26 +133,26 @@ function HostRowActionsControl({ host }: { host: HostListRow }) {
       )}
 
       <ActionDialog
-        open={dialog === "delete"}
-        onOpenChange={set("delete")}
+        open={open === "delete"}
+        onOpenChange={onOpenChange}
         title={`Delete ${display(host)}?`}
         description={
           <>
             <p>
-              Permanently deletes the host with all its snapshots, package history and findings. Its
-              agents are not deleted. This can&apos;t be undone; archive the host instead to keep
+              Permanently deletes the machine with all its snapshots, package history and findings. Its
+              agents are not deleted. This can&apos;t be undone; archive the machine instead to keep
               its history.
             </p>
             {activeAgents.length > 0 && (
               <p className="text-foreground font-medium">
                 {activeAgents.map((a) => a.name).join(", ")} still{" "}
-                {activeAgents.length === 1 ? "reports" : "report"} this host, so it will be
+                {activeAgents.length === 1 ? "reports" : "report"} this machine, so it will be
                 re-created on the next push. Revoke the agent first to remove it for good.
               </p>
             )}
           </>
         }
-        actionLabel="Delete host"
+        actionLabel="Delete machine"
         destructive
         confirmText={host.hostname}
         run={(typed) => deleteHost(host.id, typed)}
@@ -217,12 +161,12 @@ function HostRowActionsControl({ host }: { host: HostListRow }) {
   );
 }
 
-function RenameDialog({
+export function RenameDialog({
   host,
   open,
   onOpenChange,
 }: {
-  host: HostListRow;
+  host: Pick<ManagedHost, "id" | "hostname" | "label">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -293,6 +237,3 @@ function RenameDialog({
     </Dialog>
   );
 }
-
-// Write controls: admins only (docs/MEMBERS.md); the server re-checks.
-export const HostRowActions = adminOnly(HostRowActionsControl);

@@ -12,7 +12,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <PageHeader
         title="Settings"
-        description="Configure how upkeep.sh works for everyone on this install."
+        description="Configure how upkeep.sh works for everyone in this workspace."
         className="border-b px-4 py-6 sm:px-6"
       />
       <div className="flex min-w-0 flex-1 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6 md:flex-row md:gap-8">

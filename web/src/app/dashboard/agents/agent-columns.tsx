@@ -12,7 +12,8 @@ import type { AgentStatus, AgentWithHosts } from "@/lib/queries";
 import { SEVERITIES } from "@/lib/severity";
 import { cn } from "@/lib/utils";
 
-import { NUMERIC_COLUMN, NUMERIC_HEADER, TimeAgo } from "../hosts/table-cells";
+import { NUMERIC_COLUMN, NUMERIC_HEADER } from "@/components/data-table/numeric-column";
+import { TimeAgo } from "@/components/time-ago";
 import { AgentRowActions } from "./agent-row-actions";
 
 const STATUSES: AgentStatus[] = ["online", "stale", "never", "revoked"];
@@ -52,7 +53,7 @@ export const agentColumns = col.columns([
         className="size-7"
         onClick={row.getToggleExpandedHandler()}
         aria-expanded={row.getIsExpanded()}
-        aria-label={row.getIsExpanded() ? "Hide hosts" : "Show hosts"}
+        aria-label={row.getIsExpanded() ? "Hide machines" : "Show machines"}
       >
         <ChevronRight
           className={cn("size-4 transition-transform", row.getIsExpanded() && "rotate-90")}
@@ -91,7 +92,7 @@ export const agentColumns = col.columns([
     id: "hosts",
     meta: NUMERIC_COLUMN,
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Hosts" className={NUMERIC_HEADER} />
+      <DataTableColumnHeader column={column} title="Machines" className={NUMERIC_HEADER} />
     ),
     cell: ({ row }) => row.original.hosts.length,
   }),

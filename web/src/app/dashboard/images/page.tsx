@@ -48,7 +48,7 @@ function RepoScoreCell({ sc }: { sc: RepoScore | undefined }) {
     return (
       <span
         className="text-muted-foreground text-xs"
-        title="No host has inspected these images yet"
+        title="No machine has inspected these images yet"
       >
         Not inspected
       </span>
@@ -97,8 +97,8 @@ export default async function FleetImagesPage({
       title="Images"
       description={
         total > 0 && !filters.q
-          ? `Docker images currently present on your hosts, in ${total.toLocaleString("en-US")} ${total === 1 ? "repository" : "repositories"}.`
-          : "Docker images currently present on your hosts, by repository."
+          ? `Docker images currently present on your machines, in ${total.toLocaleString("en-US")} ${total === 1 ? "repository" : "repositories"}.`
+          : "Docker images currently present on your machines, by repository."
       }
     />
   );
@@ -114,13 +114,13 @@ export default async function FleetImagesPage({
           <EmptyState
             size="page"
             icon={Container}
-            title="No hosts yet"
-            description="Images are reported by the agent on each Docker host. Add a host to start."
+            title="No machines yet"
+            description="Images are reported by the agent on each Docker machine. Add a machine to start."
             action={
               <Button asChild>
-                <Link href="/dashboard/hosts">
+                <Link href="/dashboard">
                   <Plus aria-hidden />
-                  Add a host
+                  Add a machine
                 </Link>
               </Button>
             }
@@ -132,14 +132,14 @@ export default async function FleetImagesPage({
             title="No Docker images reported"
             description={
               <>
-                Docker collection is enabled per agent, on the Docker host itself: mount{" "}
+                Docker collection is enabled per agent, on the Docker machine itself: mount{" "}
                 <code className="font-mono text-xs">/var/run/docker.sock</code> into the
                 agent&apos;s container. Images appear after its next report.
               </>
             }
             action={
               <Button asChild variant="outline">
-                <Link href="/dashboard/hosts">Go to hosts</Link>
+                <Link href="/dashboard">Go to machines</Link>
               </Button>
             }
           />
@@ -163,7 +163,7 @@ export default async function FleetImagesPage({
           value: filters.sort,
           options: [
             { value: "name", label: "Sort by name" },
-            { value: "hosts", label: "Most hosts first" },
+            { value: "hosts", label: "Most machines first" },
           ],
         }}
       />
@@ -176,7 +176,7 @@ export default async function FleetImagesPage({
               <TableHead>Tags</TableHead>
               <TableHead>Vulnerabilities</TableHead>
               <TableHead className="text-right">Image IDs</TableHead>
-              <TableHead className="text-right">Hosts</TableHead>
+              <TableHead className="text-right">Machines</TableHead>
               <TableHead className="text-right">Running containers</TableHead>
             </TableRow>
           </TableHeader>
@@ -226,8 +226,8 @@ export default async function FleetImagesPage({
                                 href={repoHref(r.repo, { tag: t.tag ?? "<none>" })}
                                 title={
                                   drift
-                                    ? `${t.imageIds} image IDs / ${t.digests} digests across ${t.hosts} hosts: this tag doesn't point to the same image everywhere`
-                                    : `${t.hosts} host${t.hosts === 1 ? "" : "s"}`
+                                    ? `${t.imageIds} image IDs / ${t.digests} digests across ${t.hosts} machines: this tag doesn't point to the same image everywhere`
+                                    : `${t.hosts} machine${t.hosts === 1 ? "" : "s"}`
                                 }
                               >
                                 <Badge

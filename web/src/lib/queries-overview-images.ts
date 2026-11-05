@@ -9,8 +9,8 @@ import {
 } from "./queries-image-scores";
 import { emptySeverityCounts, isSeverity, type SeverityCounts } from "./severity";
 
-// The Overview page's container image numbers (DOMAIN_MODEL.md §3.6
-// "Overview", §2.6 "Image findings and scores"). Kept apart from the host
+// Container image numbers for the machines page and the MCP tools
+// (DOMAIN_MODEL.md §3.6, §2.6 "Image findings and scores"). Kept apart from the host
 // package numbers on purpose: an image finding is fixed by rebuilding or
 // re-pulling the image, a host one by upgrading the host.
 //
@@ -271,89 +271,4 @@ async function withUsage(workspaceId: string, images: OverviewImage[]): Promise<
   }
   for (const img of images) img.tags.sort();
   return images;
-}
-
-// ---------------------------------------------------------------------------
-// Most urgent vulnerabilities across host packages and images
-// ---------------------------------------------------------------------------
-
-export type UrgentVulnRow = {
-  vulnKey: string;
-  severity: string | null;
-  isKev: boolean;
-  // Host package findings (vulnerable_package): hosts and source packages.
-  hostPackageHosts: number;
-  hostPackages: string[];
-  // Image findings (vulnerable_image): distinct image keys, hosts, source
-  // packages, and the most urgent image (for the link when there is one).
-  images: number;
-  imageHosts: number;
-  imagePackages: string[];
-  topImage: (ImageKey & { refs: string[] }) | null;
-};
-
-// One row per vuln_key over the user's open findings of both kinds, most
-// urgent first (severity keys are the same ranking for both kinds). Where
-// the CVE is stays visible per row: host packages and images are fixed
-// differently.
-export async function getUrgentVulns(workspaceId: string, limit = 5): Promise<UrgentVulnRow[]> {
-  const { rows } = await pool.query<{
-    vuln_key: string;
-    severity: string | null;
-    is_kev: boolean;
-    pkg_hosts: string;
-    pkg_packages: (string | null)[] | null;
-    images: string;
-    image_hosts: string;
-    image_packages: (string | null)[] | null;
-    top_image: {
-      imageId: string;
-      os: string;
-      arch: string;
-      variant: string;
-      refs: string[];
-    } | null;
-  }>(
-    `WITH uf AS (
-       SELECT f.*
-       FROM hosts h
-       JOIN findings f ON f.host_id = h.id
-       WHERE h.workspace_id = $1 AND h.archived_at IS NULL AND f.status = 'open'
-         AND f.kind IN ('vulnerable_package', 'vulnerable_image')
-     )
-     SELECT uf.vuln_key,
-            (array_agg(uf.severity ORDER BY uf.severity_key DESC))[1] AS severity,
-            bool_or(uf.is_kev) AS is_kev,
-            count(DISTINCT uf.host_id) FILTER (WHERE uf.kind = 'vulnerable_package') AS pkg_hosts,
-            array_agg(DISTINCT uf.source_package) FILTER (WHERE uf.kind = 'vulnerable_package')
-              AS pkg_packages,
-            count(DISTINCT concat_ws('|', uf.image_id, uf.image_os, uf.image_arch, uf.image_variant))
-              FILTER (WHERE uf.kind = 'vulnerable_image') AS images,
-            count(DISTINCT uf.host_id) FILTER (WHERE uf.kind = 'vulnerable_image') AS image_hosts,
-            array_agg(DISTINCT uf.source_package) FILTER (WHERE uf.kind = 'vulnerable_image')
-              AS image_packages,
-            (array_agg(json_build_object(
-               'imageId', uf.image_id, 'os', uf.image_os, 'arch', uf.image_arch,
-               'variant', uf.image_variant, 'refs', uf.image_refs)
-             ORDER BY uf.severity_key DESC) FILTER (WHERE uf.kind = 'vulnerable_image'))[1]
-              AS top_image
-     FROM uf
-     WHERE uf.vuln_key IS NOT NULL
-     GROUP BY uf.vuln_key
-     ORDER BY max(uf.severity_key) DESC, count(DISTINCT uf.host_id) DESC, uf.vuln_key
-     LIMIT $2`,
-    [workspaceId, limit],
-  );
-  const pkgs = (xs: (string | null)[] | null) => (xs ?? []).filter((p): p is string => p !== null);
-  return rows.map((r) => ({
-    vulnKey: r.vuln_key,
-    severity: r.severity,
-    isKev: r.is_kev,
-    hostPackageHosts: Number(r.pkg_hosts),
-    hostPackages: pkgs(r.pkg_packages),
-    images: Number(r.images),
-    imageHosts: Number(r.image_hosts),
-    imagePackages: pkgs(r.image_packages),
-    topImage: r.top_image,
-  }));
 }

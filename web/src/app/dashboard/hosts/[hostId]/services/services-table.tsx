@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/status";
 import type { HostServiceRow } from "@/lib/queries-host-facts";
 import { cn } from "@/lib/utils";
 
-import { TimeAgo } from "../../table-cells";
+import { TimeAgo } from "@/components/time-ago";
 
 const STATE_OPTIONS = [
   { value: "running", label: "Running" },

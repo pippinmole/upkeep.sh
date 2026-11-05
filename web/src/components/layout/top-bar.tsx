@@ -1,0 +1,77 @@
+import Link from "next/link";
+
+import { Search } from "@/components/search";
+
+import { TopBarTabs } from "./top-bar-tabs";
+import type { TopBarData, User } from "./types";
+import { UserMenu } from "./user-menu";
+
+// The dark bar across every dashboard page: wordmark and workspace, the
+// tabs, then search, firing alerts and the user menu. From md up it is one
+// row: the tabs take the space left over and scroll if it is too narrow.
+// Below md the tabs wrap onto a second row (order-last + basis-full); the
+// left block's zero basis (flex-1) keeps row one from breaking, and the
+// workspace name truncates instead.
+export function TopBar({ data, user }: { data: TopBarData; user: User }) {
+  return (
+    <header className="bg-topbar text-topbar-foreground sticky top-0 z-30 flex flex-wrap items-center gap-x-4 px-4 sm:px-6 md:flex-nowrap">
+      {/* Parked above the viewport until focused. */}
+      <a
+        href="#content"
+        className="bg-background text-foreground focus-visible:ring-ring absolute top-2 left-2 z-40 -translate-y-16 rounded-md px-3 py-2 text-sm font-medium focus:translate-y-0 focus-visible:ring-2 focus-visible:outline-none"
+      >
+        Skip to content
+      </a>
+      <div className="flex h-12 min-w-0 flex-1 items-center gap-2 text-sm md:flex-none">
+        <Link
+          href="/dashboard"
+          className="focus-visible:ring-ring rounded-sm font-semibold tracking-tight focus-visible:ring-2 focus-visible:outline-none"
+        >
+          upkeep
+        </Link>
+        <span aria-hidden="true" className="text-topbar-muted">
+          /
+        </span>
+        <span
+          data-slot="workspace"
+          title={data.workspaceName}
+          className="max-w-48 min-w-0 truncate"
+        >
+          {data.workspaceName}
+        </span>
+      </div>
+
+      {/* Below md: full-bleed second row (grow cancels the negative margins).
+          From md: fills the middle, shrinking to scroll rather than wrap. */}
+      <TopBarTabs className="order-last -mx-4 h-10 grow basis-full px-1 sm:-mx-6 sm:px-3 md:order-none md:mx-0 md:h-12 md:min-w-0 md:basis-0 md:px-0" />
+
+      <div className="ml-auto flex h-12 shrink-0 items-center gap-2">
+        <Search />
+        {data.firingAlerts > 0 && <FiringAlerts count={data.firingAlerts} />}
+        <UserMenu user={user} />
+      </div>
+    </header>
+  );
+}
+
+function FiringAlerts({ count }: { count: number }) {
+  const label = `firing ${count === 1 ? "alert" : "alerts"}`;
+  // The visible count starts the accessible name (WCAG 2.5.3); the rest of
+  // it is screen-reader text, and a tooltip for pointer users.
+  return (
+    <Link
+      href="/dashboard/alerts?state=firing"
+      title={`${count} ${label}`}
+      className="hover:bg-topbar-foreground/10 focus-visible:ring-ring inline-flex h-8 items-center gap-2 rounded-md px-2 text-sm font-medium tabular-nums focus-visible:ring-2 focus-visible:outline-none"
+    >
+      <span aria-hidden="true" className="relative flex size-2">
+        <span className="bg-sev-critical absolute inline-flex size-full rounded-full opacity-75 motion-safe:animate-ping" />
+        <span className="bg-sev-critical relative inline-flex size-2 rounded-full" />
+      </span>
+      <span>
+        {count}
+        <span className="sr-only"> {label}</span>
+      </span>
+    </Link>
+  );
+}

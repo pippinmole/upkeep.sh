@@ -53,8 +53,8 @@ export default async function FleetPackagesPage({
       title="Packages"
       description={
         total > 0 && !filters.q && !filters.ecosystem
-          ? `${total.toLocaleString("en-US")} packages currently installed across your hosts.`
-          : "Software currently installed across your hosts."
+          ? `${total.toLocaleString("en-US")} packages currently installed across your machines.`
+          : "Software currently installed across your machines."
       }
     />
   );
@@ -68,12 +68,12 @@ export default async function FleetPackagesPage({
           size="page"
           icon={Package}
           title="No package inventory yet"
-          description="Each host's agent reports its installed packages with every snapshot. Add a host to see them here."
+          description="Each machine's agent reports its installed packages with every snapshot. Add a machine to see them here."
           action={
             <Button asChild>
-              <Link href="/dashboard/hosts">
+              <Link href="/dashboard">
                 <Plus aria-hidden />
-                Add a host
+                Add a machine
               </Link>
             </Button>
           }
@@ -95,7 +95,7 @@ export default async function FleetPackagesPage({
           value: filters.sort,
           options: [
             { value: "name", label: "Sort by name" },
-            { value: "hosts", label: "Most hosts first" },
+            { value: "hosts", label: "Most machines first" },
           ],
         }}
       />
@@ -107,7 +107,7 @@ export default async function FleetPackagesPage({
               <TableHead>Package</TableHead>
               <TableHead>Ecosystem</TableHead>
               <TableHead>Versions in fleet</TableHead>
-              <TableHead className="text-right">Hosts</TableHead>
+              <TableHead className="text-right">Machines</TableHead>
               {/* P1b: "Vulnerable hosts" */}
             </TableRow>
           </TableHeader>

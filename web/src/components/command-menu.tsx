@@ -8,7 +8,6 @@ import {
   Keyboard,
   Laptop,
   Moon,
-  PanelLeft,
   Plus,
   Send,
   Sun,
@@ -25,7 +24,7 @@ import {
 import { SearchStatus } from "@/components/global-search/search-status";
 import { ShowAllGroup } from "@/components/global-search/show-all-group";
 import { useGlobalSearch } from "@/components/global-search/use-global-search";
-import { visibleNavConfig } from "@/components/layout/nav-config";
+import { moreLinks, tabs } from "@/components/layout/nav-config";
 import { settingsSections } from "@/components/layout/settings-sections";
 import { NOTIFICATION_SETTINGS_URL } from "@/components/notifications/links";
 import {
@@ -37,7 +36,6 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useSidebar } from "@/components/ui/sidebar";
 import { normalizeQuery } from "@/lib/search/query";
 
 import { Shortcut } from "./search";
@@ -48,8 +46,8 @@ import { useViewer } from "./viewer-context";
 // actions open the page that holds the button.
 const ACTIONS = [
   {
-    title: "Add host",
-    url: "/dashboard/hosts",
+    title: "Add machine",
+    url: "/dashboard",
     icon: Plus,
     keywords: ["enroll", "agent", "install"],
   },
@@ -77,11 +75,10 @@ function matches(c: Command, q: string): boolean {
   return !q || defaultFilter(c.title, q, c.keywords) > 0;
 }
 
-// Rendered by the dashboard layout, inside SidebarProvider.
+// Rendered by the dashboard layout.
 export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
   const router = useRouter();
   const { setTheme } = useTheme();
-  const { toggleSidebar } = useSidebar();
   const { open, setOpen } = useSearch();
   const [query, setQuery] = React.useState("");
   // The actions all lead to write controls, which members don't get.
@@ -115,7 +112,10 @@ export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
   }
 
   const pageGroups = [
-    ...visibleNavConfig(hasSwarm).map((g) => ({ heading: g.title ?? "Pages", items: g.items })),
+    {
+      heading: "Pages",
+      items: [...tabs, ...moreLinks.filter((l) => hasSwarm || !l.swarmOnly)],
+    },
     { heading: "Settings", items: settingsSections },
   ]
     .map((g) => ({ ...g, items: g.items.filter((i) => matches(i, q)) }))
@@ -127,13 +127,6 @@ export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
     { title: "System", keywords: ["theme"], icon: Laptop, value: "system" },
   ].filter((t) => matches(t, q));
   const shortcuts = [
-    {
-      title: "Toggle sidebar",
-      keywords: ["shortcut"],
-      icon: PanelLeft,
-      key: "B",
-      run: toggleSidebar,
-    },
     {
       title: "Open this menu",
       keywords: ["shortcut", "search", "command"],
@@ -152,7 +145,7 @@ export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
       commandProps={{ shouldFilter: false, value: selected, onValueChange: setSelected }}
     >
       <CommandInput
-        placeholder="Search CVEs, packages, images, hosts, agents or pages…"
+        placeholder="Search CVEs, packages, images, machines, agents or pages…"
         value={query}
         onValueChange={setQuery}
       />

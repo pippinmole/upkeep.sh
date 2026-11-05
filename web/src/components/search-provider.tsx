@@ -20,7 +20,7 @@ interface Props {
 }
 
 // Holds the command menu's open state; the dashboard layout renders the
-// menu itself (CommandMenu), since it needs the nav counts and sidebar.
+// menu itself (CommandMenu), since it needs the top bar data (hasSwarm).
 export default function SearchProvider({ children, value }: Props) {
   return <SearchContext.Provider value={value}>{children}</SearchContext.Provider>;
 }
