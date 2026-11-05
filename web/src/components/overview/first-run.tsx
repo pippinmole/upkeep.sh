@@ -2,12 +2,11 @@ import { Container, Radar, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { AddHostDialog } from "@/app/dashboard/hosts/add-host-dialog";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CollectorAgent } from "@/lib/queries-remote";
-
-import { AutoRefresh } from "./auto-refresh";
 
 // What the Overview shows before any host has reported: a Getting-started
 // hero instead of a wall of zeros, then a waiting state until the first

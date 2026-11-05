@@ -35,7 +35,7 @@ type Step =
   | { kind: "setup"; agentId: string; hostId: string };
 
 const TITLES: Record<Step["kind"], [string, string]> = {
-  choose: ["Add a host", "How should upkeep reach the machine?"],
+  choose: ["Add a machine", "How should upkeep reach the machine?"],
   local: ["Install the agent", "Run the agent on the machine you want to monitor."],
   remote: [
     "Reach it from an agent",
@@ -44,7 +44,7 @@ const TITLES: Record<Step["kind"], [string, string]> = {
   setup: ["Connect the host", "Authorize the agent and confirm the host's identity."],
 };
 
-// "Add host" on the Hosts page (DOMAIN_MODEL.md §4.2): either install an
+// "Add machine" on the Machines page (DOMAIN_MODEL.md §4.2): either install an
 // agent on the machine itself, or have an existing agent reach it over
 // SSH. State lives in the content, which unmounts on close, so every open
 // starts at the choice.
@@ -58,7 +58,7 @@ function AddHostDialogControl({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button>Add host</Button>
+        <Button>Add machine</Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <AddHostFlow serverUrl={serverUrl} agents={agents} />
