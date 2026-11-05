@@ -143,8 +143,11 @@ function SearchBox({
       <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
       <Input
         type="search"
+        name="q"
+        autoComplete="off"
+        spellCheck={false}
         value={value}
-        placeholder="Search name, OS or IP"
+        placeholder="Search name, OS or IP…"
         aria-label="Search machines"
         className="pl-8"
         onChange={(e) => {

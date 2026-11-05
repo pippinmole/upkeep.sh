@@ -46,7 +46,8 @@
   --sev-high-fg: oklch(0.459 0.128 45);
   --sev-medium: oklch(0.66 0.121 80.5);
   --sev-medium-fg: oklch(0.42 0.076 87.2);
-  --sev-critical-pill: oklch(0.621 0.198 32.7);
+  /* Darker than --sev-critical so white count text clears AA (4.61:1). */
+  --sev-critical-pill: oklch(0.585 0.198 32.7);
   --sev-critical-pill-fg: oklch(1 0 0);
   --sev-high-pill: oklch(0.911 0.048 42.2);
   --sev-high-pill-fg: oklch(0.463 0.149 36.7);

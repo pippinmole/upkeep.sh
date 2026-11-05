@@ -38,7 +38,7 @@ export function MachineRow({ machine: m }: { machine: Machine }) {
   return (
     <tr
       className={cn(
-        "group/row hover:bg-muted/40 relative border-b transition-colors last:border-0",
+        "group/row hover:bg-muted/40 relative border-b transition-colors last:border-0 motion-reduce:transition-none",
         "max-md:bg-card max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)_auto] max-md:gap-x-3 max-md:gap-y-1.5 max-md:rounded-lg max-md:border max-md:p-3 max-md:last:border",
         m.archivedAt && "text-muted-foreground",
       )}
@@ -73,7 +73,7 @@ function MachineCell({ machine: m }: { machine: Machine }) {
       <div className="flex min-w-0 flex-col gap-0.5">
         <Link
           href={`/dashboard/hosts/${m.id}`}
-          className="focus-visible:ring-ring min-w-0 truncate font-medium outline-none after:absolute after:inset-0 after:rounded-[inherit] focus-visible:after:ring-2"
+          className="min-w-0 truncate font-medium outline-none after:absolute after:inset-0 after:rounded-[inherit] focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
         >
           {m.label ?? m.hostname}
           {m.label && (
@@ -145,7 +145,7 @@ function VulnsCell({ machine: m }: { machine: Machine }) {
           <TooltipTrigger asChild>
             <Link
               href={`/dashboard/hosts/${m.id}/images`}
-              className="text-muted-foreground hover:text-foreground relative z-10 text-xs whitespace-nowrap tabular-nums hover:underline"
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring relative z-10 rounded-sm text-xs whitespace-nowrap tabular-nums hover:underline focus-visible:ring-2 focus-visible:outline-none"
             >
               +{m.images.vulns} in images
             </Link>
