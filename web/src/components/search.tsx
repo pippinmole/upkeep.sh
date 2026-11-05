@@ -45,7 +45,7 @@ interface Props {
 
 // The top bar's search trigger, styled for the dark bar: a field from xl
 // up, an icon button below (narrower bars need the room for the tabs).
-export function Search({ className = "", placeholder = "Search CVEs, hosts, packages…" }: Props) {
+export function Search({ className = "", placeholder = "Search machines, CVEs, packages…" }: Props) {
   const { setOpen } = useSearch();
   return (
     <>

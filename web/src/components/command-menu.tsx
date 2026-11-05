@@ -114,10 +114,7 @@ export function CommandMenu({ hasSwarm }: { hasSwarm: boolean }) {
   const pageGroups = [
     {
       heading: "Pages",
-      items: [...tabs, ...moreLinks.filter((l) => hasSwarm || !l.swarmOnly)].filter(
-        // Agents is also a settings section; list it once, under Settings.
-        (p) => !settingsSections.some((s) => s.url === p.url),
-      ),
+      items: [...tabs, ...moreLinks.filter((l) => hasSwarm || !l.swarmOnly)],
     },
     { heading: "Settings", items: settingsSections },
   ]

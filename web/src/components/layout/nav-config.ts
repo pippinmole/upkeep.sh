@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Package,
-  RadioTower,
   Settings,
   ShieldAlert,
 } from "lucide-react";
@@ -27,6 +26,7 @@ export const tabs: NavTab[] = [
     title: "Machines",
     url: "/dashboard",
     icon: LayoutDashboard,
+    // Never shown; "servers" only helps people who type it find the tab.
     keywords: ["hosts", "servers", "vps", "overview"],
     match: ["/dashboard", "/dashboard/hosts"],
   },
@@ -66,7 +66,8 @@ export const tabs: NavTab[] = [
   },
 ];
 
-// Reachable from the command menu only.
+// Reachable from the command menu only. Agents is a Settings section
+// (settings-sections.ts), so the menu lists it there.
 export const moreLinks: (NavTab & { swarmOnly?: boolean })[] = [
   {
     title: "Packages",
@@ -81,13 +82,6 @@ export const moreLinks: (NavTab & { swarmOnly?: boolean })[] = [
     keywords: ["docker", "services", "cluster"],
     match: ["/dashboard/swarm"],
     swarmOnly: true,
-  },
-  {
-    title: "Agents",
-    url: "/dashboard/agents",
-    icon: RadioTower,
-    keywords: ["collectors", "enroll", "install"],
-    match: ["/dashboard/agents"],
   },
 ];
 

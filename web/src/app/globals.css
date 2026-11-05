@@ -207,6 +207,15 @@
 
   html {
     @apply font-sans;
+    /* Keep focused and anchored elements clear of the sticky top bar: two
+       rows (h-12 + h-10) below md, one from md up. */
+    scroll-padding-top: 5.5rem;
+  }
+
+  @media (width >= 48rem) {
+    html {
+      scroll-padding-top: 3rem;
+    }
   }
 
   body {
