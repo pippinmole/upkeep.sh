@@ -38,6 +38,7 @@ export function MachineList({ rows, filters }: { rows: Machine[]; filters: Machi
           filters={filters}
           osOptions={osOptions(rows, filters.os)}
           searchKey={searchKey}
+          set={set}
           onClear={clear}
         />
 

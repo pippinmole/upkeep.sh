@@ -7,6 +7,7 @@ import {
   filterMachines,
   hasNoActiveAgent,
   imageVulnsTitle,
+  lowOnlyCount,
   type MachineAgent,
   type MachineFilters,
   type MachineRow,
@@ -194,4 +195,10 @@ test("image tooltip names vulnerabilities, running images and critical", () => {
   expect(imageVulnsTitle({ vulns: 1, images: 1, critical: 0, kev: 0 })).toBe(
     "1 vulnerability in 1 running image · 0 critical",
   );
+});
+test("low-only count shows only when critical, high and medium are all 0", () => {
+  expect(lowOnlyCount({ ...zero, low: 4 })).toBe(4);
+  expect(lowOnlyCount({ ...zero, low: 4, medium: 1 })).toBeNull();
+  expect(lowOnlyCount({ ...zero, low: 4, critical: 1 })).toBeNull();
+  expect(lowOnlyCount(zero)).toBeNull();
 });

@@ -14,22 +14,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { MachineFilters } from "@/lib/machines";
-import { withParams } from "@/lib/search-params";
+import { type SearchParams, withParams } from "@/lib/search-params";
 import { cn } from "@/lib/utils";
+
+export type SetFilterParams = (overrides: Record<string, string | null>) => void;
 
 // Writes filter changes into the URL (search-params.ts conventions), so a
 // filtered list can be shared and survives a reload. replace, not push: a
-// filter tweak isn't a history entry.
-export function useSetFilterParams() {
+// filter tweak isn't a history entry. Each write builds on the last one
+// (held in a ref), not on the params of the render that scheduled it, so a
+// debounced search can't undo a select changed in the meantime. Use one
+// instance per page and pass it down.
+export function useSetFilterParams(): SetFilterParams {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const latest = useRef<SearchParams>(Object.fromEntries(searchParams));
+  useEffect(() => {
+    latest.current = Object.fromEntries(searchParams);
+  }, [searchParams]);
   return useCallback(
-    (overrides: Record<string, string | null>) => {
-      const href = pathname + withParams(Object.fromEntries(searchParams), overrides);
-      router.replace(href, { scroll: false });
+    (overrides) => {
+      const qs = withParams(latest.current, overrides);
+      latest.current = Object.fromEntries(new URLSearchParams(qs));
+      router.replace(pathname + qs, { scroll: false });
     },
-    [router, pathname, searchParams],
+    [router, pathname],
   );
 }
 
@@ -51,16 +61,17 @@ export function MachineToolbar({
   filters,
   osOptions,
   searchKey,
+  set,
   onClear,
 }: {
   filters: MachineFilters;
   osOptions: { value: string; label: string }[];
   // Bumped by the list on "Clear" to reset the search box.
   searchKey: number;
+  // The page's one URL writer (useSetFilterParams).
+  set: SetFilterParams;
   onClear: () => void;
 }) {
-  const set = useSetFilterParams();
-
   return (
     <div className="flex flex-wrap items-center gap-2">
       <SearchBox key={searchKey} initial={filters.q ?? ""} onSearch={(q) => set({ q })} />

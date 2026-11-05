@@ -28,7 +28,7 @@ const STATUS: Record<MachineStatus, { tone: Tone; label: string }> = {
 
 // Shared cell padding; below md the row is a card and the cells are its
 // lines, placed on a 3-column grid (name + menu, OS + last seen, counts).
-const CELL = "px-3 py-2.5 align-middle max-md:p-0";
+const CELL = "min-w-0 px-3 py-2.5 align-middle max-md:p-0";
 
 // One machine, as a table row on md+ and a stacked card below. The whole
 // row opens the machine: the name's link stretches over it (after:inset-0
@@ -39,7 +39,7 @@ export function MachineRow({ machine: m }: { machine: Machine }) {
     <tr
       className={cn(
         "group/row hover:bg-muted/40 relative border-b transition-colors last:border-0",
-        "max-md:bg-card max-md:grid max-md:grid-cols-[auto_1fr_auto] max-md:gap-x-3 max-md:gap-y-1.5 max-md:rounded-lg max-md:border max-md:p-3 max-md:last:border",
+        "max-md:bg-card max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)_auto] max-md:gap-x-3 max-md:gap-y-1.5 max-md:rounded-lg max-md:border max-md:p-3 max-md:last:border",
         m.archivedAt && "text-muted-foreground",
       )}
     >
@@ -98,7 +98,9 @@ function MachineCell({ machine: m }: { machine: Machine }) {
             </Badge>
           )}
           {m.mergedInto ? (
-            <Badge variant="neutral">Merged into {m.mergedInto.hostname}</Badge>
+            <Badge variant="neutral" className="max-w-full min-w-0">
+              <span className="truncate">Merged into {m.mergedInto.hostname}</span>
+            </Badge>
           ) : (
             archived && <Badge variant="neutral">Archived</Badge>
           )}

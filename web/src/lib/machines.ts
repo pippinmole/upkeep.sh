@@ -130,3 +130,10 @@ export function machinesSummaryText(s: { machines: number; withCritical: number 
 export function imageVulnsTitle(i: MachineRow["images"]): string {
   return `${plural(i.vulns, "vulnerability", "vulnerabilities")} in ${plural(i.images, "running image", "running images")} · ${i.critical} critical`;
 }
+
+// The pills show critical / high / medium only; a machine whose open host
+// package vulnerabilities are all low gets a muted "N low" instead of
+// "0 0 0". Null when the pills already say something.
+export function lowOnlyCount(v: SeverityCounts): number | null {
+  return v.critical === 0 && v.high === 0 && v.medium === 0 && v.low > 0 ? v.low : null;
+}

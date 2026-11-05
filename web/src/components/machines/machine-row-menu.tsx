@@ -11,6 +11,7 @@ import {
   Pencil,
   SplitSquareHorizontal,
   Trash2,
+  X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -128,29 +129,51 @@ export function MachineRowMenu({ machine }: { machine: MachineRow }) {
   );
 }
 
-// Copies on select and keeps the menu open for 1.5s to show "Copied" (the
-// app has no toaster).
+// Copies on select and keeps the menu open for 1.5s to show "Copied", or
+// "Couldn't copy" when the clipboard is unavailable (insecure context,
+// denied permission); the app has no toaster.
 function CopyItem({ text, children }: { text: string; children: React.ReactNode }) {
-  const [copied, setCopied] = useState(false);
+  const [result, setResult] = useState<"copied" | "failed" | null>(null);
 
   useEffect(() => {
-    if (!copied) return;
-    const id = setTimeout(() => setCopied(false), 1500);
+    if (!result) return;
+    const id = setTimeout(() => setResult(null), 1500);
     return () => clearTimeout(id);
-  }, [copied]);
+  }, [result]);
+
+  async function copy() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+      setResult("copied");
+    } catch {
+      setResult("failed");
+    }
+  }
 
   return (
     <DropdownMenuItem
       onSelect={(e) => {
         e.preventDefault();
-        navigator.clipboard.writeText(text).then(
-          () => setCopied(true),
-          () => setCopied(false),
-        );
+        void copy();
       }}
     >
-      {copied ? <Check className="text-success" /> : <Copy />}
-      {copied ? "Copied" : children}
+      {result === "copied" ? (
+        <>
+          <Check className="text-success" />
+          Copied
+        </>
+      ) : result === "failed" ? (
+        <>
+          <X className="text-destructive" />
+          Couldn&apos;t copy
+        </>
+      ) : (
+        <>
+          <Copy />
+          {children}
+        </>
+      )}
     </DropdownMenuItem>
   );
 }
